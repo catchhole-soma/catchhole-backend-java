@@ -15,6 +15,9 @@ import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateChange;
 import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceRepository;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceView;
+import org.monitoring.catchholebackend.domain.upload.type.SettingBookReferenceTimeKind;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
@@ -34,6 +37,7 @@ public class AnalysisHumanRejectionPolicy implements AnalysisStateSource {
     private final SettingCandidateRepository characters;
     private final WorldSettingCandidateRepository worldSettings;
     private final AnalysisStateJournal journal;
+    private final AnalysisJobSourceRepository sourceJobs;
 
     @Override
     public String domain() {
@@ -43,19 +47,21 @@ public class AnalysisHumanRejectionPolicy implements AnalysisStateSource {
     @Override
     public JsonNode capture(Work work) {
         ObjectNode references = JsonNodeFactory.instance.objectNode();
-        MatchingSession matching = beginMatching();
+        Map<UUID, AnalysisJobSourceView> sources = new HashMap<>();
+        sourceJobs.findExtractionSourcesForWork(work.getId()).forEach(source -> sources.put(source.getId(), source));
+        MatchingSession matching = new MatchingSession(sources);
         for (SettingCandidate candidate : characters.findAllByWorkIdAndReviewStatusOrderByCreatedAtDesc(
                 work.getId(), SettingCandidateReviewStatus.DISMISSED)) {
             if (candidate.isUserModified()) {
                 characterDescriptor(candidate, matching).ifPresent(descriptor -> putReference(references, "characters",
-                        candidate.getId(), candidate.getAnalysisJob(), descriptor));
+                        candidate.getId(), matching.metadata(candidate.getAnalysisJob()), descriptor));
             }
         }
         for (WorldSettingCandidate candidate : worldSettings.findAllByWorkIdAndReviewStatusOrderByCreatedAtDesc(
                 work.getId(), WorldSettingReviewStatus.DISMISSED)) {
             if (candidate.getReviewedBy() != null && candidate.getFinalOperation() == WorldSettingOperation.EXCLUDE) {
                 worldDescriptor(candidate, matching).ifPresent(descriptor -> putReference(references, "worldSettings",
-                        candidate.getId(), candidate.getAnalysisJob(), descriptor));
+                        candidate.getId(), matching.metadata(candidate.getAnalysisJob()), descriptor));
             }
         }
         return references;
@@ -71,14 +77,29 @@ public class AnalysisHumanRejectionPolicy implements AnalysisStateSource {
 
     /** 한 요청의 후보 순회에서만 사용한다. 현재 references는 각 match 호출에서 다시 읽는다. */
     public MatchingSession beginMatching() {
-        return new MatchingSession();
+        return new MatchingSession(null);
     }
 
     public final class MatchingSession {
         private final Map<AnchorKey, Optional<SettingCandidate>> characterAnchors = new HashMap<>();
         private final Map<AnchorKey, Optional<WorldSettingCandidate>> worldAnchors = new HashMap<>();
 
-        private MatchingSession() {}
+        // Capture reads historical source scalars; matching a live candidate keeps its in-transaction entity semantics.
+        private final Map<UUID, AnalysisJobSourceView> sourceMetadata;
+
+        private MatchingSession(Map<UUID, AnalysisJobSourceView> sourceMetadata) {
+            this.sourceMetadata = sourceMetadata;
+        }
+
+        private AnalysisJobSourceView metadata(AnalysisJob job) {
+            if (job == null) return null;
+            return sourceMetadata.computeIfAbsent(job.getId(), id -> sourceJobs.findSourceById(id)
+                    .orElseThrow(() -> new IllegalStateException("반려 이력의 분석 출처가 없습니다.")));
+        }
+
+        private ClaimSource source(AnalysisJob job) {
+            return sourceMetadata == null ? ClaimSource.from(job) : ClaimSource.from(metadata(job));
+        }
 
         public Optional<JsonNode> match(SettingCandidate candidate, JsonNode state) {
             List<JsonNode> references = rejectionReferences("characters", state);
@@ -130,7 +151,7 @@ public class AnalysisHumanRejectionPolicy implements AnalysisStateSource {
         return Optional.empty();
     }
 
-    private void putReference(ObjectNode references, String domain, UUID id, AnalysisJob source,
+    private void putReference(ObjectNode references, String domain, UUID id, AnalysisJobSourceView source,
             ObjectNode descriptor) {
         ObjectNode reference = references.putObject("human-rejection:" + domain + ":" + id);
         reference.put("kind", KIND);
@@ -138,7 +159,7 @@ public class AnalysisHumanRejectionPolicy implements AnalysisStateSource {
         reference.put("domain", domain);
         reference.put("fingerprint", journal.hash(descriptor));
         reference.put("rejectedCandidateId", id.toString());
-        reference.put("rejectedEpisodeId", source.getEpisode() == null ? null : source.getEpisode().getId().toString());
+        reference.put("rejectedEpisodeId", source.getEpisodeId() == null ? null : source.getEpisodeId().toString());
         org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisSourceMetadata.put(reference, source);
         reference.put("rejectedEpisodeNo", source.getSourceEpisodeNo());
         reference.put("rejectedSourceHash", source.getSourceContentHash());
@@ -146,11 +167,11 @@ public class AnalysisHumanRejectionPolicy implements AnalysisStateSource {
 
     private Optional<ObjectNode> characterDescriptor(SettingCandidate candidate, MatchingSession matching) {
         if (candidate.isCharacterDiscovery()) {
-            return discoveryDescriptor(candidate);
+            return discoveryDescriptor(candidate, matching);
         }
-        ObjectNode result = source(candidate.getAnalysisJob(), candidate.getEvidenceSpans());
+        ObjectNode result = source(matching.source(candidate.getAnalysisJob()), candidate.getEvidenceSpans());
         JsonNode identity = characterIdentity(candidate, matching);
-        if (result == null || identity == null || !sameSource(candidate.getAnalysisJob(), candidate.getEpisode(), candidate.getSourceSettingBook(), candidate.getSourceSettingBookRevision())) {
+        if (result == null || identity == null || !sameSource(matching.source(candidate.getAnalysisJob()), candidate.getEpisode(), candidate.getSourceSettingBook(), candidate.getSourceSettingBookRevision())) {
             return Optional.empty();
         }
         result.set("identity", identity);
@@ -161,10 +182,10 @@ public class AnalysisHumanRejectionPolicy implements AnalysisStateSource {
         return Optional.of(result);
     }
 
-    private Optional<ObjectNode> discoveryDescriptor(SettingCandidate candidate) {
-        ObjectNode result = source(candidate.getAnalysisJob(), candidate.getEvidenceSpans());
+    private Optional<ObjectNode> discoveryDescriptor(SettingCandidate candidate, MatchingSession matching) {
+        ObjectNode result = source(matching.source(candidate.getAnalysisJob()), candidate.getEvidenceSpans());
         JsonNode raw = candidate.getRawAiResultJson();
-        if (result == null || !sameSource(candidate.getAnalysisJob(), candidate.getEpisode(), candidate.getSourceSettingBook(), candidate.getSourceSettingBookRevision())
+        if (result == null || !sameSource(matching.source(candidate.getAnalysisJob()), candidate.getEpisode(), candidate.getSourceSettingBook(), candidate.getSourceSettingBookRevision())
                 || raw == null || !raw.isObject()
                 || !"CHARACTER_DISCOVERY".equals(raw.path("candidate_kind").asText())
                 || !"CHARACTER".equals(raw.path("entity_type").asText())
@@ -198,7 +219,7 @@ public class AnalysisHumanRejectionPolicy implements AnalysisStateSource {
         if (anchor == null || !anchor.isCharacterDiscovery()) {
             return null;
         }
-        ObjectNode identity = source(anchor.getAnalysisJob(), anchor.getEvidenceSpans());
+        ObjectNode identity = source(matching.source(anchor.getAnalysisJob()), anchor.getEvidenceSpans());
         if (identity != null) {
             identity.put("name", anchor.getEntityName());
             identity.put("rawMention", anchor.getRawEntityMention());
@@ -207,9 +228,9 @@ public class AnalysisHumanRejectionPolicy implements AnalysisStateSource {
     }
 
     private Optional<ObjectNode> worldDescriptor(WorldSettingCandidate candidate, MatchingSession matching) {
-        ObjectNode result = source(candidate.getAnalysisJob(), candidate.getEvidenceSpans());
+        ObjectNode result = source(matching.source(candidate.getAnalysisJob()), candidate.getEvidenceSpans());
         JsonNode identity = worldIdentity(candidate, matching);
-        if (result == null || identity == null || !sameSource(candidate.getAnalysisJob(), candidate.getSourceEpisode(), candidate.getSourceSettingBook(), candidate.getSourceSettingBookRevision())) {
+        if (result == null || identity == null || !sameSource(matching.source(candidate.getAnalysisJob()), candidate.getSourceEpisode(), candidate.getSourceSettingBook(), candidate.getSourceSettingBookRevision())) {
             return Optional.empty();
         }
         result.set("identity", identity);
@@ -238,7 +259,7 @@ public class AnalysisHumanRejectionPolicy implements AnalysisStateSource {
         if (anchor == null) {
             return null;
         }
-        ObjectNode identity = source(anchor.getAnalysisJob(), anchor.getEvidenceSpans());
+        ObjectNode identity = source(matching.source(anchor.getAnalysisJob()), anchor.getEvidenceSpans());
         if (identity != null) {
             identity.put("name", anchor.getSubjectName());
             identity.put("category", anchor.getCategory().name());
@@ -257,24 +278,24 @@ public class AnalysisHumanRejectionPolicy implements AnalysisStateSource {
         }
     }
 
-    private boolean sameSource(AnalysisJob job, org.monitoring.catchholebackend.domain.episode.entity.Episode episode,
+    private boolean sameSource(ClaimSource job, org.monitoring.catchholebackend.domain.episode.entity.Episode episode,
             org.monitoring.catchholebackend.domain.upload.entity.UploadFile book,
             org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision revision) {
         if (job == null) return false;
-        if (job.isSettingBookSource()) return episode == null && book != null && revision != null
-                && book.getId().equals(job.getSourceSettingBook().getId())
-                && revision.getId().equals(job.getSourceSettingBookRevision().getId())
+        if (job.settingBook()) return episode == null && book != null && revision != null
+                && book.getId().equals(job.settingBookId())
+                && revision.getId().equals(job.settingBookRevisionId())
                 && revision.getSettingBook().getId().equals(book.getId())
-                && book.getBatch().getWork().getId().equals(job.getWork().getId());
-        return episode != null && job.getEpisode() != null && episode.getId().equals(job.getEpisode().getId());
+                && book.getBatch().getWork().getId().equals(job.workId());
+        return episode != null && job.episodeId() != null && episode.getId().equals(job.episodeId());
     }
 
-    private ObjectNode source(AnalysisJob job, JsonNode evidence) {
+    private ObjectNode source(ClaimSource job, JsonNode evidence) {
         // 과거 legacy Job의 현재 Episode hash를 빌려서 불변 출처처럼 취급하지 않는다.
-        if (job == null || !job.isOrderedProvisional()
-                || (job.isSettingBookSource() ? job.getSourceSettingBook() == null || job.getSourceSettingBookRevision() == null
-                    : job.getEpisode() == null || job.getEpisode().getId() == null || job.getSourceEpisodeNo() == null)
-                || job.getSourceContentHash() == null || evidence == null || !evidence.isArray() || evidence.isEmpty()) {
+        if (job == null || !job.ordered()
+                || (job.settingBook() ? job.settingBookId() == null || job.settingBookRevisionId() == null
+                    : job.episodeId() == null || job.episodeNo() == null)
+                || job.contentHash() == null || evidence == null || !evidence.isArray() || evidence.isEmpty()) {
             return null;
         }
         List<ObjectNode> spans = new ArrayList<>();
@@ -294,19 +315,54 @@ public class AnalysisHumanRejectionPolicy implements AnalysisStateSource {
         }
         spans.sort(Comparator.comparing(journal::canonicalJson));
         ObjectNode result = JsonNodeFactory.instance.objectNode();
-        if (job.isSettingBookSource()) {
+        if (job.settingBook()) {
             // Identity/content/evidence survive a repeated extraction; attempts and revision UUIDs are history metadata.
             result.put("sourceKind", "SETTING_BOOK");
-            result.put("settingBookId", job.getSourceSettingBook().getId().toString());
-            result.put("referenceTimeKind", job.getSourceSettingBookRevision().getReferenceTimeKind().name());
-            result.put("referenceEpisodeNo", job.getSourceSettingBookRevision().getReferenceEpisodeNo());
+            result.put("settingBookId", job.settingBookId().toString());
+            result.put("referenceTimeKind", job.referenceTimeKind().name());
+            result.put("referenceEpisodeNo", job.referenceEpisodeNo());
         } else {
-            result.put("episodeId", job.getEpisode().getId().toString());
-            result.put("episodeNo", job.getSourceEpisodeNo());
+            result.put("episodeId", job.episodeId().toString());
+            result.put("episodeNo", job.episodeNo());
         }
-        result.put("contentHash", job.getSourceContentHash());
+        result.put("contentHash", job.contentHash());
         ArrayNode normalized = result.putArray("evidence");
         spans.forEach(normalized::add);
         return result;
+    }
+
+    /** Only capture uses metadata; live matching preserves the original lazy entity reads. */
+    private record ClaimSource(AnalysisJob entity, AnalysisJobSourceView metadata) {
+        static ClaimSource from(AnalysisJobSourceView job) {
+            return job == null ? null : new ClaimSource(null, job);
+        }
+
+        static ClaimSource from(AnalysisJob job) {
+            return job == null ? null : new ClaimSource(job, null);
+        }
+
+        boolean ordered() { return metadata != null ? metadata.isOrderedProvisional() : entity.isOrderedProvisional(); }
+        boolean settingBook() { return metadata != null ? metadata.isSettingBookSource() : entity.isSettingBookSource(); }
+        UUID workId() { return metadata != null ? metadata.getWorkId() : entity.getWork().getId(); }
+        UUID episodeId() {
+            return metadata != null ? metadata.getEpisodeId()
+                    : entity.getEpisode() == null ? null : entity.getEpisode().getId();
+        }
+        Integer episodeNo() { return metadata != null ? metadata.getSourceEpisodeNo() : entity.getSourceEpisodeNo(); }
+        UUID settingBookId() {
+            return metadata != null ? metadata.getSourceSettingBookId()
+                    : entity.getSourceSettingBook() == null ? null : entity.getSourceSettingBook().getId();
+        }
+        UUID settingBookRevisionId() {
+            return metadata != null ? metadata.getSourceSettingBookRevisionId()
+                    : entity.getSourceSettingBookRevision() == null ? null : entity.getSourceSettingBookRevision().getId();
+        }
+        SettingBookReferenceTimeKind referenceTimeKind() {
+            return metadata != null ? metadata.getSourceReferenceTimeKind() : entity.getSourceSettingBookRevision().getReferenceTimeKind();
+        }
+        Integer referenceEpisodeNo() {
+            return metadata != null ? metadata.getSourceReferenceEpisodeNo() : entity.getSourceSettingBookRevision().getReferenceEpisodeNo();
+        }
+        String contentHash() { return metadata != null ? metadata.getSourceContentHash() : entity.getSourceContentHash(); }
     }
 }

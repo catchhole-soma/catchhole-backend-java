@@ -19,4 +19,19 @@ public final class AnalysisSourceMetadata {
             node.put("sourceReferenceEpisodeNo", job.getSourceSettingBookRevision().getReferenceEpisodeNo());
         } else if (job.getEpisode() != null) node.put("sourceEpisodeId", job.getEpisode().getId().toString());
     }
+    public static void put(ObjectNode node,
+            org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceView job) {
+        if (job == null) return;
+        node.put("sourceKind", job.getSourceKind().name());
+        node.put("sourceHash", job.getSourceContentHash());
+        node.put("sourceEpisodeNo", job.getSourceEpisodeNo());
+        if (job.isSettingBookSource()) {
+            node.put("sourceSettingBookId", job.getSourceSettingBookId().toString());
+            node.put("sourceSettingBookName", job.getSourceSettingBookName());
+            node.put("sourceSettingBookRevisionId", job.getSourceSettingBookRevisionId().toString());
+            node.put("sourceSettingBookRevisionNo", job.getSourceSettingBookRevisionNo());
+            node.put("sourceReferenceTimeKind", job.getSourceReferenceTimeKind().name());
+            node.put("sourceReferenceEpisodeNo", job.getSourceReferenceEpisodeNo());
+        } else if (job.getEpisodeId() != null) node.put("sourceEpisodeId", job.getEpisodeId().toString());
+    }
 }

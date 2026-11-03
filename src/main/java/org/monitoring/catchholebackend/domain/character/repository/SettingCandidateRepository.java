@@ -71,6 +71,14 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
 
     List<SettingCandidate> findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(UUID analysisJobId);
 
+    @Query("""
+            select candidate from SettingCandidate candidate
+            where candidate.analysisJob.id in :analysisJobIds
+              and candidate.reviewStatus = org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.PENDING_REVIEW
+            order by candidate.createdAt asc, candidate.id asc
+            """)
+    List<SettingCandidate> findPendingReferencesByAnalysisJobIds(@Param("analysisJobIds") Collection<UUID> analysisJobIds);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             select candidate from SettingCandidate candidate

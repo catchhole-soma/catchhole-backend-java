@@ -55,13 +55,19 @@ public class WorldSettingAnalysisStateMapper {
 
     public void addConfirmedProvenance(ObjectNode state,
             java.util.List<org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate> candidates) {
+        addConfirmedProvenance(state, candidates, null);
+    }
+
+    public void addConfirmedProvenance(ObjectNode state,
+            java.util.List<org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate> candidates,
+            java.util.function.Function<org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob, org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceView> sourceLookup) {
         ObjectNode identity = state.putObject("provenance");
         identity.put("confirmationStatus", "CONFIRMED");
         identity.putNull("sourceEpisodeNo");
         identity.putArray("sourceCandidateIds");
         identity.put("reviewSource", !candidates.isEmpty()
                 && candidates.stream().allMatch(candidate -> candidate.isReviewedAutomatically()) ? "AUTOMATIC" : "HUMAN");
-        candidates.stream().findFirst().ifPresent(candidate -> org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisSourceMetadata.put(identity, candidate.getAnalysisJob()));
+        candidates.stream().findFirst().ifPresent(candidate -> putSource(identity, candidate.getAnalysisJob(), sourceLookup));
         var properties = new org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettingPropertyView(
                 state.path("propertiesJson"));
         for (var property : properties.properties()) {
@@ -76,17 +82,28 @@ public class WorldSettingAnalysisStateMapper {
                     org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.from(null, null, null)));
             var ids = source.putArray("sourceCandidateIds");
             for (var candidate : currentSources) {
+                var metadata = sourceLookup == null ? null : sourceLookup.apply(candidate.getAnalysisJob());
                 times.add(org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.toJson(
-                        org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.from(candidate.getAnalysisJob(), candidate.getEffectiveFromEpisodeNo(), candidate.getTemporalScope())));
+                        sourceLookup == null
+                                ? org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.from(candidate.getAnalysisJob(), candidate.getEffectiveFromEpisodeNo(), candidate.getTemporalScope())
+                                : org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.fromSource(metadata, candidate.getEffectiveFromEpisodeNo(),
+                                        candidate.getTemporalScope(metadata != null && metadata.isSettingBookSource()))));
                 ids.add(candidate.getId().toString());
             }
             if (!currentSources.isEmpty()) {
                 var candidate = currentSources.getLast();
                 source.put("sourceEpisodeNo", candidate.getSourceEpisode() == null ? null : candidate.getSourceEpisode().getEpisodeNo());
                 source.put("effectiveFromEpisodeNo", candidate.getEffectiveFromEpisodeNo());
-                org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisSourceMetadata.put(source, candidate.getAnalysisJob());
+                putSource(source, candidate.getAnalysisJob(), sourceLookup);
             }
         }
+    }
+
+    private void putSource(ObjectNode node,
+            org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob job,
+            java.util.function.Function<org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob, org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceView> sourceLookup) {
+        if (sourceLookup == null) org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisSourceMetadata.put(node, job);
+        else org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisSourceMetadata.put(node, sourceLookup.apply(job));
     }
 
     public org.monitoring.catchholebackend.domain.worldsetting.dto.response.WorkerWorldSettingSubjectPageResponse.Subject

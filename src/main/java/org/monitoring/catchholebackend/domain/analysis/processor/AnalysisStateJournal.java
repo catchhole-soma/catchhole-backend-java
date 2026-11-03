@@ -5,7 +5,12 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.TextNode;
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
+import java.security.DigestOutputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -160,39 +165,64 @@ public class AnalysisStateJournal {
 
     public String hash(JsonNode state) {
         try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(canonicalJson(state).getBytes(StandardCharsets.UTF_8)));
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            // 전체 canonical 문자열과 UTF-8 복사본 대신 같은 바이트를 작은 버퍼로 전달한다.
+            try (var writer = new BufferedWriter(new OutputStreamWriter(
+                    new DigestOutputStream(OutputStream.nullOutputStream(), digest), StandardCharsets.UTF_8))) {
+                writeCanonicalJson(state, writer);
+            }
+            return HexFormat.of().formatHex(digest.digest());
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256을 사용할 수 없습니다.", exception);
+        } catch (IOException exception) {
+            throw new IllegalStateException("분석 상태 hash를 계산할 수 없습니다.", exception);
         }
     }
 
     /** 객체 key는 정렬하고 배열 순서·유니코드는 유지하며 숫자는 지수 없는 최소 십진수로 고정한다. */
     public String canonicalJson(JsonNode node) {
-        if (node == null || node.isNull()) {
-            return "null";
+        StringBuilder result = new StringBuilder();
+        try {
+            writeCanonicalJson(node, result);
+        } catch (IOException exception) {
+            throw new IllegalStateException("분석 상태를 직렬화할 수 없습니다.", exception);
         }
-        if (node.isObject()) {
+        return result.toString();
+    }
+
+    private void writeCanonicalJson(JsonNode node, Appendable output) throws IOException {
+        if (node == null || node.isNull()) {
+            output.append("null");
+        } else if (node.isObject()) {
             Map<String, JsonNode> sorted = new TreeMap<>();
             node.fields().forEachRemaining(entry -> sorted.put(entry.getKey(), entry.getValue()));
-            return sorted.entrySet().stream()
-                    .map(entry -> TextNode.valueOf(entry.getKey()) + ":" + canonicalJson(entry.getValue()))
-                    .collect(java.util.stream.Collectors.joining(",", "{", "}"));
-        }
-        if (node.isArray()) {
-            List<String> values = new ArrayList<>();
-            node.forEach(value -> values.add(canonicalJson(value)));
-            return "[" + String.join(",", values) + "]";
-        }
-        if (node.isNumber()) {
+            output.append('{');
+            boolean first = true;
+            for (var entry : sorted.entrySet()) {
+                if (!first) output.append(',');
+                first = false;
+                output.append(TextNode.valueOf(entry.getKey()).toString()).append(':');
+                writeCanonicalJson(entry.getValue(), output);
+            }
+            output.append('}');
+        } else if (node.isArray()) {
+            output.append('[');
+            boolean first = true;
+            for (JsonNode value : node) {
+                if (!first) output.append(',');
+                first = false;
+                writeCanonicalJson(value, output);
+            }
+            output.append(']');
+        } else if (node.isNumber()) {
             if (node.isFloatingPointNumber() && !Double.isFinite(node.doubleValue())) {
                 throw new IllegalArgumentException("상태에 유한한 숫자만 사용할 수 있습니다.");
             }
-            return node.decimalValue().stripTrailingZeros().toPlainString();
-        }
-        if (!node.isTextual() && !node.isBoolean()) {
+            output.append(node.decimalValue().stripTrailingZeros().toPlainString());
+        } else if (node.isTextual() || node.isBoolean()) {
+            output.append(node.toString());
+        } else {
             throw new IllegalArgumentException("상태에 지원하지 않는 JSON 값이 있습니다.");
         }
-        return node.toString();
     }
 }

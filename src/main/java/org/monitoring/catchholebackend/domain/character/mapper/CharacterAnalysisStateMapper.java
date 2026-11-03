@@ -37,6 +37,13 @@ public class CharacterAnalysisStateMapper {
             Map<CharacterSnapshotSlot, CharacterSnapshotEntry> entries,
             Map<CharacterSnapshotSlot, List<CharacterFact>> sourceFacts
     ) {
+        return toState(character, entries, sourceFacts, null);
+    }
+
+    public ObjectNode toState(WorkCharacter character,
+            Map<CharacterSnapshotSlot, CharacterSnapshotEntry> entries,
+            Map<CharacterSnapshotSlot, List<CharacterFact>> sourceFacts,
+            java.util.function.Function<org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob, org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceView> sourceLookup) {
         ObjectNode state = identity(character.getName(), character.getSnapshotVersion());
         state.set("currentNarrativeTime", copy(character.getCurrentNarrativeTime()));
         state.put("actualCharacterId", character.getId().toString());
@@ -48,13 +55,18 @@ public class CharacterAnalysisStateMapper {
                 .forEach(entry -> {
                     List<CharacterFact> sources = sourceFacts.getOrDefault(entry.slot(), List.of());
                     ObjectNode slot = toSlot(entry, "CONFIRMED", null, List.of());
-                    slot.set("provenance", currentProvenance(character, entry, sources));
+                    slot.set("provenance", currentProvenance(character, entry, sources, sourceLookup));
                     slots.set(slotKey(entry.slot()), slot);
                 });
         return state;
     }
 
     public static ObjectNode currentProvenance(WorkCharacter character, CharacterSnapshotEntry entry, List<CharacterFact> sources) {
+        return currentProvenance(character, entry, sources, null);
+    }
+
+    private static ObjectNode currentProvenance(WorkCharacter character, CharacterSnapshotEntry entry,
+            List<CharacterFact> sources, java.util.function.Function<org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob, org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceView> sourceLookup) {
         Integer episodeNo = sources.stream().map(CharacterFact::getSourceEpisode).filter(Objects::nonNull)
                 .map(episode -> episode.getEpisodeNo()).max(Integer::compareTo).orElse(null);
         ObjectNode source = provenance("CONFIRMED", episodeNo, sources.stream().map(CharacterFact::getSettingCandidate)
@@ -69,13 +81,16 @@ public class CharacterAnalysisStateMapper {
                 org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.from(null, null, null)));
         for (CharacterFact fact : sources) {
             times.add(org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.toJson(
-                    org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.from(fact.getExtractedByJob(),
-                            fact.getEffectiveFromEpisodeNo(), fact.getSettingCandidate() == null ? null : fact.getSettingCandidate().getTemporalScope())));
+                    sourceLookup == null
+                            ? org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.from(fact.getExtractedByJob(),
+                                    fact.getEffectiveFromEpisodeNo(), fact.getSettingCandidate() == null ? null : fact.getSettingCandidate().getTemporalScope())
+                            : org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper.fromSource(sourceLookup.apply(fact.getExtractedByJob()),
+                                    fact.getEffectiveFromEpisodeNo(), fact.getSettingCandidate() == null ? null : fact.getSettingCandidate().getTemporalScope())));
         }
         sources.stream().map(CharacterFact::getSettingCandidate).filter(Objects::nonNull)
                 .max(Comparator.comparing(SettingCandidate::getCreatedAt, Comparator.nullsFirst(Comparator.naturalOrder())))
                 .ifPresent(candidate -> {
-                    org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisSourceMetadata.put(source, candidate.getAnalysisJob());
+                    putSource(source, candidate.getAnalysisJob(), sourceLookup);
                     source.put("effectiveFromEpisodeNo", candidate.getEffectiveFromEpisodeNo());
                 });
         return source;
@@ -97,6 +112,11 @@ public class CharacterAnalysisStateMapper {
     }
 
     public void addConfirmedIdentity(ObjectNode state, List<SettingCandidate> discoveries, ArrayNode verifiedEvidence) {
+        addConfirmedIdentity(state, discoveries, verifiedEvidence, null);
+    }
+
+    public void addConfirmedIdentity(ObjectNode state, List<SettingCandidate> discoveries, ArrayNode verifiedEvidence,
+            java.util.function.Function<org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob, org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceView> sourceLookup) {
         ArrayNode aliases = state.putArray("aliases");
         discoveries.stream().map(SettingCandidate::getEntityName).filter(Objects::nonNull)
                 .map(String::trim).filter(name -> !name.isBlank() && !name.equals(state.path("name").asText()))
@@ -110,7 +130,7 @@ public class CharacterAnalysisStateMapper {
                 discoveries.stream().map(SettingCandidate::getId).toList());
         source.put("reviewSource", !discoveries.isEmpty()
                 && discoveries.stream().allMatch(SettingCandidate::isReviewedAutomatically) ? "AUTOMATIC" : "HUMAN");
-        discoveries.stream().findFirst().ifPresent(candidate -> org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisSourceMetadata.put(source, candidate.getAnalysisJob()));
+        discoveries.stream().findFirst().ifPresent(candidate -> putSource(source, candidate.getAnalysisJob(), sourceLookup));
         state.set("provenance", source);
     }
 
@@ -142,6 +162,13 @@ public class CharacterAnalysisStateMapper {
         ObjectNode node = toSlot(entry, status, episode, ids);
         org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisSourceMetadata.put((ObjectNode) node.path("provenance"), job);
         return node;
+    }
+
+    private static void putSource(ObjectNode node,
+            org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob job,
+            java.util.function.Function<org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob, org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceView> sourceLookup) {
+        if (sourceLookup == null) org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisSourceMetadata.put(node, job);
+        else org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisSourceMetadata.put(node, sourceLookup.apply(job));
     }
 
     private ObjectNode identity(String name, long version) {

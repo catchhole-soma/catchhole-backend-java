@@ -54,7 +54,7 @@ public class CharacterAnalysisStateSource implements AnalysisStateSource {
             var confirmed = discoveries.stream().filter(candidate -> character.getId().equals(candidate.getMatchedCharacterId())).toList();
             var identityEvidence = JsonNodeFactory.instance.arrayNode();
             for (SettingCandidate discovery : confirmed) identityEvidence.addAll(supportingEvidence.captureRetainedIdentityEvidence(capture, discovery));
-            mapper.addConfirmedIdentity(state, confirmed, identityEvidence);
+            mapper.addConfirmedIdentity(state, confirmed, identityEvidence, job -> supportingEvidence.source(capture, job));
             result.set(CharacterAnalysisStateMapper.persistedRef(character.getId()), state);
         }
         return result;
@@ -70,7 +70,7 @@ public class CharacterAnalysisStateSource implements AnalysisStateSource {
             facts.computeIfAbsent(new CharacterSnapshotSlot(source.getFactType(), source.getFactKey()), ignored -> new ArrayList<>()).add(source.getSourceFact());
         }
         var entries = snapshotAccessor.read(character, facts);
-        ObjectNode state = mapper.toState(character, entries, facts);
+        ObjectNode state = mapper.toState(character, entries, facts, job -> supportingEvidence.source(capture, job));
         state.put("currentSupportingEvidenceVersion", 1);
         for (var entry : entries.values()) {
             ObjectNode slot = (ObjectNode) state.path("slots").path(CharacterAnalysisStateMapper.slotKey(entry.slot()));

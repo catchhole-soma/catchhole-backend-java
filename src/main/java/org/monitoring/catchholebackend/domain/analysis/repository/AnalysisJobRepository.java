@@ -108,18 +108,6 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
 
     List<AnalysisJob> findAllByAnalysisRunIdAndRunGenerationOrderByRunSequenceAsc(UUID runId, Long generation);
 
-    @Query("""
-            select job from AnalysisJob job
-            join fetch job.episode episode
-            join fetch job.work
-            where job.work.id = :workId
-              and job.jobType = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION
-              and episode.episodeNo < :sourceEpisodeNo
-            order by job.createdAt desc, job.id desc
-            """)
-    List<AnalysisJob> findEarlierExtractionJobsForReferences(@Param("workId") UUID workId,
-            @Param("sourceEpisodeNo") int sourceEpisodeNo);
-
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             select job from AnalysisJob job
@@ -302,30 +290,6 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
     AnalysisJobEpisodeRange findEpisodeRangeByWorkIdAndBatchId(
             @Param("workId") UUID workId,
             @Param("batchId") UUID batchId
-    );
-
-    Optional<AnalysisJob> findFirstByEpisodeIdAndBatchIdAndJobTypeNotInOrderByCreatedAtDesc(
-            UUID episodeId,
-            UUID batchId,
-            Collection<AnalysisJobType> excludedJobTypes
-    );
-
-    @Query("""
-            select analysisJob
-            from AnalysisJob analysisJob
-            left join fetch analysisJob.batch
-            join fetch analysisJob.episode
-            where analysisJob.batch.id in :batchIds
-              and analysisJob.episode.id in :episodeIds
-              and analysisJob.jobType in (
-                  org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION,
-                  org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.EPISODE_VALIDATION
-              )
-            order by analysisJob.createdAt desc
-            """)
-    List<AnalysisJob> findAllRelevantForEpisodeSummaries(
-            @Param("batchIds") Collection<UUID> batchIds,
-            @Param("episodeIds") Collection<UUID> episodeIds
     );
 
     boolean existsByBatchIdAndStatusIn(UUID batchId, Collection<AnalysisJobStatus> statuses);

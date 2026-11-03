@@ -10,6 +10,7 @@ import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeRespon
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeSummaryResponse;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.processor.FinalizedEpisode;
+import org.monitoring.catchholebackend.domain.episode.repository.EpisodeAnalysisSummary;
 import org.monitoring.catchholebackend.domain.episode.type.EpisodeAnalysisStatus;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadFile;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
@@ -78,6 +79,22 @@ public class EpisodeMapper {
     public EpisodeSummaryResponse toSummaryResponse(Episode episode, UploadFile uploadFile,
             AnalysisJob latestAnalysisJob,
             org.monitoring.catchholebackend.domain.validation.repository.ValidationReportState validationState) {
+        return toSummaryResponseWithAnalysisSummary(episode, uploadFile,
+                toAnalysisSummary(latestAnalysisJob), validationState);
+    }
+
+    public EpisodeAnalysisSummary toAnalysisSummary(AnalysisJob job) {
+        if (job == null) return null;
+        return new EpisodeAnalysisSummary(job.getId(),
+                job.getBatch() == null ? null : job.getBatch().getId(),
+                job.getEpisode() == null ? null : job.getEpisode().getId(), job.getStatus(),
+                job.getAnalysisMode(), job.getReviewMode(), job.getJournalStatus(),
+                job.getAutomaticAppliedAt(), job.getReviewApplicationHeldAt(), job.getSummaryJson());
+    }
+
+    public EpisodeSummaryResponse toSummaryResponseWithAnalysisSummary(Episode episode, UploadFile uploadFile,
+            EpisodeAnalysisSummary latestAnalysisJob,
+            org.monitoring.catchholebackend.domain.validation.repository.ValidationReportState validationState) {
         EpisodeAnalysisStatus analysisStatus = resolveAnalysisStatus(episode, latestAnalysisJob, validationState);
         return new EpisodeSummaryResponse(
                 episode.getId(),
@@ -89,7 +106,7 @@ public class EpisodeMapper {
                 uploadFile == null ? null : uploadFile.getBatch().getId(),
                 analysisStatus,
                 resolveUnresolvedFindingCount(analysisStatus, latestAnalysisJob),
-                latestAnalysisJob == null ? null : latestAnalysisJob.getId(),
+                latestAnalysisJob == null ? null : latestAnalysisJob.id(),
                 episode.getContentUpdatedAt(),
                 episode.getCreatedAt(),
                 episode.getUpdatedAt(), validationState == null ? null : validationState.reportId(),
@@ -97,7 +114,7 @@ public class EpisodeMapper {
         );
     }
 
-    private EpisodeAnalysisStatus resolveAnalysisStatus(Episode episode, AnalysisJob latestAnalysisJob,
+    private EpisodeAnalysisStatus resolveAnalysisStatus(Episode episode, EpisodeAnalysisSummary latestAnalysisJob,
             org.monitoring.catchholebackend.domain.validation.repository.ValidationReportState validationState) {
         if (validationState != null) {
             return switch (validationState.status()) {
@@ -108,21 +125,21 @@ public class EpisodeMapper {
             };
         }
         if (latestAnalysisJob != null && latestAnalysisJob.isOrderedProvisional()) {
-            if (latestAnalysisJob.getJournalStatus() == AnalysisJournalStatus.INVALIDATED) {
+            if (latestAnalysisJob.journalStatus() == AnalysisJournalStatus.INVALIDATED) {
                 return EpisodeAnalysisStatus.REANALYSIS_REQUIRED;
             }
-            if (latestAnalysisJob.getStatus() == AnalysisJobStatus.SUCCEEDED
+            if (latestAnalysisJob.status() == AnalysisJobStatus.SUCCEEDED
                     && !latestAnalysisJob.isCompletedOrderedAnalysis()) {
                 return EpisodeAnalysisStatus.FAILED;
             }
         }
         if (latestAnalysisJob != null
-                && (latestAnalysisJob.getStatus() == AnalysisJobStatus.PENDING
-                || latestAnalysisJob.getStatus() == AnalysisJobStatus.RUNNING)) {
+                && (latestAnalysisJob.status() == AnalysisJobStatus.PENDING
+                || latestAnalysisJob.status() == AnalysisJobStatus.RUNNING)) {
             return EpisodeAnalysisStatus.IN_PROGRESS;
         }
         if (episode.getStatus() == org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.FAILED
-                || latestAnalysisJob != null && latestAnalysisJob.getStatus() == AnalysisJobStatus.FAILED) {
+                || latestAnalysisJob != null && latestAnalysisJob.status() == AnalysisJobStatus.FAILED) {
             return EpisodeAnalysisStatus.FAILED;
         }
         if (episode.getStatus() == org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.ANALYZED) {
@@ -133,16 +150,16 @@ public class EpisodeMapper {
 
     private Integer resolveUnresolvedFindingCount(
             EpisodeAnalysisStatus analysisStatus,
-            AnalysisJob latestAnalysisJob
+            EpisodeAnalysisSummary latestAnalysisJob
     ) {
         if (analysisStatus != EpisodeAnalysisStatus.COMPLETED) {
             return null;
         }
-        if (latestAnalysisJob == null || latestAnalysisJob.getSummaryJson() == null) {
+        if (latestAnalysisJob == null || latestAnalysisJob.summaryJson() == null) {
             return null;
         }
         try {
-            JsonNode summary = objectMapper.readTree(latestAnalysisJob.getSummaryJson());
+            JsonNode summary = objectMapper.readTree(latestAnalysisJob.summaryJson());
             JsonNode explicitCount = summary.path("unresolvedFindingCount");
             if (explicitCount.isIntegralNumber()
                     && explicitCount.canConvertToInt()

@@ -10,11 +10,9 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
-import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.service.AnalysisRunStateService;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
-import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.episode.dto.request.EpisodeDetectionRequest;
 import org.monitoring.catchholebackend.domain.episode.dto.request.EpisodeTitleUpdateRequest;
 import org.monitoring.catchholebackend.domain.episode.dto.request.EpisodeUpdateRequest;
@@ -35,6 +33,8 @@ import org.monitoring.catchholebackend.domain.episode.processor.EpisodeUploadPol
 import org.monitoring.catchholebackend.domain.episode.processor.EpisodeReplacementStorageCompensator;
 import org.monitoring.catchholebackend.domain.episode.processor.EpisodeSourcePurgeProcessor;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
+import org.monitoring.catchholebackend.domain.episode.repository.EpisodeAnalysisSummary;
+import org.monitoring.catchholebackend.domain.episode.repository.EpisodeAnalysisSummaryRepository;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeSourcePurgeRequestRepository;
 import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
@@ -81,6 +81,7 @@ public class EpisodeServiceImpl implements EpisodeService {
     private final EpisodeDetectionMapper episodeDetectionMapper;
     private final UploadFileRepository uploadFileRepository;
     private final AnalysisJobRepository analysisJobRepository;
+    private final EpisodeAnalysisSummaryRepository episodeAnalysisSummaryRepository;
     private final AnalysisRunStateService analysisRunStateService;
     private final UploadBatchRepository uploadBatchRepository;
     private final UploadMapper uploadMapper;
@@ -310,9 +311,9 @@ public class EpisodeServiceImpl implements EpisodeService {
         UploadFile sourceFile = episode.getSourceFileId() == null
                 ? null
                 : uploadFileRepository.findById(episode.getSourceFileId()).orElse(null);
-        AnalysisJob latestAnalysisJob = sourceFile == null ? null : resolveLatestAnalysisJob(episode, sourceFile);
+        EpisodeAnalysisSummary latestAnalysisJob = sourceFile == null ? null : resolveLatestAnalysisJob(episode, sourceFile);
         var applicationStatus = validationStates(List.of(episode)).get(episode.getId());
-        return episodeMapper.toSummaryResponse(episode, sourceFile, latestAnalysisJob, applicationStatus);
+        return episodeMapper.toSummaryResponseWithAnalysisSummary(episode, sourceFile, latestAnalysisJob, applicationStatus);
     }
 
     private List<EpisodeSummaryResponse> toSummaryResponses(List<Episode> episodes) {
@@ -337,8 +338,8 @@ public class EpisodeServiceImpl implements EpisodeService {
                 .map(Episode::getId)
                 .toList();
 
-        Map<UUID, Map<UUID, AnalysisJob>> latestEpisodeJobsByBatch = new HashMap<>();
-        analysisJobRepository.findAllRelevantForEpisodeSummaries(batchIds, episodeIds)
+        Map<UUID, Map<UUID, EpisodeAnalysisSummary>> latestEpisodeJobsByBatch = new HashMap<>();
+        episodeAnalysisSummaryRepository.findLatestForEpisodes(episodes.getFirst().getWork().getId(), batchIds, episodeIds)
                 .forEach(analysisJob -> collectLatestAnalysisJob(
                         analysisJob,
                         latestEpisodeJobsByBatch
@@ -348,14 +349,14 @@ public class EpisodeServiceImpl implements EpisodeService {
         return episodes.stream()
                 .map(episode -> {
                     UploadFile sourceFile = sourceFilesById.get(episode.getSourceFileId());
-                    AnalysisJob latestAnalysisJob = sourceFile == null
+                    EpisodeAnalysisSummary latestAnalysisJob = sourceFile == null
                             ? null
                             : resolveLatestAnalysisJob(
                                     episode,
                                     sourceFile.getBatch().getId(),
                                     latestEpisodeJobsByBatch
                             );
-                    return episodeMapper.toSummaryResponse(episode, sourceFile, latestAnalysisJob,
+                    return episodeMapper.toSummaryResponseWithAnalysisSummary(episode, sourceFile, latestAnalysisJob,
                             validationStatuses.get(episode.getId()));
                 })
                 .toList();
@@ -368,38 +369,30 @@ public class EpisodeServiceImpl implements EpisodeService {
     }
 
     private void collectLatestAnalysisJob(
-            AnalysisJob analysisJob,
-            Map<UUID, Map<UUID, AnalysisJob>> latestEpisodeJobsByBatch
+            EpisodeAnalysisSummary analysisJob,
+            Map<UUID, Map<UUID, EpisodeAnalysisSummary>> latestEpisodeJobsByBatch
     ) {
-        UUID batchId = analysisJob.getBatch().getId();
+        UUID batchId = analysisJob.batchId();
         latestEpisodeJobsByBatch
                 .computeIfAbsent(batchId, ignored -> new HashMap<>())
-                .putIfAbsent(analysisJob.getEpisode().getId(), analysisJob);
+                .putIfAbsent(analysisJob.episodeId(), analysisJob);
     }
 
-    private AnalysisJob resolveLatestAnalysisJob(
+    private EpisodeAnalysisSummary resolveLatestAnalysisJob(
             Episode episode,
             UUID batchId,
-            Map<UUID, Map<UUID, AnalysisJob>> latestEpisodeJobsByBatch
+            Map<UUID, Map<UUID, EpisodeAnalysisSummary>> latestEpisodeJobsByBatch
     ) {
         return latestEpisodeJobsByBatch
                 .getOrDefault(batchId, Map.of())
                 .get(episode.getId());
     }
 
-    private AnalysisJob resolveLatestAnalysisJob(Episode episode, UploadFile sourceFile) {
+    private EpisodeAnalysisSummary resolveLatestAnalysisJob(Episode episode, UploadFile sourceFile) {
         UUID batchId = sourceFile.getBatch().getId();
-        return analysisJobRepository
-                .findFirstByEpisodeIdAndBatchIdAndJobTypeNotInOrderByCreatedAtDesc(
-                        episode.getId(),
-                        batchId,
-                        Set.of(
-                                AnalysisJobType.WORLD_SETTING_COMPARISON,
-                                AnalysisJobType.CHARACTER_FACT_COMPARISON,
-                                AnalysisJobType.RELATIONSHIP_EXTRACTION
-                        )
-                )
-                .orElse(null);
+        return episodeAnalysisSummaryRepository.findLatestForEpisodes(
+                        episode.getWork().getId(), Set.of(batchId), Set.of(episode.getId()))
+                .stream().findFirst().orElse(null);
     }
 
     private void assertEpisodeIsNotAnalyzing(Episode episode) {

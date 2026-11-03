@@ -34,6 +34,7 @@ import lombok.RequiredArgsConstructor;
 
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceRepository;
 import org.monitoring.catchholebackend.domain.analysis.service.AnalysisCandidateSourceGuard;
 import org.monitoring.catchholebackend.domain.analysis.service.AnalysisJobLeaseService;
 import org.monitoring.catchholebackend.domain.analysis.service.AnalysisRunStateService;
@@ -92,6 +93,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
     private final AnalysisCandidateSourceGuard sourceGuard;
     private final AnalysisRunStateService runState;
     private final AnalysisJobRepository jobs;
+    private final AnalysisJobSourceRepository jobSources;
     private final SettingCandidateRepository candidates;
     private final WorkCharacterRepository characters;
     private final EpisodeRepository episodes;
@@ -1307,7 +1309,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                 && !purges.existsByEpisodeId(episode.getId())
                 && episode.getEpisodeNo() == analysis.getEpisodeNo()
                 && Objects.equals(episode.getContentHash(), analysis.getSourceHash())
-                && jobs.findById(analysis.getId())
+                && jobSources.findSourceById(analysis.getId())
                         .map(
                                 job ->
                                         Objects.equals(
