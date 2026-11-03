@@ -26,6 +26,18 @@ class OpenApiContractIntegrationTest {
     private MockMvc mockMvc;
 
     @Test
+    @DisplayName("분석 시작 확인은 실제 인증·입력·소유권 오류를 공통 오류 계약으로 문서화한다")
+    void analysisStartCheckDocumentsFailureResponses() throws Exception {
+        var result = mockMvc.perform(get("/v3/api-docs")).andExpect(status().isOk()).andReturn();
+        var responses = new com.fasterxml.jackson.databind.ObjectMapper().readTree(result.getResponse().getContentAsString())
+                .path("paths").path("/api/v1/works/{workId}/analysis-start-checks").path("post").path("responses");
+        for (String code : java.util.List.of("400", "401", "404")) {
+            org.assertj.core.api.Assertions.assertThat(responses.path(code).path("content").path("application/json")
+                    .path("schema").path("$ref").asText()).endsWith("CommonErrorResponse");
+        }
+    }
+
+    @Test
     @DisplayName("자유 JSON은 Jackson 버전과 무관하게 getter 객체가 아닌 모든 JSON 값으로 문서화한다")
     void jsonNodeRemainsFreeJsonWhenJacksonVersionsCoexist() throws Exception {
         var result = mockMvc.perform(get("/v3/api-docs")).andExpect(status().isOk()).andReturn();

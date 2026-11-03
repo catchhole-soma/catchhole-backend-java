@@ -64,7 +64,9 @@ public class AnalysisJobController {
             @ApiResponse(responseCode = "404", description = "작품 또는 분석 대상 리소스를 찾을 수 없음"),
             @ApiResponse(
                     responseCode = "409",
-                    description = "AI 토큰 한도 소진, 같은 대상 분석 진행 중 또는 기존 순차 분석 재개 필요(ANALYSIS_ORDERED_JOB_RETRY_REQUIRED)",
+                    description = "AI 토큰 한도 소진, 같은 대상 분석 진행 중 또는 기존 순차 분석 재개 필요(ANALYSIS_ORDERED_JOB_RETRY_REQUIRED). "
+                            + "새 설정 추출은 이전 분석 진행 중(ANALYSIS_PREVIOUS_ANALYSIS_IN_PROGRESS), 직접 검토 미완료(ANALYSIS_MANUAL_REVIEW_REQUIRED), "
+                            + "보류 종료 동의 필요(ANALYSIS_REVIEW_ACKNOWLEDGEMENT_REQUIRED), 확인 정보 변경(ANALYSIS_REVIEW_GATE_CHANGED)도 구분합니다.",
                     content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))
             )
     })
