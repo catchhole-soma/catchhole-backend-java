@@ -106,6 +106,7 @@ class CharacterFactComparisonBatchWorkerTest {
     private CharacterFactComparisonJobCoordinator comparisonJobCoordinator;
 
     @Mock private CharacterAnalysisStateSource analysisStateSource;
+    @Mock private org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection evidenceProjection;
     private CharacterFactComparisonBatchWorker worker;
     private Work work;
     private WorkCharacter character;
@@ -129,7 +130,7 @@ class CharacterFactComparisonBatchWorkerTest {
                 new CharacterSnapshotAccessor(),
                 valueValidator,
                 new CharacterFactComparisonDecisionValidator(valueValidator),
-                new CharacterFactComparisonWorkerMapper(org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection.class)),
+                new CharacterFactComparisonWorkerMapper(evidenceProjection),
                 analysisStateService, analysisStateSource,
                 new org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisRunContextMapper(new org.monitoring.catchholebackend.domain.character.mapper.CharacterFactEvidenceMapper(new org.monitoring.catchholebackend.domain.character.processor.CharacterFactSourceResolver(), org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection.class))),
                 comparisonJobCoordinator
@@ -244,6 +245,7 @@ class CharacterFactComparisonBatchWorkerTest {
                  "referenceTime":{"description":"치료 뒤","evidenceSpans":[{"quote":"치료 뒤","startOffset":5,"endOffset":9,"sourceChunkId":"10000000-0000-4000-8000-000000000002"}]}}
                 """);
         timed.recordNarrativeTime(time);
+        when(evidenceProjection.forProcessingNarrativeTime(timed)).thenReturn(time);
         candidate("status.출혈", "출혈", 20); // Existing candidates may have no located time.
         var claim = worker.claimNext(analysisJobId, leaseToken).orElseThrow();
         var context = worker.getContext(analysisJobId, claim.comparisonBatchId(), leaseToken);

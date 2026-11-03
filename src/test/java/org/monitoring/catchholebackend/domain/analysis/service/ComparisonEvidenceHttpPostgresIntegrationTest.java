@@ -206,11 +206,11 @@ class ComparisonEvidenceHttpPostgresIntegrationTest {
                 "allowedJobTypes", List.of("SETTING_EXTRACTION"), "supportedSourceKinds", List.of("EPISODE")), 200);
         String lease = claim.path("leaseToken").asText();
         var batch = claimBatch(f, lease);
-        // Corrupt only this synthetic retained source after claim, so Python observes the real context HTTP rejection.
-        objects.put(f.key, "고정 해시와 다른 합성 바이트");
+        // A malformed manifest remains a deterministic failure; comparison no longer reads S3.
+        sql.update("UPDATE analysis_jobs SET source_content_hash='invalid' WHERE id=?", f.origin);
         Path checkout = Path.of(System.getenv("GH304_AI_CHECKOUT"));
         Path output = Files.createTempDirectory("gh304-python-http-");
-        var builder = new ProcessBuilder(System.getenv("GH304_PYTHON"), "tests/support/comparison_evidence_http_client.py")
+        var builder = new ProcessBuilder(System.getenv("GH304_PYTHON"), Path.of("src/test/resources/contracts/stored_evidence_http_client.py").toAbsolutePath().toString())
                 .directory(checkout.toFile()).redirectErrorStream(true).redirectOutput(output.resolve("python.log").toFile());
         builder.environment().putAll(Map.of("GH304_TEST_ONLY", "true", "PYTHONPATH", checkout.toString(),
                 "SPRING_INTERNAL_API_BASE_URL", "http://127.0.0.1:"+port, "SPRING_INTERNAL_API_KEY", "synthetic-gh304-key"));
@@ -226,7 +226,7 @@ class ComparisonEvidenceHttpPostgresIntegrationTest {
         } finally { process.destroyForcibly(); }
         assertThat(legacy.received.stream().filter(id -> id.equals(f.job)).count()).isEqualTo(5);
         assertThat(events(f)).isEqualTo(2);
-        assertThat(sql.queryForObject("SELECT count(*) FROM analysis_failure_notifications WHERE work_id=(SELECT work_id FROM analysis_jobs WHERE id=?) AND failure_diagnostics->>'reasonCode'='CURRENT_EVIDENCE_SOURCE_HASH_MISMATCH' AND failure_diagnostics->>'stage'='CHARACTER_CONTEXT' AND (failure_diagnostics->>'httpStatus')::int=409 AND execution_job_id=?", Integer.class, f.job, f.job)).isEqualTo(2);
+        assertThat(sql.queryForObject("SELECT count(*) FROM analysis_failure_notifications WHERE work_id=(SELECT work_id FROM analysis_jobs WHERE id=?) AND failure_diagnostics->>'reasonCode'='CURRENT_EVIDENCE_MANIFEST_INVALID' AND failure_diagnostics->>'stage'='CHARACTER_CONTEXT' AND (failure_diagnostics->>'httpStatus')::int=409 AND execution_job_id=?", Integer.class, f.job, f.job)).isEqualTo(2);
         assertThat(sql.queryForObject("SELECT source_analysis_job_id FROM analysis_failure_notifications WHERE failure_kind='CHARACTER_COMPARISON' AND execution_job_id=?", UUID.class, f.job)).isEqualTo(f.job);
         assertThat(sql.queryForObject("SELECT failure_diagnostics->>'sourceAnalysisJobId' FROM analysis_failure_notifications WHERE failure_kind='CHARACTER_COMPARISON' AND execution_job_id=?", String.class, f.job)).isEqualTo(f.origin.toString());
         var bodies = new LinkedBlockingQueue<String>();
@@ -246,7 +246,7 @@ class ComparisonEvidenceHttpPostgresIntegrationTest {
                 var wire = json.readTree(body);
                 assertThat(wire.path("allowed_mentions").path("parse")).isEmpty();
                 String message = wire.path("content").asText() + wire.path("embeds").toString();
-                assertThat(message).contains("실패 작업: 1건", "비교 실패 후보: 1개", "CURRENT_EVIDENCE_SOURCE_HASH_MISMATCH", "HTTP: 409", "기존 캐릭터 비교 문맥 준비", f.origin.toString(), f.job.toString())
+                assertThat(message).contains("실패 작업: 1건", "비교 실패 후보: 1개", "CURRENT_EVIDENCE_MANIFEST_INVALID", "HTTP: 409", "기존 캐릭터 비교 문맥 준비", f.origin.toString(), f.job.toString())
                         .doesNotContain("고정 해시와", "PRIVATE", "synthetic-gh304-key", "http://", "@everyone");
                 assertThat(wire.path("content").asText().length()).isLessThanOrEqualTo(2000);
                 assertThat(wire.path("embeds").size()).isEqualTo(2);

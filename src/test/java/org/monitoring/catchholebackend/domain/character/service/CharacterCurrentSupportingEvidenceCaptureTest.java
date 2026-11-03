@@ -53,6 +53,7 @@ class CharacterCurrentSupportingEvidenceCaptureTest {
     private final org.springframework.jdbc.core.JdbcTemplate jdbc = mock(org.springframework.jdbc.core.JdbcTemplate.class);
     private CharacterAnalysisStateSource capture;
     private CharacterCurrentSupportingEvidenceResolver resolver;
+    private org.monitoring.catchholebackend.domain.character.repository.StoredCharacterEvidenceRepository storedEvidence;
     private Work work;
     private WorkCharacter character;
     private AnalysisJob origin;
@@ -93,8 +94,8 @@ class CharacterCurrentSupportingEvidenceCaptureTest {
         when(storage.getText("immutable/ep3.txt")).thenReturn(content);
         when(storage.contentHash(content)).thenReturn("a".repeat(64));
         currentFacts(List.of(fact));
-        resolver = new CharacterCurrentSupportingEvidenceResolver(storage,
-                new org.monitoring.catchholebackend.domain.analysis.processor.SettingBookAutomaticEvidenceValidator(storage), jdbc);
+        storedEvidence = org.monitoring.catchholebackend.support.StoredCharacterEvidenceTestSupport.verified(content);
+        resolver = new CharacterCurrentSupportingEvidenceResolver(storedEvidence);
         capture = new CharacterAnalysisStateSource(characters,sources,new CharacterSnapshotAccessor(),
                 new CharacterAnalysisStateMapper(),candidates,factRepository,resolver);
     }
@@ -432,11 +433,26 @@ class CharacterCurrentSupportingEvidenceCaptureTest {
                 .isEqualTo("회복한 날");
     }
 
-    @Test @DisplayName("저장된 대표 시점의 별도 시점 인용 오류는 일반 인용 unavailable로 숨기지 않는다")
-    void retainedRepresentativeTimeWithInvalidTimeEvidenceStillFails() {
+    @Test @DisplayName("검증 불가 시점 인용은 제외하고 확정된 대표 시점 설명을 유지한다")
+    void retainedRepresentativeTimeWithUnverifiableTimeEvidenceKeepsDescription() {
         retainedRepresentativeTime();
         ((ObjectNode)candidate.getNarrativeTime().path("referenceTime").path("evidenceSpans").get(0)).put("quote", "위조 시점");
-        assertThatThrownBy(this::owner).isInstanceOf(CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException.class);
+        var current = owner().path("currentNarrativeTime");
+        assertThat(current.path("description").asText()).isEqualTo("회복한 날");
+        assertThat(current.path("evidenceSpans")).isEmpty();
+        assertThat(current.path("supportingSource").path("narrativeTime").isNull()).isTrue();
+        org.mockito.Mockito.verifyNoInteractions(storage);
+    }
+
+    @Test @DisplayName("파기 대기 중에도 대표 시점 복사본에 남은 인용을 비교 문맥에서 제외한다")
+    void pendingPurgeRedactsRepresentativeTime() {
+        retainedRepresentativeTime();
+        ReflectionTestUtils.setField(origin, "sourceReferenceInvalidatedAt", java.time.LocalDateTime.now());
+        var current = owner().path("currentNarrativeTime");
+        assertThat(current.path("description").asText()).isEqualTo("회복한 날");
+        assertThat(current.path("evidenceSpans")).isEmpty();
+        assertThat(current.path("supportingSource").path("unavailableReason").asText()).isEqualTo("SOURCE_EVIDENCE_PURGED");
+        assertThat(current.path("supportingSource").has("storageBinding")).isFalse();
     }
 
     @Test @DisplayName("일반 인용이 unavailable이어도 저장된 대표 시점은 source의 referenceTime과 정확히 같아야 한다")
@@ -527,9 +543,7 @@ class CharacterCurrentSupportingEvidenceCaptureTest {
         when(storage.getText("immutable/book-identity.txt")).thenReturn(content);
         when(storage.contentHash(content)).thenReturn("c".repeat(64));
 
-        if ("explicitMismatch".equals(kind)) {
-            assertThatThrownBy(this::owner).isInstanceOf(CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException.class);
-        } else {
+        {
             var state = owner();
             assertThat(state.path("aliases")).containsExactly(json.getNodeFactory().textNode("이전 별칭"));
             assertThat(state.path("provenance").path("sourceCandidateIds"))
@@ -539,32 +553,36 @@ class CharacterCurrentSupportingEvidenceCaptureTest {
         }
     }
 
-    @Test @DisplayName("저장소 조회 실패는 인용 없음으로 낮추지 않는다")
-    void retainedQuoteMismatchCannotHideStorageFailure() {
-        quoteOnlyMismatch();
-        when(storage.getText("immutable/ep3.txt")).thenThrow(new IllegalStateException("합성 저장소 실패"));
-        assertThatThrownBy(this::owner).isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class)
-                .hasMessage("현재 설정의 원문 저장소에 일시적으로 접근할 수 없습니다.");
+    @Test @DisplayName("저장된 검증 근거는 S3 장애와 무관하게 비교에 사용한다")
+    void storedEvidenceDoesNotDependOnStorageAvailability() {
+        when(storage.getText(org.mockito.ArgumentMatchers.anyString())).thenThrow(new IllegalStateException("synthetic S3 outage"));
+        assertThat(owner().path("slots").path(key).path("supportingSources").get(0).path("availability").asText()).isEqualTo("VERIFIED");
+        org.mockito.Mockito.verifyNoInteractions(storage);
     }
 
-    @Test @DisplayName("고정 원문 저장소 장애는 안전한 503 오류로 구분한다")
-    void sourceStorageFailureIsRetryableAndDoesNotExposeCause() {
-        // Use the immutable manifest's actual key; no latest source fallback.
-        when(storage.getText(candidate.getAnalysisJob().getSourceContentS3Key())).thenThrow(new IllegalStateException("PRIVATE_MANUSCRIPT"));
-        assertThatThrownBy(this::owner).isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class)
-                .satisfies(error -> {
-                    var app = (org.monitoring.catchholebackend.global.exception.AppException)error;
-                    assertThat(app.getResultCode().getStatus().value()).isEqualTo(503);
-                    assertThat(app.getCause()).isNull();
-                    assertThat(app.getMessage()).doesNotContain("PRIVATE");
-                });
+    @Test @DisplayName("검증 기록이 없는 기존 근거는 확정값만 보존하고 S3 재조회하지 않는다")
+    void missingStoredVerificationKeepsValueWithoutQuotes() {
+        when(storedEvidence.find(candidate)).thenReturn(org.monitoring.catchholebackend.domain.character.repository.StoredCharacterEvidenceRepository.Evidence.unavailable());
+        var slot = owner().path("slots").path(key);
+        assertThat(slot.path("factValue").asText()).isEqualTo("정상");
+        assertThat(slot.path("supportingSources").get(0).path("evidenceSpans")).isEmpty();
+        org.mockito.Mockito.verifyNoInteractions(storage);
     }
 
-    @Test @DisplayName("원 storage bytes hash가 다르면 정상 unavailable로 낮추지 않는다")
-    void rejectsOriginalSourceHashMismatch() {
-        when(storage.contentHash(content)).thenReturn("f".repeat(64));
-        assertThatThrownBy(this::owner).isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class)
-                .satisfies(error -> assertThat(((org.monitoring.catchholebackend.global.exception.AppException)error).getResultCode().getStatus().value()).isEqualTo(409));
+    @Test @DisplayName("삭제된 원문의 양쪽 null 시점은 현재값·이력을 유지하며 주소를 재사용하지 않는다")
+    void purgedUnknownTimeNeverDereferencesHistoricalAddress() {
+        var unknown = json.createObjectNode().putNull("factTime").putNull("referenceTime");
+        candidate.recordNarrativeTime(unknown);
+        ReflectionTestUtils.setField(fact, "narrativeTime", unknown.deepCopy());
+        candidate.purgeSourceEvidence();
+        when(storedEvidence.find(candidate)).thenReturn(org.monitoring.catchholebackend.domain.character.repository.StoredCharacterEvidenceRepository.Evidence.purged());
+        var slot = owner().path("slots").path(key);
+        assertThat(slot.path("factValue").asText()).isEqualTo("정상");
+        var origin = slot.path("supportingSources").get(0);
+        assertThat(origin.path("unavailableReason").asText()).isEqualTo("SOURCE_EVIDENCE_PURGED");
+        assertThat(origin.has("storageBinding")).isFalse();
+        assertThat(origin.path("evidenceSpans")).isEmpty();
+        org.mockito.Mockito.verifyNoInteractions(storage);
     }
 
     @Test @DisplayName("다른 작품 origin manifest는 실제 슬롯 source로 허용하지 않는다")

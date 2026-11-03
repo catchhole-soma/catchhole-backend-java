@@ -113,6 +113,7 @@ class CharacterPreparationPostgresPerformanceIntegrationTest {
 
     @LocalServerPort int port;
     @Autowired EntityManager em;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
     @Autowired PlatformTransactionManager transactions;
     @Autowired AnalysisRunStateService states;
     @Autowired AnalysisJobLeaseService leases;
@@ -379,6 +380,9 @@ class CharacterPreparationPostgresPerformanceIntegrationTest {
             ((ObjectNode) frozen.path("characters")).set(CharacterAnalysisStateMapper.persistedRef(previous.getId()), historical);
             job.captureAutomaticInput(frozen);
             assertThat(states.prepareInput(job)).isTrue();
+            em.flush();
+            jdbc.update("INSERT INTO episode_chunks(id,episode_id,chunk_index,chunk_text,start_offset,end_offset,paragraph_start_index,paragraph_end_index,created_at,updated_at) VALUES (?,?,0,?,0,?,0,0,now(),now())",
+                    UUID.randomUUID(),job.getEpisode().getId(),QUOTE,QUOTE.codePointCount(0,QUOTE.length()));
             SettingCandidate anchor = SettingCandidate.createCharacterDiscovery(work, job.getEpisode(), null, job,
                     "합성 인물", "합성 인물", null, SettingCandidateMatchStatus.UNRESOLVED,
                     evidence(), BigDecimal.ONE, JSON.objectNode().put("candidate_kind", "CHARACTER_DISCOVERY")

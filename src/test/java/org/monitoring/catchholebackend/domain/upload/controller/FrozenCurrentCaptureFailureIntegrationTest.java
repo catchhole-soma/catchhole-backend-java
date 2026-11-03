@@ -100,7 +100,7 @@ class FrozenCurrentCaptureFailureIntegrationTest extends SettingBookAnalysisInte
     }
 
     @Test
-    @DisplayName("잘못된 CURRENT 원문 hash의 첫 capture는 작업 실패·고아 예약 정리 후 다른 작품의 정상 claim을 허용한다")
+    @DisplayName("잘못된 CURRENT manifest hash의 첫 capture는 작업 실패·고아 예약 정리 후 다른 작품의 정상 claim을 허용한다")
     void invalidOldestCaptureFailsWithoutQueueOrTokenLeak() throws Exception {
         var book = upload("다음 분석 원문");
         var pending = jobs.findById(UUID.fromString(book.path("latestAnalysisJob").path("id").asText())).orElseThrow();
@@ -116,7 +116,7 @@ class FrozenCurrentCaptureFailureIntegrationTest extends SettingBookAnalysisInte
         em.flush();
         assertThat(pending.getStatus().name()).isEqualTo("FAILED");
         assertThat(pending.getJournalStatus().name()).isEqualTo("INCOMPLETE");
-        assertThat(pending.getFailureDiagnostics().reasonCode()).isEqualTo("CURRENT_EVIDENCE_SOURCE_HASH_MISMATCH");
+        assertThat(pending.getFailureDiagnostics().reasonCode()).isEqualTo("CURRENT_EVIDENCE_MANIFEST_INVALID");
         assertThat(pending.getFailureDiagnostics().stage()).isEqualTo("CLAIM_INPUT");
         assertThat(pending.getFailureDiagnostics().httpStatus()).isNull();
         assertThat(pending.getLeaseToken()).isNull();
@@ -150,37 +150,30 @@ class FrozenCurrentCaptureFailureIntegrationTest extends SettingBookAnalysisInte
         assertThat(successor.getPredecessorJobId()).isEqualTo(first.getId());
     }
 
-    @Test
-    @DisplayName("고정 원 storage bytes의 hash 불일치는 첫 claim의 결정적 실패로 정리한다")
-    void sourceStorageHashMismatchClosesDeterministicFailure() throws Exception {
+    @Test @DisplayName("과거 저장소 바이트가 달라도 비교 준비는 S3를 읽지 않고 계속한다")
+    void sourceStorageChangesDoNotFailComparisonCapture() throws Exception {
         var book = upload("기술 실패 뒤 재시도할 원문");
         var pending = jobs.findById(UUID.fromString(book.path("latestAnalysisJob").path("id").asText())).orElseThrow();
         currentQuote(true);
         em.flush();
-        evidenceClaim("SETTING_BOOK", 204);
-        assertThat(pending.getStatus().name()).isEqualTo("FAILED");
-        assertThat(pending.getJournalStatus().name()).isEqualTo("INCOMPLETE");
-        assertThat(pending.getLeaseToken()).isNull();
-        assertThat(pending.getFailureDiagnostics().reasonCode()).isEqualTo("CURRENT_EVIDENCE_SOURCE_HASH_MISMATCH");
-        assertThat(pending.getFailureDiagnostics().httpStatus()).isNull();
-        assertThat(pending.getAutomaticInputState()).isNull();
-        assertThat(sql.queryForObject("select reserved_tokens+used_tokens from ai_token_accounts where member_id=?", Long.class, work.getMember().getId())).isZero();
+        evidenceClaim("SETTING_BOOK", 200);
+        assertThat(pending.getStatus().name()).isEqualTo("RUNNING");
+        assertThat(pending.getFailureDiagnostics()).isNull();
+        org.mockito.Mockito.verify(storage, org.mockito.Mockito.never()).getText("synthetic/original-recovery");
     }
 
-    @Test @DisplayName("원문 저장소의 일시 읽기 오류는 503이며 첫 claim을 실패 상태로 바꾸지 않는다")
-    void sourceReadFailureKeepsRetryBoundary() throws Exception {
+    @Test @DisplayName("과거 S3 읽기 장애와 무관하게 새 분석 claim을 진행한다")
+    void sourceReadFailureDoesNotAffectComparisonCapture() throws Exception {
         var book = upload("일시 장애 뒤 재시도할 합성 원문");
         var pending = jobs.findById(UUID.fromString(book.path("latestAnalysisJob").path("id").asText())).orElseThrow();
         currentQuote(false);
         org.mockito.Mockito.when(storage.getText("synthetic/original-recovery"))
                 .thenThrow(new IllegalStateException("PRIVATE_SOURCE_FAILURE"));
         em.flush();
-        evidenceClaim("SETTING_BOOK", 503);
-        assertThat(pending.getStatus().name()).isEqualTo("PENDING");
-        assertThat(pending.getJournalStatus().name()).isEqualTo("PENDING");
-        assertThat(pending.getLeaseToken()).isNull();
+        evidenceClaim("SETTING_BOOK", 200);
+        assertThat(pending.getStatus().name()).isEqualTo("RUNNING");
         assertThat(pending.getFailureDiagnostics()).isNull();
-        assertThat(pending.getAutomaticInputState()).isNull();
+        org.mockito.Mockito.verify(storage, org.mockito.Mockito.never()).getText("synthetic/original-recovery");
     }
 
     @Test
@@ -214,7 +207,8 @@ class FrozenCurrentCaptureFailureIntegrationTest extends SettingBookAnalysisInte
     }
 
     private void invalidCurrentSource() throws Exception {
-        currentQuote(true);
+        var candidate=currentQuote(true);
+        ReflectionTestUtils.setField(candidate.getAnalysisJob(), "sourceContentHash", "invalid");
     }
 
     private SettingCandidate currentQuote(boolean technicalFailure) throws Exception {

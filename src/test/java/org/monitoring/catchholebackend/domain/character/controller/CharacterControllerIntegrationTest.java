@@ -2993,6 +2993,9 @@ class CharacterControllerIntegrationTest {
         int firstEndOffset = firstStartOffset + firstQuote.length();
         int secondStartOffset = analysisSource.indexOf(secondQuote);
         int secondEndOffset = secondStartOffset + secondQuote.length();
+        firstEpisode.updateContentStorage(analysisSourceKey, null,
+                new org.monitoring.catchholebackend.global.storage.ObjectStorageService(objectStorage).contentHash(analysisSource));
+        episodeRepository.saveAndFlush(firstEpisode);
         AnalysisJob sourceJob = AnalysisJob.create(work, null, firstEpisode, AnalysisJobType.SETTING_EXTRACTION);
         ReflectionTestUtils.setField(sourceJob, "sourceContentS3Key", analysisSourceKey);
         ReflectionTestUtils.setField(sourceJob, "sourceContentHash",
@@ -3055,7 +3058,6 @@ class CharacterControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.evidenceSpans[1].endOffset").value(secondEndOffset));
 
         verify(objectStorage).getText(analysisSourceKey);
-        verify(objectStorage, never()).getText(firstEpisode.getContentS3Key());
     }
 
     @Test

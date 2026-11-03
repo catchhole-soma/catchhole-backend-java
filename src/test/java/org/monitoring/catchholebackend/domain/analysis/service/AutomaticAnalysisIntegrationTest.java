@@ -142,11 +142,17 @@ class AutomaticAnalysisIntegrationTest {
     @MockitoSpyBean WorldSettingCandidateServiceImpl worldApplication;
     @org.springframework.test.context.bean.override.mockito.MockitoBean
     org.monitoring.catchholebackend.global.storage.ObjectStorageService storage;
+    @org.springframework.test.context.bean.override.mockito.MockitoBean
+    org.monitoring.catchholebackend.domain.character.repository.StoredCharacterEvidenceRepository storedEvidence;
     private TransactionTemplate tx;
 
     @BeforeEach
     void prepareTransactions() {
         tx = new TransactionTemplate(transactions);
+        // H2 has no PostgreSQL receipt trigger; model that boundary, tested separately on PostgreSQL.
+        var verified = org.monitoring.catchholebackend.support.StoredCharacterEvidenceTestSupport.verified(SOURCE);
+        org.mockito.Mockito.when(storedEvidence.find(org.mockito.ArgumentMatchers.any())).thenAnswer(call -> verified.find(call.getArgument(0)));
+
         org.mockito.Mockito.when(storage.getText(org.mockito.ArgumentMatchers.startsWith("automatic-test/"))).thenReturn(SOURCE);
         org.mockito.Mockito.when(storage.contentHash(org.mockito.ArgumentMatchers.anyString())).thenCallRealMethod();
     }

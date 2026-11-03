@@ -437,7 +437,7 @@ class ErrorFirstValidationIntegrationTest {
     }
     @ParameterizedTest
     @ValueSource(strings = {"SOURCE_UNAVAILABLE", "HASH_MISMATCH", "QUOTE_NOT_FOUND"})
-    @DisplayName("과거 근거의 원문 실패와 hash 오류는 보류하고 일반 인용 누락은 값과 빈 근거를 보존한다")
+    @DisplayName("과거 원문 저장소 장애와 무관하게 확정값을 유지하고 검증 불가 인용만 제외한다")
     void historicalSourceValidationPreservesReceiptAndExtractionGate(String outcome) throws Exception {
         prepare();
         var owner = org.monitoring.catchholebackend.domain.character.entity.WorkCharacter.create(work, "기존", null, null, null,
@@ -460,16 +460,13 @@ class ErrorFirstValidationIntegrationTest {
         }
         em.flush();
         long before = count("AnalysisJob"); var r = stored(start("source-unavailable"));
-        if (outcome.equals("QUOTE_NOT_FOUND")) {
-            assertThat(r.getStatus().name()).isEqualTo("WAITING_FOR_ERROR_REVIEW");
-            var historical = r.getBaselineSeed().path("characters").elements().next().path("historyFacts").get(0);
-            assertThat(historical.path("factValue").asText()).isEqualTo("수리공");
-            assertThat(historical.path("supportingSource").path("unavailableReason").asText()).isEqualTo("OFFSETS_UNAVAILABLE");
-            assertThat(historical.path("supportingSource").path("evidenceSpans")).isEmpty();
-        } else {
-            assertThat(r.getStatus().name()).isEqualTo("HELD_INCOMPLETE");
-            assertThat(r.getHoldReason()).isEqualTo(outcome.equals("SOURCE_UNAVAILABLE") ? "BASELINE_SOURCE_UNAVAILABLE" : "BASELINE_EVIDENCE_INVALID");
-        }
+        assertThat(r.getStatus().name()).isEqualTo("WAITING_FOR_ERROR_REVIEW");
+        var historical = r.getBaselineSeed().path("characters").elements().next().path("historyFacts").get(0);
+        assertThat(historical.path("factValue").asText()).isEqualTo("수리공");
+        assertThat(historical.path("supportingSource").path("unavailableReason").asText())
+                .isEqualTo(outcome.equals("QUOTE_NOT_FOUND") ? "SOURCE_EVIDENCE_PURGED" : "EVIDENCE_UNAVAILABLE");
+        assertThat(historical.path("supportingSource").path("evidenceSpans")).isEmpty();
+        org.mockito.Mockito.verify(storage, org.mockito.Mockito.never()).getText(prior.getContentS3Key());
         assertThat(r.getSourceContentHash()).isEqualTo(target.getContentHash()); assertThat(r.getSourceContentS3Key()).isEqualTo(target.getContentS3Key());
         assertThat(count("AnalysisJob")).isEqualTo(before); assertThat(count("ValidationReport")).isEqualTo(1);
         mvc.perform(get(base()+"/"+r.getId()).header(HttpHeaders.AUTHORIZATION,"Bearer "+token)).andExpect(status().isOk()).andExpect(jsonPath("$.data.extractionStatus").value("NOT_STARTED"));
