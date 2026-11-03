@@ -92,6 +92,11 @@ public class SettingCandidate extends BaseEntity {
     @JoinColumn(name = "source_setting_book_revision_id", updatable = false)
     private org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision sourceSettingBookRevision;
 
+    // DB가 저장 당시 청크로 검증한 근거와 불변 원문 버전. 조회·상태 갱신에서는 다시 검증하지 않는다.
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "stored_evidence_validation", columnDefinition = "jsonb", insertable = false, updatable = false)
+    private JsonNode storedEvidenceValidation;
+
     // 청킹 엔티티가 생기기 전까지 원문 근거 청크 UUID만 보관합니다.
     @Column(name = "source_chunk_id")
     private UUID sourceChunkId;
@@ -444,12 +449,12 @@ public class SettingCandidate extends BaseEntity {
         this.episode = episode;
         this.sourceChunkId = sourceChunkId;
         this.analysisJob = analysisJob;
+        this.sourceContentS3Key = analysisJob == null ? null : analysisJob.getSourceContentS3Key();
         if (analysisJob != null && analysisJob.isSettingBookSource()) {
             if (episode != null) throw new IllegalArgumentException("설정집 후보에 회차를 연결할 수 없습니다.");
             this.sourceKind = analysisJob.getSourceKind();
             this.sourceSettingBook = analysisJob.getSourceSettingBook();
             this.sourceSettingBookRevision = analysisJob.getSourceSettingBookRevision();
-            this.sourceContentS3Key = analysisJob.getSourceContentS3Key();
         }
         this.metricsSourceAttemptNo = analysisJob == null ? 0 : analysisJob.getMetricsAttemptNo();
         this.candidateKind = candidateKind;

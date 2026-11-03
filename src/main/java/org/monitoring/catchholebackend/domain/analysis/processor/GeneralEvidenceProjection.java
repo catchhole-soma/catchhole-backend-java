@@ -9,12 +9,9 @@ import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
-import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErrorCode;
 import org.monitoring.catchholebackend.domain.analysis.repository.GeneralEvidenceSourceRepository;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
-import org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate;
-import org.monitoring.catchholebackend.global.exception.AppException;
 import org.monitoring.catchholebackend.global.storage.ObjectStorageService;
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestAttributes;
@@ -27,47 +24,24 @@ public class GeneralEvidenceProjection {
     private static final String CACHE_ATTRIBUTE = GeneralEvidenceProjection.class.getName() + ".sources";
     private final ObjectStorageService storage;
     private final GeneralEvidenceSourceRepository sources;
+    private final org.monitoring.catchholebackend.domain.character.repository.StoredCharacterEvidenceRepository storedEvidence;
 
     public ArrayNode forCandidate(SettingCandidate candidate) {
         return candidate == null ? empty() : forSource(candidate.getWork().getId(),
                 candidate.getAnalysisJob(), candidate.getEvidenceSpans());
     }
 
-    /** Processing may omit bad spans, but must not turn a source failure into successful empty evidence. */
+    /** Comparison reuses verified stored evidence, independently of source preview availability. */
     public ArrayNode forProcessingCandidate(SettingCandidate candidate) {
         if (candidate == null || !hasLocatedSpan(candidate.getEvidenceSpans())) return empty();
-        AnalysisJob job = candidate.getAnalysisJob();
-        // Legacy candidates can have no retained source manifest.
-        if (job == null) return empty();
-        Cache cache = requestCache();
-        var source = source(job, cache);
-        if (source == null || !Objects.equals(candidate.getWork().getId(), source.workId())) {
-            throw new InvalidEvidenceException("CURRENT_EVIDENCE_BINDING_INVALID", job);
-        }
-        if (source.key() == null && source.hash() == null) return empty();
-        if (source.key() == null || source.key().isBlank() || source.hash() == null
-                || !source.hash().matches("[0-9a-f]{64}")) {
-            throw new InvalidEvidenceException("CURRENT_EVIDENCE_MANIFEST_INVALID", job);
-        }
-        String binding = source.key() + "\n" + source.version() + "\n" + source.hash();
-        // A public preview may already have cached an unavailable source in this request.
-        // Only successfully verified processing reads can satisfy a processing projection.
-        String content = cache.processingContents.computeIfAbsent(binding, ignored -> {
-            String loaded;
-            String hash;
-            try {
-                loaded = storage.getText(source.key());
-                if (loaded == null) throw new IllegalStateException("Source unavailable");
-                hash = storage.contentHash(loaded);
-            } catch (RuntimeException failure) {
-                throw new AppException(AnalysisJobErrorCode.ANALYSIS_CURRENT_EVIDENCE_SOURCE_UNAVAILABLE);
-            }
-            if (!source.hash().equals(hash)) {
-                throw new InvalidEvidenceException("CURRENT_EVIDENCE_SOURCE_HASH_MISMATCH", job);
-            }
-            return loaded;
-        });
-        return verifiedSpans(content, candidate.getEvidenceSpans());
+        return (ArrayNode) storedEvidence.find(candidate).spans().deepCopy();
+    }
+
+    public JsonNode forProcessingNarrativeTime(SettingCandidate candidate) {
+        if (candidate == null || candidate.getNarrativeTime() == null) return null;
+        var evidence = storedEvidence.find(candidate);
+        return evidence.verified() && evidence.narrativeTimeValid()
+                ? candidate.getNarrativeTime().deepCopy() : null;
     }
 
     public ArrayNode forWorldCandidate(WorldSettingCandidate candidate) {
@@ -79,7 +53,7 @@ public class GeneralEvidenceProjection {
     public ArrayNode forCandidate(SettingCandidate candidate, String content) {
         if (candidate == null || content == null || !hasLocatedSpan(candidate.getEvidenceSpans())) return empty();
         var source = source(candidate.getAnalysisJob(), requestCache());
-        if (source == null || !Objects.equals(candidate.getWork().getId(), source.workId())
+        if (source == null || source.invalidated() || !Objects.equals(candidate.getWork().getId(), source.workId())
                 || source.key() == null || source.hash() == null
                 || !source.hash().equals(storage.contentHash(content))) return empty();
         return verifiedSpans(content, candidate.getEvidenceSpans());
@@ -89,7 +63,7 @@ public class GeneralEvidenceProjection {
         if (job == null || job.getId() == null || !hasLocatedSpan(evidence)) return empty();
         Cache cache = requestCache();
         var source = source(job, cache);
-        if (source == null || !Objects.equals(workId, source.workId()) || source.key() == null
+        if (source == null || source.invalidated() || !Objects.equals(workId, source.workId()) || source.key() == null
                 || source.hash() == null) return empty();
         String binding = source.key() + "\n" + source.version() + "\n" + source.hash();
         Map<String, String> contents = cache.contents;
@@ -99,7 +73,7 @@ public class GeneralEvidenceProjection {
                 String loaded = storage.getText(source.key());
                 if (loaded != null && source.hash().equals(storage.contentHash(loaded))) content = loaded;
             } catch (RuntimeException unavailable) {
-                // Public source previews may be absent. Strict processing capture still validates the manifest/hash.
+                // Source previews may be absent; comparison uses the independent stored verification.
             }
             contents.put(binding, content);
         }
@@ -187,6 +161,5 @@ public class GeneralEvidenceProjection {
     private static final class Cache {
         private final Map<UUID, GeneralEvidenceSourceRepository.Source> sources = new HashMap<>();
         private final Map<String, String> contents = new HashMap<>();
-        private final Map<String, String> processingContents = new HashMap<>();
     }
 }

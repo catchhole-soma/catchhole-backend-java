@@ -231,6 +231,10 @@ public class AnalysisJob extends BaseEntity {
     @Column(name = "source_episode_no", updatable = false)
     private Integer sourceEpisodeNo;
 
+    // 파기 요청과 함께 무효화한다. 과거 주소/hash는 감사용으로만 남긴다.
+    @Column(name = "source_reference_invalidated_at", insertable = false, updatable = false)
+    private LocalDateTime sourceReferenceInvalidatedAt;
+
     @Column(name = "source_content_hash", length = 64, updatable = false)
     private String sourceContentHash;
 

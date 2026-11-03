@@ -1301,7 +1301,7 @@ public class CharacterFactComparisonBatchWorker {
                     workerMapper.toJsonValue(candidate.getValueJson()),
                     workerMapper.toCandidateEvidenceSpans(candidate),
                     candidate.getConfidence(), org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(candidate.getAnalysisJob()),
-                    workerMapper.toJsonValue(candidate.getNarrativeTime())));
+                    workerMapper.toCandidateNarrativeTime(candidate)));
         }
         return List.copyOf(result);
     }

@@ -7,32 +7,25 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
-import org.monitoring.catchholebackend.domain.analysis.processor.SettingBookAutomaticEvidenceValidator;
 import org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
-import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
-import org.monitoring.catchholebackend.domain.analysis.type.EvidenceValidationResult;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
-import org.monitoring.catchholebackend.global.storage.ObjectStorageService;
 import org.springframework.stereotype.Component;
 
-/** Source reads occur only while an input or a new journal snapshot is frozen. */
+/** Reuses source-bound verification recorded at candidate storage; comparison capture never reads S3. */
 @Component
 @RequiredArgsConstructor
 public class CharacterCurrentSupportingEvidenceResolver {
-    private final ObjectStorageService storage;
-    private final SettingBookAutomaticEvidenceValidator quoteValidator;
-    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
+    private final org.monitoring.catchholebackend.domain.character.repository.StoredCharacterEvidenceRepository storedEvidence;
 
     public Capture begin(Work work) { return new Capture(work.getId()); }
 
@@ -88,12 +81,13 @@ public class CharacterCurrentSupportingEvidenceResolver {
             for (JsonNode member : proof.path("members")) {
                 JsonNode span = member.path("profileEvidence");
                 if (member.path("targetRef").equals(proof.path("parentTargetRef")) && span.isObject()) {
-                    ArrayNode evidence = JsonNodeFactory.instance.arrayNode().add(span);
-                    // Identity proof is a separate semantic guarantee, not an optional quote preview.
-                    EvidenceValidationResult validation = quoteValidator.validate(original(capture, discovery.getAnalysisJob()), evidence);
-                    if (validation == EvidenceValidationResult.QUOTE_NOT_FOUND) continue;
-                    if (validation != EvidenceValidationResult.VALID) throw invalid();
-                    result.addAll((ArrayNode) captureCandidate(capture, discovery, evidence).path("evidenceSpans"));
+                    var verified = evidence(capture, discovery);
+                    if (verified.invalidated() || !verified.verified()) continue;
+                    boolean accepted = false;
+                    for (JsonNode checked : verified.identitySpans()) if (checked.equals(span)) accepted = true;
+                    // Unverifiable retained profile quotes cannot block reuse of a confirmed identity.
+                    // Automatic promotion still validates the full identity proof at its own boundary.
+                    if (accepted) result.add(span.deepCopy());
                 }
             }
         }
@@ -108,7 +102,13 @@ public class CharacterCurrentSupportingEvidenceResolver {
         boolean noManifest = job.getSourceContentHash() == null && job.getSourceContentS3Key() == null;
         if (noManifest) return unavailable(candidate.getId(), job.getId(), "LEGACY_NO_MANIFEST", candidate.hasUserEditedContent());
         if (job.getSourceContentHash() == null || !job.getSourceContentHash().matches("[0-9a-f]{64}")
-                || job.getSourceContentS3Key() == null || job.getSourceContentS3Key().isBlank()) throw new InvalidEvidenceException("CURRENT_EVIDENCE_MANIFEST_INVALID");
+                || job.getSourceContentS3Key() == null || job.getSourceContentS3Key().isBlank()) throw new InvalidEvidenceException("CURRENT_EVIDENCE_MANIFEST_INVALID", job);
+        var retained = evidence(capture, candidate);
+        if (retained.invalidated()) {
+            ObjectNode row = unavailable(candidate.getId(), job.getId(), "SOURCE_EVIDENCE_PURGED", candidate.hasUserEditedContent());
+            row.set("source", source(job));
+            return row;
+        }
         ObjectNode source = source(job);
         if (evidence == null || evidence.isNull() || evidence.isArray() && evidence.isEmpty()) {
             ObjectNode row = unavailable(candidate.getId(), job.getId(), "NO_RECORDED_QUOTE", candidate.hasUserEditedContent());
@@ -116,15 +116,16 @@ public class CharacterCurrentSupportingEvidenceResolver {
             storageBinding(row, job);
             return row;
         }
-        String content = original(capture, job);
-        ArrayNode spans = GeneralEvidenceProjection.verifiedSpans(content, evidence);
+        var verified = evidence(capture, candidate);
+        ArrayNode spans = (ArrayNode) verified.spans().deepCopy();
         ObjectNode row = spans.isEmpty()
-                ? unavailable(candidate.getId(), job.getId(), GeneralEvidenceProjection.unavailableReason(evidence), candidate.hasUserEditedContent())
+                ? unavailable(candidate.getId(), job.getId(), verified.invalidated() ? "SOURCE_EVIDENCE_PURGED" : verified.verified()
+                        ? GeneralEvidenceProjection.unavailableReason(evidence) : "EVIDENCE_UNAVAILABLE", candidate.hasUserEditedContent())
                 : base(candidate.getId(), job.getId(), candidate.hasUserEditedContent())
                         .put("availability", "VERIFIED").putNull("unavailableReason");
         row.set("source", source);
         row.set("evidenceSpans", spans);
-        storageBinding(row, job);
+        if (!verified.invalidated()) storageBinding(row, job);
         row.set("narrativeTime", captureNarrativeTime(capture, candidate, candidate.getNarrativeTime()));
         return row;
     }
@@ -139,38 +140,22 @@ public class CharacterCurrentSupportingEvidenceResolver {
         if (job == null || !same(candidate.getWork().getId(), capture.workId)
                 || !same(job.getWork().getId(), capture.workId) || !time.isObject() || time.size() != 2
                 || !time.has("factTime") || !time.has("referenceTime")) throw invalid();
-        String content = original(capture, job);
+        // An explicit unknown pair contains nothing to validate and must never dereference its old source.
+        if (time.get("factTime").isNull() && time.get("referenceTime").isNull()) return time.deepCopy();
+        var verified = evidence(capture, candidate);
+        if (verified.invalidated() || !verified.verified()) return JsonNodeFactory.instance.nullNode();
         for (String field : List.of("factTime", "referenceTime")) {
             JsonNode point = time.get(field);
-            if (point.isNull()) continue;
-            CharacterNarrativeTime.requirePoint(point);
-            if (!quoteValidator.matches(content, point.path("evidenceSpans"))) throw invalid();
-            for (JsonNode span : point.path("evidenceSpans")) {
-                UUID chunk = UUID.fromString(span.path("sourceChunkId").asText());
-                String sql = job.isSettingBookSource()
-                        ? "select start_offset, end_offset, chunk_text from setting_book_chunks where id = ? and analysis_job_id = ? and setting_book_revision_id = ?"
-                        : "select start_offset, end_offset, chunk_text from episode_chunks where id = ? and episode_id = ?";
-                Object[] args = job.isSettingBookSource()
-                        ? new Object[]{chunk, job.getId(), job.getSourceSettingBookRevision().getId()}
-                        : new Object[]{chunk, job.getEpisode().getId()};
-                var ranges = jdbc.query(sql, (rs, row) -> new Object[]{rs.getInt(1), rs.getInt(2), rs.getString(3)}, args);
-                // Episode chunks are replaceable processing artifacts. Older reanalysis removed
-                // their UUIDs even when the immutable source and grounded offsets stayed identical.
-                // Recover only retained observations; new extraction still needs its actual chunk.
-                if (ranges.isEmpty() && !job.isSettingBookSource()
-                        && (job.getStatus() == AnalysisJobStatus.SUCCEEDED || !candidate.isPendingReview())
-                        && Integer.valueOf(0).equals(jdbc.queryForObject(
-                                "select count(*) from episode_chunks where id = ?", Integer.class, chunk))) {
-                    continue;
+            if (!point.isNull()) {
+                CharacterNarrativeTime.requirePoint(point);
+                for (JsonNode span : point.path("evidenceSpans")) {
+                    boolean accepted = false;
+                    for (JsonNode checked : verified.narrativeSpans()) if (checked.equals(span)) accepted = true;
+                    if (!accepted) return JsonNodeFactory.instance.nullNode();
                 }
-                if (ranges.size() != 1) throw invalid();
-                Object[] range = ranges.getFirst();
-                int start = (int) range[0], end = (int) range[1];
-                if (start < 0 || end <= start || span.path("startOffset").asInt() < start || span.path("endOffset").asInt() > end
-                        || end > content.codePointCount(0, content.length())
-                        || !Objects.equals(range[2], content.substring(content.offsetByCodePoints(0, start), content.offsetByCodePoints(0, end)))) throw invalid();
             }
         }
+        if (!verified.narrativeTimeValid()) return JsonNodeFactory.instance.nullNode();
         return time.deepCopy();
     }
 
@@ -186,25 +171,8 @@ public class CharacterCurrentSupportingEvidenceResolver {
         return origin;
     }
 
-    private String original(Capture capture, AnalysisJob job) {
-        String binding = job.getSourceContentS3Key()+"\n"+job.getSourceContentS3Version()+"\n"+job.getSourceContentHash();
-        return capture.contents.computeIfAbsent(binding, ignored -> {
-            // Episode/revision writers use immutable unique keys. Never read the current Episode pointer.
-            String content;
-            String hash;
-            try {
-                content = storage.getText(job.getSourceContentS3Key());
-                if (content == null) throw new IllegalStateException("고정 원문이 없습니다.");
-                hash = storage.contentHash(content);
-            } catch (RuntimeException ignoredFailure) {
-                throw new AppException(AnalysisJobErrorCode.ANALYSIS_CURRENT_EVIDENCE_SOURCE_UNAVAILABLE,
-                        diagnosticContext("CURRENT_EVIDENCE_SOURCE_READ_FAILED", job));
-            }
-            if (!job.getSourceContentHash().equals(hash)) {
-                throw new InvalidEvidenceException("CURRENT_EVIDENCE_SOURCE_HASH_MISMATCH", job);
-            }
-            return content;
-        });
+    private org.monitoring.catchholebackend.domain.character.repository.StoredCharacterEvidenceRepository.Evidence evidence(Capture capture, SettingCandidate candidate) {
+        return capture.evidence.computeIfAbsent(candidate, storedEvidence::find);
     }
 
     private ObjectNode source(AnalysisJob job) {
@@ -258,7 +226,7 @@ public class CharacterCurrentSupportingEvidenceResolver {
 
     public static final class Capture {
         private final UUID workId;
-        private final Map<String,String> contents = new HashMap<>();
+        private final Map<SettingCandidate, org.monitoring.catchholebackend.domain.character.repository.StoredCharacterEvidenceRepository.Evidence> evidence = new java.util.IdentityHashMap<>();
         private Capture(UUID workId) { this.workId = Objects.requireNonNull(workId); }
     }
 

@@ -54,7 +54,12 @@ public class CharacterFactComparisonWorkerMapper {
                 candidate.getMatchedCharacterId(),
                 matchedCharacterName,
                 canonicalFactType,
-                canonicalFactKey, org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(candidate.getAnalysisJob()), toJsonValue(candidate.getNarrativeTime()));
+                canonicalFactKey, org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(candidate.getAnalysisJob()),
+                toCandidateNarrativeTime(candidate));
+    }
+
+    public Object toCandidateNarrativeTime(SettingCandidate candidate) {
+        return toJsonValue(evidenceProjection.forProcessingNarrativeTime(candidate));
     }
 
     public JsonNode toJsonNode(Object value) {
