@@ -8,6 +8,8 @@ import java.util.UUID;
 
 public interface RelationshipGraphEventRepository
         extends JpaRepository<RelationshipGraphEvent, UUID> {
+    boolean existsByAnalysisId(UUID analysisId);
+
     List<RelationshipGraphEvent>
             findAllByWorkIdAndEpisodeNoLessThanEqualOrderByEpisodeNoAscCreatedAtAscIdAsc(
                     UUID workId, int episodeNo);

@@ -139,7 +139,19 @@ public class RelationshipGraphAnalysis extends BaseEntity {
         this.rejectedObservationCount = rejected;
         failureCode = null;
         failureDiagnostics = null;
+        decisions = null;
+        failures = null;
+        completionHash = null;
         status = AnalysisStatus.PREPARED;
+    }
+
+    /** The service validates current source, ownership and saved phase before restoring a retry. */
+    public void resumeInvalidated(AnalysisStatus phase) {
+        if (status != AnalysisStatus.INVALIDATED || evidencePurged
+                || (phase != AnalysisStatus.PENDING && phase != AnalysisStatus.PREPARED
+                    && phase != AnalysisStatus.COMPLETED && phase != AnalysisStatus.FAILED))
+            throw new IllegalStateException("Invalid relationship retry phase.");
+        status = phase;
     }
 
     public void complete(JsonNode decisions, String hash) {
