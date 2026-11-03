@@ -30,11 +30,11 @@ public record AnalysisJobCreateRequest(
         @Schema(description = "설정 반영 방식. 새 설정 추출·재분석은 생략 시 자동 반영하며, 단일 회차는 MANUAL로 직접 검토를 선택할 수 있습니다. 다회차는 항상 자동 반영하고 회차 검증은 생략 시 직접 검토입니다.", nullable = true)
         AnalysisReviewMode reviewMode,
 
-        @Schema(description = "시작 전 안내한 애매한 후보를 종료하고 분석할지 명시적으로 선택합니다. 기본 false입니다.")
+        @Schema(description = "시작 전 안내한 애매한 후보를 종료하고 분석할지 명시적으로 선택합니다. 기본 false입니다.", example = "true")
         Boolean closeAmbiguousCandidates,
 
         @Size(max = 64)
-        @Schema(description = "시작 사전 확인에서 받은 revision. 후보 종료에 동의했을 때 함께 전달합니다.", nullable = true)
+        @Schema(description = "시작 사전 확인에서 받은 revision. 후보 종료에 동의했을 때 함께 전달합니다.", example = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", nullable = true)
         String reviewGateRevision
 ) {
     public AnalysisJobCreateRequest(AnalysisJobType jobType, UUID batchId, UUID episodeId,

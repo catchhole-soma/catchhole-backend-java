@@ -11,6 +11,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.analysis.dto.request.AnalysisStartCheckRequest;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisStartCheckResponse;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisCandidateDomain;
 import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisStartCheckMapper;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisReviewContinuationRepository;
@@ -28,12 +29,12 @@ class AnalysisStartCheckServiceImplTest {
         RelationshipHoldReviewGate relationships = mock(RelationshipHoldReviewGate.class);
         AnalysisJobRepository jobs = mock(AnalysisJobRepository.class);
         var first = new AnalysisCandidateReviewGate.Snapshot(workId, 3, List.of(), List.of(
-                entry(AnalysisCandidateReviewGate.Domain.WORLD, 22, "보류|world"),
-                entry(AnalysisCandidateReviewGate.Domain.CHARACTER, 21, "보류|character")),
-                List.of(entry(AnalysisCandidateReviewGate.Domain.WORLD, 31, "실패|recover")));
+                entry(AnalysisCandidateDomain.WORLD, 22, "보류|world"),
+                entry(AnalysisCandidateDomain.CHARACTER, 21, "보류|character")),
+                List.of(entry(AnalysisCandidateDomain.WORLD, 31, "실패|recover")));
         var last = new AnalysisCandidateReviewGate.Snapshot(workId, 4, List.of(
-                entry(AnalysisCandidateReviewGate.Domain.WORLD, 12, "수동|second"),
-                entry(AnalysisCandidateReviewGate.Domain.CHARACTER, 11, "수동|first")), List.of(), List.of());
+                entry(AnalysisCandidateDomain.WORLD, 12, "수동|second"),
+                entry(AnalysisCandidateDomain.CHARACTER, 11, "수동|first")), List.of(), List.of());
         when(candidates.snapshot(workId, 3)).thenReturn(first);
         when(candidates.snapshot(workId, 4)).thenReturn(last);
         when(jobs.countActiveEarlierExtractions(workId, 4)).thenReturn(2L);
@@ -52,7 +53,7 @@ class AnalysisStartCheckServiceImplTest {
         assertThat(service.checkAnalysisStart(1L, workId, new AnalysisStartCheckRequest(List.of(3, 4)))).isEqualTo(response);
     }
 
-    private static AnalysisCandidateReviewGate.Entry entry(AnalysisCandidateReviewGate.Domain domain, int number, String revision) {
+    private static AnalysisCandidateReviewGate.Entry entry(AnalysisCandidateDomain domain, int number, String revision) {
         return new AnalysisCandidateReviewGate.Entry(domain, id(number), id(99), LocalDateTime.of(2026, 11, 3, 12, 30, 45), revision);
     }
 

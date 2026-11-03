@@ -10,6 +10,7 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErrorCode;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisCandidateGateRow;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisCandidateDomain;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateRepository;
 import org.monitoring.catchholebackend.global.exception.AppException;
@@ -27,8 +28,7 @@ public class AnalysisCandidateReviewGate {
     private final SettingCandidateRepository characters;
     private final WorldSettingCandidateRepository worlds;
 
-    public enum Domain { CHARACTER, WORLD }
-    public record Entry(Domain domain, UUID id, UUID sourceJobId, LocalDateTime updatedAt, String revision) {}
+    public record Entry(AnalysisCandidateDomain domain, UUID id, UUID sourceJobId, LocalDateTime updatedAt, String revision) {}
     public record Snapshot(UUID workId, int beforeEpisodeNo, List<Entry> manualRequired,
                            List<Entry> ambiguous, List<Entry> recoveryRequired) {
         public Snapshot {
@@ -36,19 +36,19 @@ public class AnalysisCandidateReviewGate {
             ambiguous = List.copyOf(ambiguous);
             recoveryRequired = List.copyOf(recoveryRequired);
         }
-        public long manualCharacterCount() { return count(manualRequired, Domain.CHARACTER); }
-        public long manualWorldCount() { return count(manualRequired, Domain.WORLD); }
-        public long ambiguousCharacterCount() { return count(ambiguous, Domain.CHARACTER); }
-        public long ambiguousWorldCount() { return count(ambiguous, Domain.WORLD); }
-        private static long count(List<Entry> entries, Domain domain) {
+        public long manualCharacterCount() { return count(manualRequired, AnalysisCandidateDomain.CHARACTER); }
+        public long manualWorldCount() { return count(manualRequired, AnalysisCandidateDomain.WORLD); }
+        public long ambiguousCharacterCount() { return count(ambiguous, AnalysisCandidateDomain.CHARACTER); }
+        public long ambiguousWorldCount() { return count(ambiguous, AnalysisCandidateDomain.WORLD); }
+        private static long count(List<Entry> entries, AnalysisCandidateDomain domain) {
             return entries.stream().filter(entry -> entry.domain() == domain).count();
         }
     }
 
     public Snapshot snapshot(UUID workId, int beforeEpisodeNo) {
         List<Entry> manual = new ArrayList<>(), ambiguous = new ArrayList<>(), recovery = new ArrayList<>();
-        classify(Domain.CHARACTER, characters.findContinuationGateRows(workId, beforeEpisodeNo), manual, ambiguous, recovery);
-        classify(Domain.WORLD, worlds.findContinuationGateRows(workId, beforeEpisodeNo), manual, ambiguous, recovery);
+        classify(AnalysisCandidateDomain.CHARACTER, characters.findContinuationGateRows(workId, beforeEpisodeNo), manual, ambiguous, recovery);
+        classify(AnalysisCandidateDomain.WORLD, worlds.findContinuationGateRows(workId, beforeEpisodeNo), manual, ambiguous, recovery);
         Comparator<Entry> order = Comparator.comparing(Entry::domain).thenComparing(entry -> entry.id().toString());
         manual.sort(order); ambiguous.sort(order); recovery.sort(order);
         return new Snapshot(workId, beforeEpisodeNo, manual, ambiguous, recovery);
@@ -57,8 +57,8 @@ public class AnalysisCandidateReviewGate {
     public void closeAmbiguous(Snapshot expected, UUID requestId) {
         Objects.requireNonNull(requestId);
         if (!expected.equals(snapshot(expected.workId(), expected.beforeEpisodeNo()))) throw conflict();
-        var characterIds = expected.ambiguous().stream().filter(entry -> entry.domain() == Domain.CHARACTER).map(Entry::id).toList();
-        var worldIds = expected.ambiguous().stream().filter(entry -> entry.domain() == Domain.WORLD).map(Entry::id).toList();
+        var characterIds = expected.ambiguous().stream().filter(entry -> entry.domain() == AnalysisCandidateDomain.CHARACTER).map(Entry::id).toList();
+        var worldIds = expected.ambiguous().stream().filter(entry -> entry.domain() == AnalysisCandidateDomain.WORLD).map(Entry::id).toList();
         if (!characterIds.isEmpty()) {
             var candidates = characters.findContinuationCandidatesForUpdate(expected.workId(), characterIds);
             if (candidates.size() != characterIds.size()) throw conflict();
@@ -71,7 +71,7 @@ public class AnalysisCandidateReviewGate {
         }
     }
 
-    private void classify(Domain domain, List<AnalysisCandidateGateRow> rows,
+    private void classify(AnalysisCandidateDomain domain, List<AnalysisCandidateGateRow> rows,
                           List<Entry> manual, List<Entry> ambiguous, List<Entry> recovery) {
         for (AnalysisCandidateGateRow row : rows) {
             Entry entry = new Entry(domain, row.getId(), row.getSourceJobId(), row.getUpdatedAt(), revision(row));
@@ -95,11 +95,11 @@ public class AnalysisCandidateReviewGate {
         }
     }
 
-    private boolean normalAmbiguity(Domain domain, AnalysisCandidateGateRow row) {
+    private boolean normalAmbiguity(AnalysisCandidateDomain domain, AnalysisCandidateGateRow row) {
         if (row.getHoldReason() != null && !AMBIGUOUS_HOLDS.contains(row.getHoldReason())) return false;
         boolean held = AMBIGUOUS_HOLDS.contains(Objects.toString(row.getHoldReason(), ""))
                 || "REVIEW_REQUIRED".equals(row.getSuggestedOperation());
-        if (domain == Domain.WORLD) {
+        if (domain == AnalysisCandidateDomain.WORLD) {
             return "COMPLETED".equals(row.getComparisonStatus())
                     && (held || row.getComparisonReviewReason() != null || "CONFLICT".equals(row.getConsolidationStatus()));
         }
