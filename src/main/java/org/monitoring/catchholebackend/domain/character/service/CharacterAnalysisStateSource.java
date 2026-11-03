@@ -117,10 +117,9 @@ public class CharacterAnalysisStateSource implements AnalysisStateSource {
                     && !origin.path("narrativeTime").path("referenceTime").isNull()) {
                 ObjectNode point = frozen.deepCopy(); point.remove("sourceCandidateId");
                 if (!point.equals(origin.path("narrativeTime").path("referenceTime"))) throw new org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException();
-            } else {
-                // Keep the selected description, but never copy an invalidated/unverifiable quotation.
-                frozen.putArray("evidenceSpans");
             }
+            // Preserve the exact expected-current value for approval/replay. The response mapper
+            // removes uncertified quotes from the model-facing copy without changing this state.
             frozen.set("supportingSource", origin);
             state.set("currentNarrativeTime", frozen);
         }

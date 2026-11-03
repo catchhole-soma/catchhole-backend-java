@@ -149,7 +149,7 @@ public class AnalysisJobWorkerMapper {
                         toAliases(character.path("aliases")),
                         characterFactEvidenceMapper.toEvidenceSpans(character.path("identityEvidence")),
                         org.monitoring.catchholebackend.domain.character.mapper.CharacterAnalysisStateMapper.protectedSlots(character),
-                        objectMapper.convertValue(org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.value(character.path("currentNarrativeTime")), Object.class)));
+                        objectMapper.convertValue(org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.modelValue(character.path("currentNarrativeTime")), Object.class)));
             }
         }
         return List.copyOf(result);
@@ -163,7 +163,7 @@ public class AnalysisJobWorkerMapper {
                         character.path("name").asText(), toAliases(character.path("aliases")),
                         character.path("provenance").path("sourceEpisodeNo").isIntegralNumber() ? character.path("provenance").path("sourceEpisodeNo").asInt() : null, toOrderedActiveStatuses(character),
                         characterFactEvidenceMapper.toEvidenceSpans(character.path("identityEvidence")), org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.fromProvenance(character.path("provenance")),
-                        objectMapper.convertValue(org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.value(character.path("currentNarrativeTime")), Object.class)));
+                        objectMapper.convertValue(org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.modelValue(character.path("currentNarrativeTime")), Object.class)));
             }
         }
         return List.copyOf(result);
