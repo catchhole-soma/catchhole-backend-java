@@ -46,8 +46,9 @@ public class ValidationUsageServiceImpl implements ValidationUsageService {
         var prior=billableCalls(job,role);
         long allocated=allocated(prior);
         if(prior.size()>=limits.path("maxCalls").asInt()||command.reservedTokens()>limits.path("maxReservedTokens").asLong()-allocated)throw error(VALIDATION_EXECUTION_LIMIT_EXCEEDED);
+        // Configuration v2: one call may reserve at most the branch input cap plus that generation role's own output cap.
         var perCall=job.getConfiguration().path("budgets").path(role==ValidationRole.TYPO?"typo":"setting");
-        if(role!=ValidationRole.QUERY_EMBEDDING&&command.reservedTokens()>(long)perCall.path("inputTokens").asInt()+perCall.path("outputTokens").asInt())throw error(VALIDATION_EXECUTION_LIMIT_EXCEEDED);
+        if(role!=ValidationRole.QUERY_EMBEDDING&&command.reservedTokens()>(long)perCall.path("inputTokens").asInt()+limits.path("outputTokens").asInt())throw error(VALIDATION_EXECUTION_LIMIT_EXCEEDED);
         var usage=AiTokenUsage.reserveValidation(command.requestId(),job,role.purpose(),command.model(),command.reservedTokens());
         usage.bindValidationCallInput(callInput);
         account(job).reserve(usage.getReservedCharge());usages.save(usage);return view(usage);

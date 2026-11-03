@@ -4,14 +4,12 @@
       "lease-duration": "60s",
       "max-lease-recoveries": 2,
       "setting": {
-        "model-calls": 100,
-        "lookups": 200,
-        "seconds": 1800,
-        "input-tokens": 40000,
-        "output-tokens": 20000,
-        "segment-chars": 2000,
-        "context-chars": 300,
-        "catalogue-page-size": 50,
+        "model-calls": 200,
+        "lookups": 300,
+        "seconds": 3600,
+        "input-tokens": 80000,
+        "segment-chars": 10000,
+        "context-chars": 1000,
         "search-limit": 10
       },
       "typo": {
@@ -19,35 +17,34 @@
         "lookups": 20,
         "seconds": 900,
         "input-tokens": 20000,
-        "output-tokens": 12000,
         "segment-chars": 2000,
         "context-chars": 100,
-        "catalogue-page-size": 50,
         "search-limit": 10
       },
       "roles": {
         "PLANNER": {
-          "max-calls": 40,
-          "max-reserved-tokens": 2400000
-        },
-        "RELATED_SELECTION": {
-          "max-calls": 40,
-          "max-reserved-tokens": 2400000
-        },
-        "COVERAGE": {
-          "max-calls": 40,
-          "max-reserved-tokens": 2400000
+          "max-calls": 10,
+          "max-reserved-tokens": 800000,
+          "output-tokens": 50000,
+          "model": "gpt-6.1-terra",
+          "reasoning-effort": "medium"
         },
         "JUDGE": {
-          "max-calls": 40,
-          "max-reserved-tokens": 2400000
+          "max-calls": 200,
+          "max-reserved-tokens": 10000000,
+          "output-tokens": 20000,
+          "model": "gpt-6-luna",
+          "reasoning-effort": "high"
         },
         "TYPO": {
           "max-calls": 20,
-          "max-reserved-tokens": 640000
+          "max-reserved-tokens": 640000,
+          "output-tokens": 12000,
+          "model": "gpt-6.1-terra",
+          "reasoning-effort": "low"
         },
         "QUERY_EMBEDDING": {
-          "max-calls": 40,
+          "max-calls": 250,
           "max-reserved-tokens": 400000
         }
       },
