@@ -1,0 +1,4490 @@
+{
+  "schemaVersion": 1,
+  "scenario": "sequential-one-request-at-a-time",
+  "baseline": {
+    "commit": "34804254e9f3b424bea1176ccab4cd8778900a12",
+    "phases": {
+      "episodes": {
+        "samples": 3,
+        "runtime": {
+          "elapsedMillis": {
+            "median": 323.804583,
+            "min": 296.126167,
+            "max": 454.223333
+          },
+          "heapBeforeBytes": {
+            "median": 157729792,
+            "min": 148256576,
+            "max": 158196600
+          },
+          "heapAfterBytes": {
+            "median": 614744792,
+            "min": 593620592,
+            "max": 620106224
+          },
+          "sampledPeakHeapBytes": {
+            "median": 620106224,
+            "min": 614744792,
+            "max": 623240056
+          },
+          "allocatedBytes": {
+            "median": 703956344,
+            "min": 703876776,
+            "max": 722083856
+          },
+          "gcCollections": {
+            "median": 7,
+            "min": 6,
+            "max": 8
+          },
+          "gcMillis": {
+            "median": 20,
+            "min": 19,
+            "max": 21
+          },
+          "processCpuNanos": {
+            "median": 708942000,
+            "min": 635339000,
+            "max": 1247894000
+          }
+        },
+        "jobJsonRows": [
+          42,
+          42,
+          42
+        ],
+        "selectQueries": [
+          6,
+          6,
+          6
+        ],
+        "selectConsumedRows": [
+          88,
+          88,
+          88
+        ],
+        "responseBytes": [
+          21812,
+          21814,
+          21814
+        ]
+      },
+      "claim": {
+        "samples": 3,
+        "runtime": {
+          "elapsedMillis": {
+            "median": 6729.631083,
+            "min": 6446.047167,
+            "max": 7041.622083
+          },
+          "heapBeforeBytes": {
+            "median": 155734472,
+            "min": 149139608,
+            "max": 156141552
+          },
+          "heapAfterBytes": {
+            "median": 682844352,
+            "min": 634778048,
+            "max": 684131944
+          },
+          "sampledPeakHeapBytes": {
+            "median": 684131944,
+            "min": 682844352,
+            "max": 735443872
+          },
+          "allocatedBytes": {
+            "median": 1354370656,
+            "min": 1354121320,
+            "max": 1531457144
+          },
+          "gcCollections": {
+            "median": 14,
+            "min": 14,
+            "max": 19
+          },
+          "gcMillis": {
+            "median": 30,
+            "min": 29,
+            "max": 35
+          },
+          "processCpuNanos": {
+            "median": 6917707000,
+            "min": 6579018000,
+            "max": 8452059000
+          }
+        },
+        "jobJsonRows": [
+          88,
+          88,
+          88
+        ],
+        "selectQueries": [
+          1734,
+          1734,
+          1734
+        ],
+        "selectConsumedRows": [
+          5278,
+          5278,
+          5278
+        ],
+        "responseBytes": [
+          123636,
+          123636,
+          123636
+        ]
+      }
+    },
+    "sourceRevision": {
+      "mainSourceTreeSha256": "8e510e4528b40d8ef104e821ed63e4a147b500cb5c577912048aff7d5a4b4119",
+      "trackedDiffSha256": "3a0e3139233c1692df941403e96f171b251216e047d169240e4222e369c731b9"
+    },
+    "fixtures": [
+      {
+        "characterFacts": 641,
+        "jvmArguments": [
+          "-Dorg.gradle.internal.worker.tmpdir=<checkout>/build/tmp/test/work",
+          "-Dspring.test.context.cache.maxSize=1",
+          "-Xlog:gc*,safepoint:file=<artifact>/worker-%p-gc.log:time,uptime,level,tags",
+          "-Xms256m",
+          "-Xmx768m",
+          "-Dfile.encoding=UTF-8",
+          "-Duser.country=KR",
+          "-Duser.language=ko",
+          "-Duser.variant",
+          "-ea"
+        ],
+        "historicalV1V2ReplayHashes": [
+          "ab4a864a97b03078fe2979a32fc353283361bc02fc2f8a3778235467e8359cc2",
+          "b9577bbc1e79fbd667c739d80179668229007e8df4462446349a2eebffadb940"
+        ],
+        "historicalJsonTotals": [
+          {
+            "jobs": 41,
+            "input_bytes": 34344206,
+            "base_bytes": 11282343,
+            "journal_bytes": 30348371,
+            "v1_jobs": 35,
+            "v2_jobs": 6,
+            "v1_bytes": 29538310,
+            "v2_bytes": 810061
+          }
+        ],
+        "currentInputJsonbTextBytes": 1776908,
+        "worldCandidates": 936,
+        "heapMaxBytes": 805306368,
+        "expectedInputSemanticHash": "d3ebea3f559ba64a0961803916154d6b2878d4c1aea7032bce8b5df6df96138f",
+        "characterCandidates": 832
+      },
+      {
+        "characterFacts": 641,
+        "jvmArguments": [
+          "-Dorg.gradle.internal.worker.tmpdir=<checkout>/build/tmp/test/work",
+          "-Dspring.test.context.cache.maxSize=1",
+          "-Xlog:gc*,safepoint:file=<artifact>/worker-%p-gc.log:time,uptime,level,tags",
+          "-Xms256m",
+          "-Xmx768m",
+          "-Dfile.encoding=UTF-8",
+          "-Duser.country=KR",
+          "-Duser.language=ko",
+          "-Duser.variant",
+          "-ea"
+        ],
+        "historicalV1V2ReplayHashes": [
+          "ab4a864a97b03078fe2979a32fc353283361bc02fc2f8a3778235467e8359cc2",
+          "b9577bbc1e79fbd667c739d80179668229007e8df4462446349a2eebffadb940"
+        ],
+        "historicalJsonTotals": [
+          {
+            "jobs": 41,
+            "input_bytes": 34344206,
+            "base_bytes": 11282343,
+            "journal_bytes": 30348371,
+            "v1_jobs": 35,
+            "v2_jobs": 6,
+            "v1_bytes": 29538310,
+            "v2_bytes": 810061
+          }
+        ],
+        "currentInputJsonbTextBytes": 1776908,
+        "worldCandidates": 936,
+        "heapMaxBytes": 805306368,
+        "expectedInputSemanticHash": "d3ebea3f559ba64a0961803916154d6b2878d4c1aea7032bce8b5df6df96138f",
+        "characterCandidates": 832
+      },
+      {
+        "characterFacts": 641,
+        "jvmArguments": [
+          "-Dorg.gradle.internal.worker.tmpdir=<checkout>/build/tmp/test/work",
+          "-Dspring.test.context.cache.maxSize=1",
+          "-Xlog:gc*,safepoint:file=<artifact>/worker-%p-gc.log:time,uptime,level,tags",
+          "-Xms256m",
+          "-Xmx768m",
+          "-Dfile.encoding=UTF-8",
+          "-Duser.country=KR",
+          "-Duser.language=ko",
+          "-Duser.variant",
+          "-ea"
+        ],
+        "historicalV1V2ReplayHashes": [
+          "ab4a864a97b03078fe2979a32fc353283361bc02fc2f8a3778235467e8359cc2",
+          "b9577bbc1e79fbd667c739d80179668229007e8df4462446349a2eebffadb940"
+        ],
+        "historicalJsonTotals": [
+          {
+            "jobs": 41,
+            "input_bytes": 34344206,
+            "base_bytes": 11282343,
+            "journal_bytes": 30348371,
+            "v1_jobs": 35,
+            "v2_jobs": 6,
+            "v1_bytes": 29538310,
+            "v2_bytes": 810061
+          }
+        ],
+        "currentInputJsonbTextBytes": 1776908,
+        "worldCandidates": 936,
+        "heapMaxBytes": 805306368,
+        "expectedInputSemanticHash": "d3ebea3f559ba64a0961803916154d6b2878d4c1aea7032bce8b5df6df96138f",
+        "characterCandidates": 832
+      }
+    ],
+    "parity": [
+      {
+        "inputSemanticHash": "d3ebea3f559ba64a0961803916154d6b2878d4c1aea7032bce8b5df6df96138f",
+        "claimSemanticHash": "b2aaa0f6d310b856f564423f6fddf2e5871907b2c223a1dff712153b2dfe9682",
+        "verifiedHistoryFacts": 641,
+        "episodeListSemanticHash": "6179638bf68c9868cc87dfaecbbd7013032b0fd6d1540617c2a3d1d7c70a0126",
+        "currentWorldSubjects": 181,
+        "pendingReferences": 3,
+        "retainedRowsUnchanged": true
+      },
+      {
+        "inputSemanticHash": "d3ebea3f559ba64a0961803916154d6b2878d4c1aea7032bce8b5df6df96138f",
+        "claimSemanticHash": "b2aaa0f6d310b856f564423f6fddf2e5871907b2c223a1dff712153b2dfe9682",
+        "verifiedHistoryFacts": 641,
+        "episodeListSemanticHash": "6179638bf68c9868cc87dfaecbbd7013032b0fd6d1540617c2a3d1d7c70a0126",
+        "currentWorldSubjects": 181,
+        "pendingReferences": 3,
+        "retainedRowsUnchanged": true
+      },
+      {
+        "inputSemanticHash": "d3ebea3f559ba64a0961803916154d6b2878d4c1aea7032bce8b5df6df96138f",
+        "claimSemanticHash": "b2aaa0f6d310b856f564423f6fddf2e5871907b2c223a1dff712153b2dfe9682",
+        "verifiedHistoryFacts": 641,
+        "episodeListSemanticHash": "6179638bf68c9868cc87dfaecbbd7013032b0fd6d1540617c2a3d1d7c70a0126",
+        "currentWorldSubjects": 181,
+        "pendingReferences": 3,
+        "retainedRowsUnchanged": true
+      }
+    ],
+    "evidence": [
+      {
+        "sample": "sample-1-episodes",
+        "rowsSelectingJobJson": 42,
+        "runtime": {
+          "elapsedMillis": 454.223333,
+          "heapBeforeBytes": 148256576,
+          "heapAfterBytes": 620106224,
+          "sampledPeakHeapBytes": 620106224,
+          "allocatedBytes": 722083856,
+          "gcCollections": 8,
+          "gcMillis": 21,
+          "processCpuNanos": 1247894000
+        },
+        "httpStatus": 200,
+        "responseBytes": 21812,
+        "queryTotals": [
+          {
+            "profileId": "q001",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.584125,
+            "failures": []
+          },
+          {
+            "profileId": "q002",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.539792,
+            "failures": []
+          },
+          {
+            "profileId": "q003",
+            "executions": 1,
+            "consumedRows": 42,
+            "executeMillis": 0.473292,
+            "failures": []
+          },
+          {
+            "profileId": "q004",
+            "executions": 1,
+            "consumedRows": 2,
+            "executeMillis": 0.547125,
+            "failures": []
+          },
+          {
+            "profileId": "q005",
+            "executions": 1,
+            "consumedRows": 42,
+            "executeMillis": 100.046333,
+            "failures": []
+          },
+          {
+            "profileId": "q006",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 2.630833,
+            "failures": []
+          }
+        ]
+      },
+      {
+        "sample": "sample-2-episodes",
+        "rowsSelectingJobJson": 42,
+        "runtime": {
+          "elapsedMillis": 323.804583,
+          "heapBeforeBytes": 157729792,
+          "heapAfterBytes": 614744792,
+          "sampledPeakHeapBytes": 614744792,
+          "allocatedBytes": 703956344,
+          "gcCollections": 7,
+          "gcMillis": 20,
+          "processCpuNanos": 708942000
+        },
+        "httpStatus": 200,
+        "responseBytes": 21814,
+        "queryTotals": [
+          {
+            "profileId": "q001",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.551375,
+            "failures": []
+          },
+          {
+            "profileId": "q002",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.313333,
+            "failures": []
+          },
+          {
+            "profileId": "q003",
+            "executions": 1,
+            "consumedRows": 42,
+            "executeMillis": 0.325875,
+            "failures": []
+          },
+          {
+            "profileId": "q004",
+            "executions": 1,
+            "consumedRows": 2,
+            "executeMillis": 0.415583,
+            "failures": []
+          },
+          {
+            "profileId": "q005",
+            "executions": 1,
+            "consumedRows": 42,
+            "executeMillis": 105.216167,
+            "failures": []
+          },
+          {
+            "profileId": "q006",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 3.854333,
+            "failures": []
+          }
+        ]
+      },
+      {
+        "sample": "sample-3-episodes",
+        "rowsSelectingJobJson": 42,
+        "runtime": {
+          "elapsedMillis": 296.126167,
+          "heapBeforeBytes": 158196600,
+          "heapAfterBytes": 593620592,
+          "sampledPeakHeapBytes": 623240056,
+          "allocatedBytes": 703876776,
+          "gcCollections": 6,
+          "gcMillis": 19,
+          "processCpuNanos": 635339000
+        },
+        "httpStatus": 200,
+        "responseBytes": 21814,
+        "queryTotals": [
+          {
+            "profileId": "q001",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.549792,
+            "failures": []
+          },
+          {
+            "profileId": "q002",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.398875,
+            "failures": []
+          },
+          {
+            "profileId": "q003",
+            "executions": 1,
+            "consumedRows": 42,
+            "executeMillis": 0.3505,
+            "failures": []
+          },
+          {
+            "profileId": "q004",
+            "executions": 1,
+            "consumedRows": 2,
+            "executeMillis": 0.314625,
+            "failures": []
+          },
+          {
+            "profileId": "q005",
+            "executions": 1,
+            "consumedRows": 42,
+            "executeMillis": 101.397875,
+            "failures": []
+          },
+          {
+            "profileId": "q006",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 1.2005,
+            "failures": []
+          }
+        ]
+      },
+      {
+        "sample": "sample-1-claim",
+        "rowsSelectingJobJson": 88,
+        "runtime": {
+          "elapsedMillis": 7041.622083,
+          "heapBeforeBytes": 149139608,
+          "heapAfterBytes": 682844352,
+          "sampledPeakHeapBytes": 682844352,
+          "allocatedBytes": 1531457144,
+          "gcCollections": 19,
+          "gcMillis": 35,
+          "processCpuNanos": 8452059000
+        },
+        "httpStatus": 200,
+        "responseBytes": 123636,
+        "queryTotals": [
+          {
+            "profileId": "q007",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 2.401583,
+            "failures": []
+          },
+          {
+            "profileId": "q008",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 3.165916,
+            "failures": []
+          },
+          {
+            "profileId": "q009",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.485084,
+            "failures": []
+          },
+          {
+            "profileId": "q010",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 1.209834,
+            "failures": []
+          },
+          {
+            "profileId": "q011",
+            "executions": 42,
+            "consumedRows": 42,
+            "executeMillis": 12.151,
+            "failures": []
+          },
+          {
+            "profileId": "q012",
+            "executions": 3,
+            "consumedRows": 6,
+            "executeMillis": 19.526042999999998,
+            "failures": []
+          },
+          {
+            "profileId": "q013",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 3.560916,
+            "failures": []
+          },
+          {
+            "profileId": "q014",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.66675,
+            "failures": []
+          },
+          {
+            "profileId": "q015",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 1.116458,
+            "failures": []
+          },
+          {
+            "profileId": "q016",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 1.32675,
+            "failures": []
+          },
+          {
+            "profileId": "q017",
+            "executions": 1,
+            "consumedRows": 191,
+            "executeMillis": 1.607625,
+            "failures": []
+          },
+          {
+            "profileId": "q018",
+            "executions": 1,
+            "consumedRows": 62,
+            "executeMillis": 1.132917,
+            "failures": []
+          },
+          {
+            "profileId": "q019",
+            "executions": 40,
+            "consumedRows": 40,
+            "executeMillis": 151.31666399999997,
+            "failures": []
+          },
+          {
+            "profileId": "q020",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 1.205584,
+            "failures": []
+          },
+          {
+            "profileId": "q021",
+            "executions": 2,
+            "consumedRows": 82,
+            "executeMillis": 1.6235840000000001,
+            "failures": []
+          },
+          {
+            "profileId": "q022",
+            "executions": 41,
+            "consumedRows": 0,
+            "executeMillis": 24.52683,
+            "failures": []
+          },
+          {
+            "profileId": "q023",
+            "executions": 41,
+            "consumedRows": 641,
+            "executeMillis": 40.26041600000001,
+            "failures": []
+          },
+          {
+            "profileId": "q024",
+            "executions": 641,
+            "consumedRows": 641,
+            "executeMillis": 166.64867500000003,
+            "failures": []
+          },
+          {
+            "profileId": "q025",
+            "executions": 641,
+            "consumedRows": 641,
+            "executeMillis": 149.59300199999984,
+            "failures": []
+          },
+          {
+            "profileId": "q026",
+            "executions": 1,
+            "consumedRows": 181,
+            "executeMillis": 1.12825,
+            "failures": []
+          },
+          {
+            "profileId": "q027",
+            "executions": 181,
+            "consumedRows": 871,
+            "executeMillis": 213.88421099999994,
+            "failures": []
+          },
+          {
+            "profileId": "q028",
+            "executions": 2,
+            "consumedRows": 62,
+            "executeMillis": 1.7352919999999998,
+            "failures": []
+          },
+          {
+            "profileId": "q029",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 1.080291,
+            "failures": []
+          },
+          {
+            "profileId": "q030",
+            "executions": 1,
+            "consumedRows": 41,
+            "executeMillis": 102.9725,
+            "failures": []
+          },
+          {
+            "profileId": "q031",
+            "executions": 41,
+            "consumedRows": 832,
+            "executeMillis": 61.974126000000005,
+            "failures": []
+          },
+          {
+            "profileId": "q032",
+            "executions": 41,
+            "consumedRows": 936,
+            "executeMillis": 41.64641600000001,
+            "failures": []
+          },
+          {
+            "profileId": "q033",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.622042,
+            "failures": []
+          },
+          {
+            "profileId": "q034",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.646333,
+            "failures": []
+          },
+          {
+            "profileId": "q035",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 0.538084,
+            "failures": []
+          },
+          {
+            "profileId": "q036",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 1.961083,
+            "failures": []
+          }
+        ]
+      },
+      {
+        "sample": "sample-2-claim",
+        "rowsSelectingJobJson": 88,
+        "runtime": {
+          "elapsedMillis": 6729.631083,
+          "heapBeforeBytes": 155734472,
+          "heapAfterBytes": 684131944,
+          "sampledPeakHeapBytes": 684131944,
+          "allocatedBytes": 1354370656,
+          "gcCollections": 14,
+          "gcMillis": 30,
+          "processCpuNanos": 6917707000
+        },
+        "httpStatus": 200,
+        "responseBytes": 123636,
+        "queryTotals": [
+          {
+            "profileId": "q007",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 2.036583,
+            "failures": []
+          },
+          {
+            "profileId": "q008",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 2.075458,
+            "failures": []
+          },
+          {
+            "profileId": "q009",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.528625,
+            "failures": []
+          },
+          {
+            "profileId": "q010",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 1.76925,
+            "failures": []
+          },
+          {
+            "profileId": "q011",
+            "executions": 42,
+            "consumedRows": 42,
+            "executeMillis": 9.139542999999998,
+            "failures": []
+          },
+          {
+            "profileId": "q012",
+            "executions": 3,
+            "consumedRows": 6,
+            "executeMillis": 18.373041,
+            "failures": []
+          },
+          {
+            "profileId": "q013",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 2.216333,
+            "failures": []
+          },
+          {
+            "profileId": "q014",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.663208,
+            "failures": []
+          },
+          {
+            "profileId": "q015",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.537833,
+            "failures": []
+          },
+          {
+            "profileId": "q016",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 1.24075,
+            "failures": []
+          },
+          {
+            "profileId": "q017",
+            "executions": 1,
+            "consumedRows": 191,
+            "executeMillis": 2.714208,
+            "failures": []
+          },
+          {
+            "profileId": "q018",
+            "executions": 1,
+            "consumedRows": 62,
+            "executeMillis": 0.828459,
+            "failures": []
+          },
+          {
+            "profileId": "q019",
+            "executions": 40,
+            "consumedRows": 40,
+            "executeMillis": 163.792417,
+            "failures": []
+          },
+          {
+            "profileId": "q020",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 0.80175,
+            "failures": []
+          },
+          {
+            "profileId": "q021",
+            "executions": 2,
+            "consumedRows": 82,
+            "executeMillis": 1.455917,
+            "failures": []
+          },
+          {
+            "profileId": "q022",
+            "executions": 41,
+            "consumedRows": 0,
+            "executeMillis": 18.215875999999998,
+            "failures": []
+          },
+          {
+            "profileId": "q023",
+            "executions": 41,
+            "consumedRows": 641,
+            "executeMillis": 28.959286999999996,
+            "failures": []
+          },
+          {
+            "profileId": "q024",
+            "executions": 641,
+            "consumedRows": 641,
+            "executeMillis": 133.91974500000015,
+            "failures": []
+          },
+          {
+            "profileId": "q025",
+            "executions": 641,
+            "consumedRows": 641,
+            "executeMillis": 129.00845000000015,
+            "failures": []
+          },
+          {
+            "profileId": "q026",
+            "executions": 1,
+            "consumedRows": 181,
+            "executeMillis": 0.8985,
+            "failures": []
+          },
+          {
+            "profileId": "q027",
+            "executions": 181,
+            "consumedRows": 871,
+            "executeMillis": 194.7135060000002,
+            "failures": []
+          },
+          {
+            "profileId": "q028",
+            "executions": 2,
+            "consumedRows": 62,
+            "executeMillis": 2.488333,
+            "failures": []
+          },
+          {
+            "profileId": "q029",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 1.17325,
+            "failures": []
+          },
+          {
+            "profileId": "q030",
+            "executions": 1,
+            "consumedRows": 41,
+            "executeMillis": 103.028334,
+            "failures": []
+          },
+          {
+            "profileId": "q031",
+            "executions": 41,
+            "consumedRows": 832,
+            "executeMillis": 62.528417000000005,
+            "failures": []
+          },
+          {
+            "profileId": "q032",
+            "executions": 41,
+            "consumedRows": 936,
+            "executeMillis": 51.95099699999999,
+            "failures": []
+          },
+          {
+            "profileId": "q033",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.615958,
+            "failures": []
+          },
+          {
+            "profileId": "q034",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.519125,
+            "failures": []
+          },
+          {
+            "profileId": "q035",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 0.255583,
+            "failures": []
+          },
+          {
+            "profileId": "q036",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 1.290541,
+            "failures": []
+          }
+        ]
+      },
+      {
+        "sample": "sample-3-claim",
+        "rowsSelectingJobJson": 88,
+        "runtime": {
+          "elapsedMillis": 6446.047167,
+          "heapBeforeBytes": 156141552,
+          "heapAfterBytes": 634778048,
+          "sampledPeakHeapBytes": 735443872,
+          "allocatedBytes": 1354121320,
+          "gcCollections": 14,
+          "gcMillis": 29,
+          "processCpuNanos": 6579018000
+        },
+        "httpStatus": 200,
+        "responseBytes": 123636,
+        "queryTotals": [
+          {
+            "profileId": "q007",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 1.96625,
+            "failures": []
+          },
+          {
+            "profileId": "q008",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 1.686875,
+            "failures": []
+          },
+          {
+            "profileId": "q009",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.466458,
+            "failures": []
+          },
+          {
+            "profileId": "q010",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 1.937208,
+            "failures": []
+          },
+          {
+            "profileId": "q011",
+            "executions": 42,
+            "consumedRows": 42,
+            "executeMillis": 10.162912,
+            "failures": []
+          },
+          {
+            "profileId": "q012",
+            "executions": 3,
+            "consumedRows": 6,
+            "executeMillis": 20.935167,
+            "failures": []
+          },
+          {
+            "profileId": "q013",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 3.664708,
+            "failures": []
+          },
+          {
+            "profileId": "q014",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.48325,
+            "failures": []
+          },
+          {
+            "profileId": "q015",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 1.161,
+            "failures": []
+          },
+          {
+            "profileId": "q016",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.885042,
+            "failures": []
+          },
+          {
+            "profileId": "q017",
+            "executions": 1,
+            "consumedRows": 191,
+            "executeMillis": 2.510959,
+            "failures": []
+          },
+          {
+            "profileId": "q018",
+            "executions": 1,
+            "consumedRows": 62,
+            "executeMillis": 0.926042,
+            "failures": []
+          },
+          {
+            "profileId": "q019",
+            "executions": 40,
+            "consumedRows": 40,
+            "executeMillis": 154.725705,
+            "failures": []
+          },
+          {
+            "profileId": "q020",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 1.114834,
+            "failures": []
+          },
+          {
+            "profileId": "q021",
+            "executions": 2,
+            "consumedRows": 82,
+            "executeMillis": 1.4158330000000001,
+            "failures": []
+          },
+          {
+            "profileId": "q022",
+            "executions": 41,
+            "consumedRows": 0,
+            "executeMillis": 17.866457000000004,
+            "failures": []
+          },
+          {
+            "profileId": "q023",
+            "executions": 41,
+            "consumedRows": 641,
+            "executeMillis": 24.883332,
+            "failures": []
+          },
+          {
+            "profileId": "q024",
+            "executions": 641,
+            "consumedRows": 641,
+            "executeMillis": 130.9862430000001,
+            "failures": []
+          },
+          {
+            "profileId": "q025",
+            "executions": 641,
+            "consumedRows": 641,
+            "executeMillis": 128.984175,
+            "failures": []
+          },
+          {
+            "profileId": "q026",
+            "executions": 1,
+            "consumedRows": 181,
+            "executeMillis": 0.560333,
+            "failures": []
+          },
+          {
+            "profileId": "q027",
+            "executions": 181,
+            "consumedRows": 871,
+            "executeMillis": 211.52816299999998,
+            "failures": []
+          },
+          {
+            "profileId": "q028",
+            "executions": 2,
+            "consumedRows": 62,
+            "executeMillis": 1.219624,
+            "failures": []
+          },
+          {
+            "profileId": "q029",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 1.694958,
+            "failures": []
+          },
+          {
+            "profileId": "q030",
+            "executions": 1,
+            "consumedRows": 41,
+            "executeMillis": 105.2105,
+            "failures": []
+          },
+          {
+            "profileId": "q031",
+            "executions": 41,
+            "consumedRows": 832,
+            "executeMillis": 58.60654000000001,
+            "failures": []
+          },
+          {
+            "profileId": "q032",
+            "executions": 41,
+            "consumedRows": 936,
+            "executeMillis": 43.167745999999994,
+            "failures": []
+          },
+          {
+            "profileId": "q033",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.549,
+            "failures": []
+          },
+          {
+            "profileId": "q034",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.490791,
+            "failures": []
+          },
+          {
+            "profileId": "q035",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 0.252167,
+            "failures": []
+          },
+          {
+            "profileId": "q036",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 1.975958,
+            "failures": []
+          }
+        ]
+      }
+    ],
+    "environment": [
+      {
+        "operatingSystem": "Mac OS X 26.6.2",
+        "databaseVersion": "PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
+        "architecture": "aarch64",
+        "availableProcessors": 15
+      },
+      {
+        "operatingSystem": "Mac OS X 26.6.2",
+        "databaseVersion": "PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
+        "architecture": "aarch64",
+        "availableProcessors": 15
+      },
+      {
+        "operatingSystem": "Mac OS X 26.6.2",
+        "databaseVersion": "PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
+        "architecture": "aarch64",
+        "availableProcessors": 15
+      }
+    ],
+    "java": "openjdk version \"21.0.11\" 2026-04-21 LTS\nOpenJDK Runtime Environment Microsoft-13877178 (build 21.0.11+10-LTS)\nOpenJDK 64-Bit Server VM Microsoft-13877178 (build 21.0.11+10-LTS, mixed mode, sharing)\n",
+    "docker": "29.6.2 8320815104",
+    "harness": [
+      "ab60d2c135040d03df07e7ca9581e7188ec99acd65f7fa9bb0951ead0a4e1ae3",
+      "fb83336a337c54c4ea7bbf6cca139a6cf72bcf614ffa1dc4f85bc7e27210411e",
+      "3c687430e17adec70272d5f92dea94f75f006755ff3f1544533623900dba9605"
+    ]
+  },
+  "candidate": {
+    "commit": "34804254e9f3b424bea1176ccab4cd8778900a12",
+    "phases": {
+      "episodes": {
+        "samples": 3,
+        "runtime": {
+          "elapsedMillis": {
+            "median": 11.575084,
+            "min": 10.587208,
+            "max": 129.091042
+          },
+          "heapBeforeBytes": {
+            "median": 158865592,
+            "min": 149534360,
+            "max": 159188440
+          },
+          "heapAfterBytes": {
+            "median": 161285592,
+            "min": 160962744,
+            "max": 168408728
+          },
+          "sampledPeakHeapBytes": {
+            "median": 161285592,
+            "min": 160962744,
+            "max": 168408728
+          },
+          "allocatedBytes": {
+            "median": 970320,
+            "min": 967136,
+            "max": 18915072
+          },
+          "gcCollections": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "gcMillis": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "processCpuNanos": {
+            "median": 23819000,
+            "min": 20229000,
+            "max": 257682000
+          }
+        },
+        "jobJsonRows": [
+          0,
+          0,
+          0
+        ],
+        "selectQueries": [
+          6,
+          6,
+          6
+        ],
+        "selectConsumedRows": [
+          88,
+          88,
+          88
+        ],
+        "responseBytes": [
+          21807,
+          21809,
+          21810
+        ]
+      },
+      "claim": {
+        "samples": 3,
+        "runtime": {
+          "elapsedMillis": {
+            "median": 1563.615208,
+            "min": 1531.195875,
+            "max": 1753.767792
+          },
+          "heapBeforeBytes": {
+            "median": 156725832,
+            "min": 150307160,
+            "max": 157026328
+          },
+          "heapAfterBytes": {
+            "median": 387396472,
+            "min": 240070920,
+            "max": 425535848
+          },
+          "sampledPeakHeapBytes": {
+            "median": 426510360,
+            "min": 425535848,
+            "max": 475671512
+          },
+          "allocatedBytes": {
+            "median": 453552728,
+            "min": 453374936,
+            "max": 626520864
+          },
+          "gcCollections": {
+            "median": 3,
+            "min": 3,
+            "max": 4
+          },
+          "gcMillis": {
+            "median": 6,
+            "min": 5,
+            "max": 9
+          },
+          "processCpuNanos": {
+            "median": 1609681000,
+            "min": 1515349000,
+            "max": 2908388000
+          }
+        },
+        "jobJsonRows": [
+          1,
+          1,
+          1
+        ],
+        "selectQueries": [
+          1576,
+          1576,
+          1576
+        ],
+        "selectConsumedRows": [
+          3558,
+          3558,
+          3558
+        ],
+        "responseBytes": [
+          123636,
+          123636,
+          123636
+        ]
+      }
+    },
+    "sourceRevision": {
+      "mainSourceTreeSha256": "2c17be5d2cfa363fc3d0d0d3f09cb3a763464af5f726cc3efa996d75123da96b",
+      "trackedDiffSha256": "b8e99501ff999d3e9bf5fa66db73358477d2bae644ccae67f92e97866cb3d1cb"
+    },
+    "fixtures": [
+      {
+        "worldCandidates": 936,
+        "currentInputJsonbTextBytes": 1776908,
+        "historicalJsonTotals": [
+          {
+            "jobs": 41,
+            "input_bytes": 34344206,
+            "base_bytes": 11282343,
+            "journal_bytes": 30348371,
+            "v1_jobs": 35,
+            "v2_jobs": 6,
+            "v1_bytes": 29538310,
+            "v2_bytes": 810061
+          }
+        ],
+        "historicalV1V2ReplayHashes": [
+          "ab4a864a97b03078fe2979a32fc353283361bc02fc2f8a3778235467e8359cc2",
+          "b9577bbc1e79fbd667c739d80179668229007e8df4462446349a2eebffadb940"
+        ],
+        "jvmArguments": [
+          "-Dorg.gradle.internal.worker.tmpdir=<checkout>/build/tmp/test/work",
+          "-Dspring.test.context.cache.maxSize=1",
+          "-Xlog:gc*,safepoint:file=<artifact>/worker-%p-gc.log:time,uptime,level,tags",
+          "-Xms256m",
+          "-Xmx768m",
+          "-Dfile.encoding=UTF-8",
+          "-Duser.country=KR",
+          "-Duser.language=ko",
+          "-Duser.variant",
+          "-ea"
+        ],
+        "characterFacts": 641,
+        "characterCandidates": 832,
+        "expectedInputSemanticHash": "d3ebea3f559ba64a0961803916154d6b2878d4c1aea7032bce8b5df6df96138f",
+        "heapMaxBytes": 805306368
+      },
+      {
+        "worldCandidates": 936,
+        "currentInputJsonbTextBytes": 1776908,
+        "historicalJsonTotals": [
+          {
+            "jobs": 41,
+            "input_bytes": 34344206,
+            "base_bytes": 11282343,
+            "journal_bytes": 30348371,
+            "v1_jobs": 35,
+            "v2_jobs": 6,
+            "v1_bytes": 29538310,
+            "v2_bytes": 810061
+          }
+        ],
+        "historicalV1V2ReplayHashes": [
+          "ab4a864a97b03078fe2979a32fc353283361bc02fc2f8a3778235467e8359cc2",
+          "b9577bbc1e79fbd667c739d80179668229007e8df4462446349a2eebffadb940"
+        ],
+        "jvmArguments": [
+          "-Dorg.gradle.internal.worker.tmpdir=<checkout>/build/tmp/test/work",
+          "-Dspring.test.context.cache.maxSize=1",
+          "-Xlog:gc*,safepoint:file=<artifact>/worker-%p-gc.log:time,uptime,level,tags",
+          "-Xms256m",
+          "-Xmx768m",
+          "-Dfile.encoding=UTF-8",
+          "-Duser.country=KR",
+          "-Duser.language=ko",
+          "-Duser.variant",
+          "-ea"
+        ],
+        "characterFacts": 641,
+        "characterCandidates": 832,
+        "expectedInputSemanticHash": "d3ebea3f559ba64a0961803916154d6b2878d4c1aea7032bce8b5df6df96138f",
+        "heapMaxBytes": 805306368
+      },
+      {
+        "worldCandidates": 936,
+        "currentInputJsonbTextBytes": 1776908,
+        "historicalJsonTotals": [
+          {
+            "jobs": 41,
+            "input_bytes": 34344206,
+            "base_bytes": 11282343,
+            "journal_bytes": 30348371,
+            "v1_jobs": 35,
+            "v2_jobs": 6,
+            "v1_bytes": 29538310,
+            "v2_bytes": 810061
+          }
+        ],
+        "historicalV1V2ReplayHashes": [
+          "ab4a864a97b03078fe2979a32fc353283361bc02fc2f8a3778235467e8359cc2",
+          "b9577bbc1e79fbd667c739d80179668229007e8df4462446349a2eebffadb940"
+        ],
+        "jvmArguments": [
+          "-Dorg.gradle.internal.worker.tmpdir=<checkout>/build/tmp/test/work",
+          "-Dspring.test.context.cache.maxSize=1",
+          "-Xlog:gc*,safepoint:file=<artifact>/worker-%p-gc.log:time,uptime,level,tags",
+          "-Xms256m",
+          "-Xmx768m",
+          "-Dfile.encoding=UTF-8",
+          "-Duser.country=KR",
+          "-Duser.language=ko",
+          "-Duser.variant",
+          "-ea"
+        ],
+        "characterFacts": 641,
+        "characterCandidates": 832,
+        "expectedInputSemanticHash": "d3ebea3f559ba64a0961803916154d6b2878d4c1aea7032bce8b5df6df96138f",
+        "heapMaxBytes": 805306368
+      }
+    ],
+    "parity": [
+      {
+        "episodeListSemanticHash": "6179638bf68c9868cc87dfaecbbd7013032b0fd6d1540617c2a3d1d7c70a0126",
+        "verifiedHistoryFacts": 641,
+        "claimSemanticHash": "b2aaa0f6d310b856f564423f6fddf2e5871907b2c223a1dff712153b2dfe9682",
+        "inputSemanticHash": "d3ebea3f559ba64a0961803916154d6b2878d4c1aea7032bce8b5df6df96138f",
+        "retainedRowsUnchanged": true,
+        "pendingReferences": 3,
+        "currentWorldSubjects": 181
+      },
+      {
+        "episodeListSemanticHash": "6179638bf68c9868cc87dfaecbbd7013032b0fd6d1540617c2a3d1d7c70a0126",
+        "verifiedHistoryFacts": 641,
+        "claimSemanticHash": "b2aaa0f6d310b856f564423f6fddf2e5871907b2c223a1dff712153b2dfe9682",
+        "inputSemanticHash": "d3ebea3f559ba64a0961803916154d6b2878d4c1aea7032bce8b5df6df96138f",
+        "retainedRowsUnchanged": true,
+        "pendingReferences": 3,
+        "currentWorldSubjects": 181
+      },
+      {
+        "episodeListSemanticHash": "6179638bf68c9868cc87dfaecbbd7013032b0fd6d1540617c2a3d1d7c70a0126",
+        "verifiedHistoryFacts": 641,
+        "claimSemanticHash": "b2aaa0f6d310b856f564423f6fddf2e5871907b2c223a1dff712153b2dfe9682",
+        "inputSemanticHash": "d3ebea3f559ba64a0961803916154d6b2878d4c1aea7032bce8b5df6df96138f",
+        "retainedRowsUnchanged": true,
+        "pendingReferences": 3,
+        "currentWorldSubjects": 181
+      }
+    ],
+    "evidence": [
+      {
+        "sample": "sample-1-episodes",
+        "httpStatus": 200,
+        "runtime": {
+          "elapsedMillis": 129.091042,
+          "heapBeforeBytes": 149534360,
+          "heapAfterBytes": 168408728,
+          "sampledPeakHeapBytes": 168408728,
+          "allocatedBytes": 18915072,
+          "gcCollections": 0,
+          "gcMillis": 0,
+          "processCpuNanos": 257682000
+        },
+        "rowsSelectingJobJson": 0,
+        "responseBytes": 21807,
+        "queryTotals": [
+          {
+            "profileId": "q001",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.542125,
+            "failures": []
+          },
+          {
+            "profileId": "q002",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.734542,
+            "failures": []
+          },
+          {
+            "profileId": "q003",
+            "executions": 1,
+            "consumedRows": 42,
+            "executeMillis": 0.550542,
+            "failures": []
+          },
+          {
+            "profileId": "q004",
+            "executions": 1,
+            "consumedRows": 2,
+            "executeMillis": 0.481292,
+            "failures": []
+          },
+          {
+            "profileId": "q037",
+            "executions": 1,
+            "consumedRows": 42,
+            "executeMillis": 0.964458,
+            "failures": []
+          },
+          {
+            "profileId": "q006",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 1.226833,
+            "failures": []
+          }
+        ]
+      },
+      {
+        "sample": "sample-2-episodes",
+        "httpStatus": 200,
+        "runtime": {
+          "elapsedMillis": 11.575084,
+          "heapBeforeBytes": 158865592,
+          "heapAfterBytes": 160962744,
+          "sampledPeakHeapBytes": 160962744,
+          "allocatedBytes": 970320,
+          "gcCollections": 0,
+          "gcMillis": 0,
+          "processCpuNanos": 23819000
+        },
+        "rowsSelectingJobJson": 0,
+        "responseBytes": 21809,
+        "queryTotals": [
+          {
+            "profileId": "q001",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.547542,
+            "failures": []
+          },
+          {
+            "profileId": "q002",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.388958,
+            "failures": []
+          },
+          {
+            "profileId": "q003",
+            "executions": 1,
+            "consumedRows": 42,
+            "executeMillis": 0.344542,
+            "failures": []
+          },
+          {
+            "profileId": "q004",
+            "executions": 1,
+            "consumedRows": 2,
+            "executeMillis": 0.317375,
+            "failures": []
+          },
+          {
+            "profileId": "q037",
+            "executions": 1,
+            "consumedRows": 42,
+            "executeMillis": 0.695541,
+            "failures": []
+          },
+          {
+            "profileId": "q006",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 0.451792,
+            "failures": []
+          }
+        ]
+      },
+      {
+        "sample": "sample-3-episodes",
+        "httpStatus": 200,
+        "runtime": {
+          "elapsedMillis": 10.587208,
+          "heapBeforeBytes": 159188440,
+          "heapAfterBytes": 161285592,
+          "sampledPeakHeapBytes": 161285592,
+          "allocatedBytes": 967136,
+          "gcCollections": 0,
+          "gcMillis": 0,
+          "processCpuNanos": 20229000
+        },
+        "rowsSelectingJobJson": 0,
+        "responseBytes": 21810,
+        "queryTotals": [
+          {
+            "profileId": "q001",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.525708,
+            "failures": []
+          },
+          {
+            "profileId": "q002",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.294708,
+            "failures": []
+          },
+          {
+            "profileId": "q003",
+            "executions": 1,
+            "consumedRows": 42,
+            "executeMillis": 0.320292,
+            "failures": []
+          },
+          {
+            "profileId": "q004",
+            "executions": 1,
+            "consumedRows": 2,
+            "executeMillis": 0.293,
+            "failures": []
+          },
+          {
+            "profileId": "q037",
+            "executions": 1,
+            "consumedRows": 42,
+            "executeMillis": 0.645666,
+            "failures": []
+          },
+          {
+            "profileId": "q006",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 0.419833,
+            "failures": []
+          }
+        ]
+      },
+      {
+        "sample": "sample-1-claim",
+        "httpStatus": 200,
+        "runtime": {
+          "elapsedMillis": 1753.767792,
+          "heapBeforeBytes": 150307160,
+          "heapAfterBytes": 240070920,
+          "sampledPeakHeapBytes": 475671512,
+          "allocatedBytes": 626520864,
+          "gcCollections": 4,
+          "gcMillis": 9,
+          "processCpuNanos": 2908388000
+        },
+        "rowsSelectingJobJson": 1,
+        "responseBytes": 123636,
+        "queryTotals": [
+          {
+            "profileId": "q007",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 2.097667,
+            "failures": []
+          },
+          {
+            "profileId": "q008",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 3.459083,
+            "failures": []
+          },
+          {
+            "profileId": "q009",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.607916,
+            "failures": []
+          },
+          {
+            "profileId": "q010",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 1.756541,
+            "failures": []
+          },
+          {
+            "profileId": "q011",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.336792,
+            "failures": []
+          },
+          {
+            "profileId": "q038",
+            "executions": 3,
+            "consumedRows": 6,
+            "executeMillis": 3.32425,
+            "failures": []
+          },
+          {
+            "profileId": "q013",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 3.161375,
+            "failures": []
+          },
+          {
+            "profileId": "q014",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.472417,
+            "failures": []
+          },
+          {
+            "profileId": "q015",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 1.756375,
+            "failures": []
+          },
+          {
+            "profileId": "q016",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 2.338334,
+            "failures": []
+          },
+          {
+            "profileId": "q039",
+            "executions": 3,
+            "consumedRows": 126,
+            "executeMillis": 3.4186680000000003,
+            "failures": []
+          },
+          {
+            "profileId": "q017",
+            "executions": 1,
+            "consumedRows": 191,
+            "executeMillis": 5.101292,
+            "failures": []
+          },
+          {
+            "profileId": "q018",
+            "executions": 1,
+            "consumedRows": 62,
+            "executeMillis": 1.15,
+            "failures": []
+          },
+          {
+            "profileId": "q020",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 1.365333,
+            "failures": []
+          },
+          {
+            "profileId": "q021",
+            "executions": 2,
+            "consumedRows": 82,
+            "executeMillis": 1.455417,
+            "failures": []
+          },
+          {
+            "profileId": "q022",
+            "executions": 41,
+            "consumedRows": 0,
+            "executeMillis": 10.700543999999997,
+            "failures": []
+          },
+          {
+            "profileId": "q023",
+            "executions": 41,
+            "consumedRows": 641,
+            "executeMillis": 11.636791,
+            "failures": []
+          },
+          {
+            "profileId": "q024",
+            "executions": 641,
+            "consumedRows": 641,
+            "executeMillis": 97.66567799999996,
+            "failures": []
+          },
+          {
+            "profileId": "q025",
+            "executions": 641,
+            "consumedRows": 641,
+            "executeMillis": 88.49994699999998,
+            "failures": []
+          },
+          {
+            "profileId": "q026",
+            "executions": 1,
+            "consumedRows": 181,
+            "executeMillis": 0.539041,
+            "failures": []
+          },
+          {
+            "profileId": "q027",
+            "executions": 181,
+            "consumedRows": 871,
+            "executeMillis": 90.80367699999995,
+            "failures": []
+          },
+          {
+            "profileId": "q028",
+            "executions": 2,
+            "consumedRows": 62,
+            "executeMillis": 1.523292,
+            "failures": []
+          },
+          {
+            "profileId": "q040",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 1.301667,
+            "failures": []
+          },
+          {
+            "profileId": "q041",
+            "executions": 1,
+            "consumedRows": 41,
+            "executeMillis": 1.136584,
+            "failures": []
+          },
+          {
+            "profileId": "q042",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 0.704791,
+            "failures": []
+          },
+          {
+            "profileId": "q043",
+            "executions": 1,
+            "consumedRows": 3,
+            "executeMillis": 0.951792,
+            "failures": []
+          },
+          {
+            "profileId": "q033",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.870334,
+            "failures": []
+          },
+          {
+            "profileId": "q034",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.492125,
+            "failures": []
+          },
+          {
+            "profileId": "q035",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 0.375375,
+            "failures": []
+          },
+          {
+            "profileId": "q036",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 0.96975,
+            "failures": []
+          }
+        ]
+      },
+      {
+        "sample": "sample-2-claim",
+        "httpStatus": 200,
+        "runtime": {
+          "elapsedMillis": 1563.615208,
+          "heapBeforeBytes": 156725832,
+          "heapAfterBytes": 425535848,
+          "sampledPeakHeapBytes": 425535848,
+          "allocatedBytes": 453552728,
+          "gcCollections": 3,
+          "gcMillis": 6,
+          "processCpuNanos": 1609681000
+        },
+        "rowsSelectingJobJson": 1,
+        "responseBytes": 123636,
+        "queryTotals": [
+          {
+            "profileId": "q007",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 1.125791,
+            "failures": []
+          },
+          {
+            "profileId": "q008",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 1.12075,
+            "failures": []
+          },
+          {
+            "profileId": "q009",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.238292,
+            "failures": []
+          },
+          {
+            "profileId": "q010",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.973333,
+            "failures": []
+          },
+          {
+            "profileId": "q011",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.261292,
+            "failures": []
+          },
+          {
+            "profileId": "q038",
+            "executions": 3,
+            "consumedRows": 6,
+            "executeMillis": 1.8087499999999999,
+            "failures": []
+          },
+          {
+            "profileId": "q013",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 1.861875,
+            "failures": []
+          },
+          {
+            "profileId": "q014",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.231667,
+            "failures": []
+          },
+          {
+            "profileId": "q015",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.546458,
+            "failures": []
+          },
+          {
+            "profileId": "q016",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.71025,
+            "failures": []
+          },
+          {
+            "profileId": "q039",
+            "executions": 3,
+            "consumedRows": 126,
+            "executeMillis": 0.931291,
+            "failures": []
+          },
+          {
+            "profileId": "q017",
+            "executions": 1,
+            "consumedRows": 191,
+            "executeMillis": 1.209334,
+            "failures": []
+          },
+          {
+            "profileId": "q018",
+            "executions": 1,
+            "consumedRows": 62,
+            "executeMillis": 0.559459,
+            "failures": []
+          },
+          {
+            "profileId": "q020",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 0.5575,
+            "failures": []
+          },
+          {
+            "profileId": "q021",
+            "executions": 2,
+            "consumedRows": 82,
+            "executeMillis": 0.567708,
+            "failures": []
+          },
+          {
+            "profileId": "q022",
+            "executions": 41,
+            "consumedRows": 0,
+            "executeMillis": 9.389540000000002,
+            "failures": []
+          },
+          {
+            "profileId": "q023",
+            "executions": 41,
+            "consumedRows": 641,
+            "executeMillis": 10.49346,
+            "failures": []
+          },
+          {
+            "profileId": "q024",
+            "executions": 641,
+            "consumedRows": 641,
+            "executeMillis": 96.23715599999994,
+            "failures": []
+          },
+          {
+            "profileId": "q025",
+            "executions": 641,
+            "consumedRows": 641,
+            "executeMillis": 88.00928400000002,
+            "failures": []
+          },
+          {
+            "profileId": "q026",
+            "executions": 1,
+            "consumedRows": 181,
+            "executeMillis": 0.440084,
+            "failures": []
+          },
+          {
+            "profileId": "q027",
+            "executions": 181,
+            "consumedRows": 871,
+            "executeMillis": 109.494711,
+            "failures": []
+          },
+          {
+            "profileId": "q028",
+            "executions": 2,
+            "consumedRows": 62,
+            "executeMillis": 1.010959,
+            "failures": []
+          },
+          {
+            "profileId": "q040",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 0.695375,
+            "failures": []
+          },
+          {
+            "profileId": "q041",
+            "executions": 1,
+            "consumedRows": 41,
+            "executeMillis": 0.972958,
+            "failures": []
+          },
+          {
+            "profileId": "q042",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 1.113333,
+            "failures": []
+          },
+          {
+            "profileId": "q043",
+            "executions": 1,
+            "consumedRows": 3,
+            "executeMillis": 1.207042,
+            "failures": []
+          },
+          {
+            "profileId": "q033",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.493708,
+            "failures": []
+          },
+          {
+            "profileId": "q034",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.44175,
+            "failures": []
+          },
+          {
+            "profileId": "q035",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 0.256083,
+            "failures": []
+          },
+          {
+            "profileId": "q036",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 0.645458,
+            "failures": []
+          }
+        ]
+      },
+      {
+        "sample": "sample-3-claim",
+        "httpStatus": 200,
+        "runtime": {
+          "elapsedMillis": 1531.195875,
+          "heapBeforeBytes": 157026328,
+          "heapAfterBytes": 387396472,
+          "sampledPeakHeapBytes": 426510360,
+          "allocatedBytes": 453374936,
+          "gcCollections": 3,
+          "gcMillis": 5,
+          "processCpuNanos": 1515349000
+        },
+        "rowsSelectingJobJson": 1,
+        "responseBytes": 123636,
+        "queryTotals": [
+          {
+            "profileId": "q007",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 1.143584,
+            "failures": []
+          },
+          {
+            "profileId": "q008",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.955334,
+            "failures": []
+          },
+          {
+            "profileId": "q009",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.270709,
+            "failures": []
+          },
+          {
+            "profileId": "q010",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.835542,
+            "failures": []
+          },
+          {
+            "profileId": "q011",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.226791,
+            "failures": []
+          },
+          {
+            "profileId": "q038",
+            "executions": 3,
+            "consumedRows": 6,
+            "executeMillis": 1.247707,
+            "failures": []
+          },
+          {
+            "profileId": "q013",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 1.740708,
+            "failures": []
+          },
+          {
+            "profileId": "q014",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.232208,
+            "failures": []
+          },
+          {
+            "profileId": "q015",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.698375,
+            "failures": []
+          },
+          {
+            "profileId": "q016",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.769,
+            "failures": []
+          },
+          {
+            "profileId": "q039",
+            "executions": 3,
+            "consumedRows": 126,
+            "executeMillis": 1.156083,
+            "failures": []
+          },
+          {
+            "profileId": "q017",
+            "executions": 1,
+            "consumedRows": 191,
+            "executeMillis": 2.572375,
+            "failures": []
+          },
+          {
+            "profileId": "q018",
+            "executions": 1,
+            "consumedRows": 62,
+            "executeMillis": 0.590292,
+            "failures": []
+          },
+          {
+            "profileId": "q020",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 0.765167,
+            "failures": []
+          },
+          {
+            "profileId": "q021",
+            "executions": 2,
+            "consumedRows": 82,
+            "executeMillis": 0.783458,
+            "failures": []
+          },
+          {
+            "profileId": "q022",
+            "executions": 41,
+            "consumedRows": 0,
+            "executeMillis": 8.679082000000003,
+            "failures": []
+          },
+          {
+            "profileId": "q023",
+            "executions": 41,
+            "consumedRows": 641,
+            "executeMillis": 10.008251000000001,
+            "failures": []
+          },
+          {
+            "profileId": "q024",
+            "executions": 641,
+            "consumedRows": 641,
+            "executeMillis": 94.27428899999994,
+            "failures": []
+          },
+          {
+            "profileId": "q025",
+            "executions": 641,
+            "consumedRows": 641,
+            "executeMillis": 85.92308900000005,
+            "failures": []
+          },
+          {
+            "profileId": "q026",
+            "executions": 1,
+            "consumedRows": 181,
+            "executeMillis": 0.478792,
+            "failures": []
+          },
+          {
+            "profileId": "q027",
+            "executions": 181,
+            "consumedRows": 871,
+            "executeMillis": 137.54733499999998,
+            "failures": []
+          },
+          {
+            "profileId": "q028",
+            "executions": 2,
+            "consumedRows": 62,
+            "executeMillis": 1.307666,
+            "failures": []
+          },
+          {
+            "profileId": "q040",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 1.447959,
+            "failures": []
+          },
+          {
+            "profileId": "q041",
+            "executions": 1,
+            "consumedRows": 41,
+            "executeMillis": 2.099375,
+            "failures": []
+          },
+          {
+            "profileId": "q042",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 1.051333,
+            "failures": []
+          },
+          {
+            "profileId": "q043",
+            "executions": 1,
+            "consumedRows": 3,
+            "executeMillis": 1.270916,
+            "failures": []
+          },
+          {
+            "profileId": "q033",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.851959,
+            "failures": []
+          },
+          {
+            "profileId": "q034",
+            "executions": 1,
+            "consumedRows": 1,
+            "executeMillis": 0.459583,
+            "failures": []
+          },
+          {
+            "profileId": "q035",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 0.267375,
+            "failures": []
+          },
+          {
+            "profileId": "q036",
+            "executions": 1,
+            "consumedRows": 0,
+            "executeMillis": 1.427541,
+            "failures": []
+          }
+        ]
+      }
+    ],
+    "environment": [
+      {
+        "databaseVersion": "PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
+        "operatingSystem": "Mac OS X 26.6.2",
+        "availableProcessors": 15,
+        "architecture": "aarch64"
+      },
+      {
+        "databaseVersion": "PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
+        "operatingSystem": "Mac OS X 26.6.2",
+        "availableProcessors": 15,
+        "architecture": "aarch64"
+      },
+      {
+        "databaseVersion": "PostgreSQL 16.14 (Debian 16.14-1.pgdg12+1) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
+        "operatingSystem": "Mac OS X 26.6.2",
+        "availableProcessors": 15,
+        "architecture": "aarch64"
+      }
+    ],
+    "java": "openjdk version \"21.0.11\" 2026-04-21 LTS\nOpenJDK Runtime Environment Microsoft-13877178 (build 21.0.11+10-LTS)\nOpenJDK 64-Bit Server VM Microsoft-13877178 (build 21.0.11+10-LTS, mixed mode, sharing)\n",
+    "docker": "29.6.2 8320815104",
+    "harness": [
+      "ab60d2c135040d03df07e7ca9581e7188ec99acd65f7fa9bb0951ead0a4e1ae3",
+      "fb83336a337c54c4ea7bbf6cca139a6cf72bcf614ffa1dc4f85bc7e27210411e",
+      "3c687430e17adec70272d5f92dea94f75f006755ff3f1544533623900dba9605"
+    ]
+  },
+  "limitations": [
+    "Synthetic content and scale; not an exact copy of production distribution, network or concurrent traffic.",
+    "Sampled heap every 5ms is not RSS or an absolute peak. Allocation includes the whole test JVM.",
+    "No external LLM or S3, no production writes. Initial claim success does not mean an episode completed.",
+    "Historical JSON text bytes do not equal network bytes or Java heap.",
+    "Identity-normalized semantic hashes omit leases/timestamps and re-sort only UUID-ordered owner/reference sets, with actual reference order asserted per fixture.",
+    "Stored input hashes are verified within each fixture; the identity-dependent value is omitted only from cross-fixture response comparison."
+  ],
+  "allSemanticHashesEqual": true,
+  "queryProfiles": {
+    "q001": {
+      "sql": "select m1_0.id,m1_0.age_requirement_confirmed_at,m1_0.analysis_guide_shown_at,m1_0.created_at,m1_0.display_name,m1_0.email,m1_0.email_verified,m1_0.feedback_prompt_shown_at,m1_0.first_analysis_started_at,m1_0.password_hash,m1_0.phone_number,m1_0.phone_verified,m1_0.profile_image_url,m1_0.role,m1_0.status,m1_0.updated_at from members m1_0 where m1_0.id=?",
+      "selectedColumns": [
+        "id",
+        "age_requirement_confirmed_at",
+        "analysis_guide_shown_at",
+        "created_at",
+        "display_name",
+        "email",
+        "email_verified",
+        "feedback_prompt_shown_at",
+        "first_analysis_started_at",
+        "password_hash",
+        "phone_number",
+        "phone_verified",
+        "profile_image_url",
+        "role",
+        "status",
+        "updated_at"
+      ],
+      "selectsJobJson": false
+    },
+    "q002": {
+      "sql": "select w1_0.id,w1_0.created_at,w1_0.description,w1_0.genre,w1_0.latest_episode_no,w1_0.lifecycle_status,w1_0.member_id,w1_0.relationship_input_version,w1_0.title,w1_0.updated_at from works w1_0 where w1_0.id=? and w1_0.member_id=?",
+      "selectedColumns": [
+        "id",
+        "created_at",
+        "description",
+        "genre",
+        "latest_episode_no",
+        "lifecycle_status",
+        "member_id",
+        "relationship_input_version",
+        "title",
+        "updated_at"
+      ],
+      "selectsJobJson": false
+    },
+    "q003": {
+      "sql": "select e1_0.id,e1_0.char_count,e1_0.content_hash,e1_0.content_revision,e1_0.content_s3_key,e1_0.content_s3_version,e1_0.content_updated_at,e1_0.created_at,e1_0.episode_no,e1_0.source_file_id,e1_0.status,e1_0.title,e1_0.updated_at,e1_0.validation_upload_eligible,e1_0.work_id from episodes e1_0 where e1_0.work_id=? and e1_0.status<>? order by e1_0.episode_no desc",
+      "selectedColumns": [
+        "id",
+        "char_count",
+        "content_hash",
+        "content_revision",
+        "content_s3_key",
+        "content_s3_version",
+        "content_updated_at",
+        "created_at",
+        "episode_no",
+        "source_file_id",
+        "status",
+        "title",
+        "updated_at",
+        "validation_upload_eligible",
+        "work_id"
+      ],
+      "selectsJobJson": false
+    },
+    "q004": {
+      "sql": "select uf1_0.id,uf1_0.archived_at,uf1_0.batch_id,b1_0.id,b1_0.completed_at,b1_0.created_at,b1_0.file_count,b1_0.member_id,b1_0.source_type,b1_0.status,b1_0.updated_at,b1_0.upload_type,b1_0.work_id,uf1_0.content_storage_url,uf1_0.created_at,uf1_0.current_setting_book_revision_id,uf1_0.detected_episode_count,uf1_0.detected_episode_end_no,uf1_0.detected_episode_start_no,uf1_0.file_role,uf1_0.file_size,uf1_0.mime_type,uf1_0.original_filename,uf1_0.parse_status,uf1_0.storage_url,uf1_0.updated_at from upload_files uf1_0 join upload_batches b1_0 on b1_0.id=uf1_0.batch_id where uf1_0.id in (?,?)",
+      "selectedColumns": [
+        "id",
+        "archived_at",
+        "batch_id",
+        "id",
+        "completed_at",
+        "created_at",
+        "file_count",
+        "member_id",
+        "source_type",
+        "status",
+        "updated_at",
+        "upload_type",
+        "work_id",
+        "content_storage_url",
+        "created_at",
+        "current_setting_book_revision_id",
+        "detected_episode_count",
+        "detected_episode_end_no",
+        "detected_episode_start_no",
+        "file_role",
+        "file_size",
+        "mime_type",
+        "original_filename",
+        "parse_status",
+        "storage_url",
+        "updated_at"
+      ],
+      "selectsJobJson": false
+    },
+    "q005": {
+      "sql": "select aj1_0.id,aj1_0.analysis_mode,aj1_0.analysis_run_id,aj1_0.attempt_requested_at,aj1_0.automatic_applied_at,aj1_0.automatic_input_state,b1_0.id,b1_0.completed_at,b1_0.created_at,b1_0.file_count,b1_0.member_id,b1_0.source_type,b1_0.status,b1_0.updated_at,b1_0.upload_type,b1_0.work_id,aj1_0.character_comparison_input_hash,aj1_0.character_comparisons_handed_off,aj1_0.checkpoint_stage,aj1_0.claim_attempt_count,aj1_0.completed_at,aj1_0.created_at,aj1_0.current_step,e1_0.id,e1_0.char_count,e1_0.content_hash,e1_0.content_revision,e1_0.content_s3_key,e1_0.content_s3_version,e1_0.content_updated_at,e1_0.created_at,e1_0.episode_no,e1_0.source_file_id,e1_0.status,e1_0.title,e1_0.updated_at,e1_0.validation_upload_eligible,e1_0.work_id,aj1_0.error_message,aj1_0.failure_code,aj1_0.failure_diagnostics,aj1_0.input_state_hash,aj1_0.input_token_count,aj1_0.job_type,aj1_0.journal_invalidation_reason,aj1_0.journal_status,aj1_0.lease_expires_at,aj1_0.lease_token,aj1_0.metrics_attempt_no,aj1_0.metrics_request_episode_count,aj1_0.metrics_request_id,aj1_0.metrics_request_started_at,aj1_0.metrics_user_retry,aj1_0.model_name,aj1_0.output_token_count,aj1_0.pending_since,aj1_0.predecessor_job_id,aj1_0.relationship_analysis_enabled,aj1_0.relationship_generation,aj1_0.relationship_partial_results_enabled,aj1_0.relationship_service_paid,aj1_0.result_outcome,aj1_0.result_ready_at,aj1_0.review_application_held_at,aj1_0.review_mode,aj1_0.run_base_state,aj1_0.run_generation,aj1_0.run_sequence,aj1_0.setting_candidate_id,aj1_0.source_content_hash,aj1_0.source_content_s3_key,aj1_0.source_content_s3_version,aj1_0.source_episode_no,aj1_0.source_kind,aj1_0.source_reference_invalidated_at,aj1_0.source_setting_book_id,aj1_0.source_setting_book_revision_id,aj1_0.started_at,aj1_0.state_journal,aj1_0.status,aj1_0.summary_json,aj1_0.updated_at,aj1_0.work_id,aj1_0.world_setting_candidate_id from analysis_jobs aj1_0 left join upload_batches b1_0 on b1_0.id=aj1_0.batch_id join episodes e1_0 on e1_0.id=aj1_0.episode_id where b1_0.id in (?,?) and e1_0.id in (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) and aj1_0.job_type in ('SETTING_EXTRACTION','EPISODE_VALIDATION') order by aj1_0.created_at desc",
+      "selectedColumns": [
+        "id",
+        "analysis_mode",
+        "analysis_run_id",
+        "attempt_requested_at",
+        "automatic_applied_at",
+        "automatic_input_state",
+        "id",
+        "completed_at",
+        "created_at",
+        "file_count",
+        "member_id",
+        "source_type",
+        "status",
+        "updated_at",
+        "upload_type",
+        "work_id",
+        "character_comparison_input_hash",
+        "character_comparisons_handed_off",
+        "checkpoint_stage",
+        "claim_attempt_count",
+        "completed_at",
+        "created_at",
+        "current_step",
+        "id",
+        "char_count",
+        "content_hash",
+        "content_revision",
+        "content_s3_key",
+        "content_s3_version",
+        "content_updated_at",
+        "created_at",
+        "episode_no",
+        "source_file_id",
+        "status",
+        "title",
+        "updated_at",
+        "validation_upload_eligible",
+        "work_id",
+        "error_message",
+        "failure_code",
+        "failure_diagnostics",
+        "input_state_hash",
+        "input_token_count",
+        "job_type",
+        "journal_invalidation_reason",
+        "journal_status",
+        "lease_expires_at",
+        "lease_token",
+        "metrics_attempt_no",
+        "metrics_request_episode_count",
+        "metrics_request_id",
+        "metrics_request_started_at",
+        "metrics_user_retry",
+        "model_name",
+        "output_token_count",
+        "pending_since",
+        "predecessor_job_id",
+        "relationship_analysis_enabled",
+        "relationship_generation",
+        "relationship_partial_results_enabled",
+        "relationship_service_paid",
+        "result_outcome",
+        "result_ready_at",
+        "review_application_held_at",
+        "review_mode",
+        "run_base_state",
+        "run_generation",
+        "run_sequence",
+        "setting_candidate_id",
+        "source_content_hash",
+        "source_content_s3_key",
+        "source_content_s3_version",
+        "source_episode_no",
+        "source_kind",
+        "source_reference_invalidated_at",
+        "source_setting_book_id",
+        "source_setting_book_revision_id",
+        "started_at",
+        "state_journal",
+        "status",
+        "summary_json",
+        "updated_at",
+        "work_id",
+        "world_setting_candidate_id"
+      ],
+      "selectsJobJson": true
+    },
+    "q006": {
+      "sql": "select vr1_0.episode_id,vr1_0.id,vr1_0.status,vr1_0.baseline_status,vr1_0.is_current,vj1_0.status,vrc1_0.id,ej1_0.status,ej1_0.journal_status,vsa1_0.status from validation_reports vr1_0 left join validation_jobs vj1_0 on vj1_0.report_id=vr1_0.id left join validation_review_completions vrc1_0 on vrc1_0.report_id=vr1_0.id left join analysis_jobs ej1_0 on ej1_0.id=vrc1_0.extraction_job_id left join validation_settings_applications vsa1_0 on vsa1_0.report_id=vr1_0.id where vr1_0.is_current=true and vr1_0.episode_id in (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      "selectedColumns": [
+        "episode_id",
+        "id",
+        "status",
+        "baseline_status",
+        "is_current",
+        "status",
+        "id",
+        "status",
+        "journal_status",
+        "status"
+      ],
+      "selectsJobJson": false
+    },
+    "q007": {
+      "sql": "select aj1_0.id,aj1_0.analysis_mode,aj1_0.analysis_run_id,aj1_0.attempt_requested_at,aj1_0.automatic_applied_at,aj1_0.automatic_input_state,b1_0.id,b1_0.completed_at,b1_0.created_at,b1_0.file_count,b1_0.member_id,b1_0.source_type,b1_0.status,b1_0.updated_at,b1_0.upload_type,b1_0.work_id,aj1_0.character_comparison_input_hash,aj1_0.character_comparisons_handed_off,aj1_0.checkpoint_stage,aj1_0.claim_attempt_count,aj1_0.completed_at,aj1_0.created_at,aj1_0.current_step,aj1_0.episode_id,aj1_0.error_message,aj1_0.failure_code,aj1_0.failure_diagnostics,aj1_0.input_state_hash,aj1_0.input_token_count,aj1_0.job_type,aj1_0.journal_invalidation_reason,aj1_0.journal_status,aj1_0.lease_expires_at,aj1_0.lease_token,aj1_0.metrics_attempt_no,aj1_0.metrics_request_episode_count,aj1_0.metrics_request_id,aj1_0.metrics_request_started_at,aj1_0.metrics_user_retry,aj1_0.model_name,aj1_0.output_token_count,aj1_0.pending_since,aj1_0.predecessor_job_id,aj1_0.relationship_analysis_enabled,aj1_0.relationship_generation,aj1_0.relationship_partial_results_enabled,aj1_0.relationship_service_paid,aj1_0.result_outcome,aj1_0.result_ready_at,aj1_0.review_application_held_at,aj1_0.review_mode,aj1_0.run_base_state,aj1_0.run_generation,aj1_0.run_sequence,sc1_0.id,sc1_0.analysis_job_id,sc1_0.attribute_name,sc1_0.attribute_value,sc1_0.automatic_review_hold_reason,sc1_0.candidate_kind,sc1_0.character_comparison_batch_id,sc1_0.character_comparison_candidate_ref,sc1_0.closed_at,sc1_0.closure_request_id,sc1_0.compared_at,sc1_0.comparison_base_snapshot_version,sc1_0.comparison_context_hash,sc1_0.comparison_dependency_candidate_ids,sc1_0.comparison_error_message,sc1_0.comparison_failure_analysis_job_id,sc1_0.comparison_failure_batch_id,sc1_0.comparison_failure_code,sc1_0.comparison_failure_diagnostics,sc1_0.comparison_reason,sc1_0.comparison_status,sc1_0.comparison_target_fact_key,sc1_0.comparison_target_fact_type,sc1_0.comparison_terminal_at,sc1_0.comparison_terminal_outcome,sc1_0.confidence,sc1_0.confirmed_application_mode,sc1_0.confirmed_group_decision_hash,sc1_0.created_at,sc1_0.effective_from_episode_no,sc1_0.entity_name,sc1_0.entity_type,sc1_0.episode_id,sc1_0.evidence_spans,sc1_0.match_status,sc1_0.matched_character_id,sc1_0.metrics_source_attempt_no,sc1_0.narrative_time,sc1_0.preparation_failure_stage,sc1_0.proposed_fact_value,sc1_0.proposed_value_json,sc1_0.provisional_subject_key,sc1_0.raw_ai_result_json,sc1_0.raw_comparison_json,sc1_0.raw_entity_mention,sc1_0.removed_snapshot_entries_json,sc1_0.resolved_canonical_fact_key,sc1_0.review_status,sc1_0.reviewed_application_mode,sc1_0.reviewed_automatically,sc1_0.reviewed_snapshot_version,sc1_0.source_chunk_id,sc1_0.source_content_s3_key,sc1_0.source_kind,sc1_0.source_setting_book_id,sc1_0.source_setting_book_revision_id,sc1_0.stored_evidence_validation,sc1_0.suggested_operation,sc1_0.temporal_scope,sc1_0.updated_at,sc1_0.user_content_modified,sc1_0.user_modified,sc1_0.value_json,sc1_0.value_type,sc1_0.work_id,aj1_0.source_content_hash,aj1_0.source_content_s3_key,aj1_0.source_content_s3_version,aj1_0.source_episode_no,aj1_0.source_kind,aj1_0.source_reference_invalidated_at,aj1_0.source_setting_book_id,aj1_0.source_setting_book_revision_id,aj1_0.started_at,aj1_0.state_journal,aj1_0.status,aj1_0.summary_json,aj1_0.updated_at,aj1_0.work_id,w1_0.id,w1_0.created_at,w1_0.description,w1_0.genre,w1_0.latest_episode_no,w1_0.lifecycle_status,w1_0.member_id,w1_0.relationship_input_version,w1_0.title,w1_0.updated_at,wsc1_0.id,wsc1_0.analysis_job_id,wsc1_0.applied_world_setting_version,wsc1_0.automatic_review_hold_reason,wsc1_0.base_world_setting_version,wsc1_0.before_value,wsc1_0.canonical_subject_key,wsc1_0.canonical_subject_name,wsc1_0.category,wsc1_0.closed_at,wsc1_0.closure_request_id,wsc1_0.compared_at,wsc1_0.comparison_batch_id,wsc1_0.comparison_candidate_ref,wsc1_0.comparison_decision_id,wsc1_0.comparison_diagnostics,wsc1_0.comparison_error_message,wsc1_0.comparison_failure_analysis_job_id,wsc1_0.comparison_failure_batch_id,wsc1_0.comparison_failure_code,wsc1_0.comparison_failure_diagnostics,wsc1_0.comparison_reason,wsc1_0.comparison_review_reason,wsc1_0.comparison_source_error_code,wsc1_0.comparison_source_reason_code,wsc1_0.comparison_status,wsc1_0.comparison_terminal_at,wsc1_0.comparison_terminal_outcome,wsc1_0.consolidation_status,wsc1_0.created_at,wsc1_0.effective_from_episode_no,wsc1_0.evidence_spans,wsc1_0.extracted_value,wsc1_0.extraction_confidence,wsc1_0.final_category,wsc1_0.final_operation,wsc1_0.final_scope_name,wsc1_0.final_setting_name,wsc1_0.final_subject_name,wsc1_0.final_value,wsc1_0.history_only,wsc1_0.matched_property_name,wsc1_0.matched_scope_name,wsc1_0.metrics_source_attempt_no,wsc1_0.preparation_failure_stage,wsc1_0.proposed_scope_name,wsc1_0.proposed_setting_name,wsc1_0.proposed_value,wsc1_0.provisional_subject_key,wsc1_0.raw_comparison_json,wsc1_0.raw_extraction_json,wsc1_0.resolved_provisional_subject_keys,wsc1_0.resolved_target_world_setting_ids,wsc1_0.review_note,wsc1_0.review_status,wsc1_0.reviewed_at,wsc1_0.reviewed_automatically,wsc1_0.reviewed_by,wsc1_0.scope_name,wsc1_0.setting_name,wsc1_0.source_episode_id,wsc1_0.source_kind,wsc1_0.source_setting_book_id,wsc1_0.source_setting_book_revision_id,wsc1_0.subject_name,wsc1_0.subject_resolution_type,wsc1_0.suggested_operation,wsc1_0.target_world_setting_id,wsc1_0.temporal_scope,wsc1_0.updated_at,wsc1_0.work_id from analysis_jobs aj1_0 join works w1_0 on w1_0.id=aj1_0.work_id left join upload_batches b1_0 on b1_0.id=aj1_0.batch_id left join world_setting_candidates wsc1_0 on wsc1_0.id=aj1_0.world_setting_candidate_id left join setting_candidates sc1_0 on sc1_0.id=aj1_0.setting_candidate_id where aj1_0.status=? and aj1_0.job_type in (?) and w1_0.lifecycle_status='ACTIVE' and (aj1_0.lease_token is null or aj1_0.lease_expires_at is null or aj1_0.lease_expires_at<=?) order by aj1_0.lease_expires_at,aj1_0.created_at fetch first ? rows only",
+      "selectedColumns": [
+        "id",
+        "analysis_mode",
+        "analysis_run_id",
+        "attempt_requested_at",
+        "automatic_applied_at",
+        "automatic_input_state",
+        "id",
+        "completed_at",
+        "created_at",
+        "file_count",
+        "member_id",
+        "source_type",
+        "status",
+        "updated_at",
+        "upload_type",
+        "work_id",
+        "character_comparison_input_hash",
+        "character_comparisons_handed_off",
+        "checkpoint_stage",
+        "claim_attempt_count",
+        "completed_at",
+        "created_at",
+        "current_step",
+        "episode_id",
+        "error_message",
+        "failure_code",
+        "failure_diagnostics",
+        "input_state_hash",
+        "input_token_count",
+        "job_type",
+        "journal_invalidation_reason",
+        "journal_status",
+        "lease_expires_at",
+        "lease_token",
+        "metrics_attempt_no",
+        "metrics_request_episode_count",
+        "metrics_request_id",
+        "metrics_request_started_at",
+        "metrics_user_retry",
+        "model_name",
+        "output_token_count",
+        "pending_since",
+        "predecessor_job_id",
+        "relationship_analysis_enabled",
+        "relationship_generation",
+        "relationship_partial_results_enabled",
+        "relationship_service_paid",
+        "result_outcome",
+        "result_ready_at",
+        "review_application_held_at",
+        "review_mode",
+        "run_base_state",
+        "run_generation",
+        "run_sequence",
+        "id",
+        "analysis_job_id",
+        "attribute_name",
+        "attribute_value",
+        "automatic_review_hold_reason",
+        "candidate_kind",
+        "character_comparison_batch_id",
+        "character_comparison_candidate_ref",
+        "closed_at",
+        "closure_request_id",
+        "compared_at",
+        "comparison_base_snapshot_version",
+        "comparison_context_hash",
+        "comparison_dependency_candidate_ids",
+        "comparison_error_message",
+        "comparison_failure_analysis_job_id",
+        "comparison_failure_batch_id",
+        "comparison_failure_code",
+        "comparison_failure_diagnostics",
+        "comparison_reason",
+        "comparison_status",
+        "comparison_target_fact_key",
+        "comparison_target_fact_type",
+        "comparison_terminal_at",
+        "comparison_terminal_outcome",
+        "confidence",
+        "confirmed_application_mode",
+        "confirmed_group_decision_hash",
+        "created_at",
+        "effective_from_episode_no",
+        "entity_name",
+        "entity_type",
+        "episode_id",
+        "evidence_spans",
+        "match_status",
+        "matched_character_id",
+        "metrics_source_attempt_no",
+        "narrative_time",
+        "preparation_failure_stage",
+        "proposed_fact_value",
+        "proposed_value_json",
+        "provisional_subject_key",
+        "raw_ai_result_json",
+        "raw_comparison_json",
+        "raw_entity_mention",
+        "removed_snapshot_entries_json",
+        "resolved_canonical_fact_key",
+        "review_status",
+        "reviewed_application_mode",
+        "reviewed_automatically",
+        "reviewed_snapshot_version",
+        "source_chunk_id",
+        "source_content_s3_key",
+        "source_kind",
+        "source_setting_book_id",
+        "source_setting_book_revision_id",
+        "stored_evidence_validation",
+        "suggested_operation",
+        "temporal_scope",
+        "updated_at",
+        "user_content_modified",
+        "user_modified",
+        "value_json",
+        "value_type",
+        "work_id",
+        "source_content_hash",
+        "source_content_s3_key",
+        "source_content_s3_version",
+        "source_episode_no",
+        "source_kind",
+        "source_reference_invalidated_at",
+        "source_setting_book_id",
+        "source_setting_book_revision_id",
+        "started_at",
+        "state_journal",
+        "status",
+        "summary_json",
+        "updated_at",
+        "work_id",
+        "id",
+        "created_at",
+        "description",
+        "genre",
+        "latest_episode_no",
+        "lifecycle_status",
+        "member_id",
+        "relationship_input_version",
+        "title",
+        "updated_at",
+        "id",
+        "analysis_job_id",
+        "applied_world_setting_version",
+        "automatic_review_hold_reason",
+        "base_world_setting_version",
+        "before_value",
+        "canonical_subject_key",
+        "canonical_subject_name",
+        "category",
+        "closed_at",
+        "closure_request_id",
+        "compared_at",
+        "comparison_batch_id",
+        "comparison_candidate_ref",
+        "comparison_decision_id",
+        "comparison_diagnostics",
+        "comparison_error_message",
+        "comparison_failure_analysis_job_id",
+        "comparison_failure_batch_id",
+        "comparison_failure_code",
+        "comparison_failure_diagnostics",
+        "comparison_reason",
+        "comparison_review_reason",
+        "comparison_source_error_code",
+        "comparison_source_reason_code",
+        "comparison_status",
+        "comparison_terminal_at",
+        "comparison_terminal_outcome",
+        "consolidation_status",
+        "created_at",
+        "effective_from_episode_no",
+        "evidence_spans",
+        "extracted_value",
+        "extraction_confidence",
+        "final_category",
+        "final_operation",
+        "final_scope_name",
+        "final_setting_name",
+        "final_subject_name",
+        "final_value",
+        "history_only",
+        "matched_property_name",
+        "matched_scope_name",
+        "metrics_source_attempt_no",
+        "preparation_failure_stage",
+        "proposed_scope_name",
+        "proposed_setting_name",
+        "proposed_value",
+        "provisional_subject_key",
+        "raw_comparison_json",
+        "raw_extraction_json",
+        "resolved_provisional_subject_keys",
+        "resolved_target_world_setting_ids",
+        "review_note",
+        "review_status",
+        "reviewed_at",
+        "reviewed_automatically",
+        "reviewed_by",
+        "scope_name",
+        "setting_name",
+        "source_episode_id",
+        "source_kind",
+        "source_setting_book_id",
+        "source_setting_book_revision_id",
+        "subject_name",
+        "subject_resolution_type",
+        "suggested_operation",
+        "target_world_setting_id",
+        "temporal_scope",
+        "updated_at",
+        "work_id"
+      ],
+      "selectsJobJson": true
+    },
+    "q008": {
+      "sql": "select aj1_0.work_id from analysis_jobs aj1_0 join works w1_0 on w1_0.id=aj1_0.work_id where aj1_0.job_type<>'RELATIONSHIP_EXTRACTION' and aj1_0.status='PENDING' and aj1_0.job_type in (?) and aj1_0.analysis_mode in (?) and aj1_0.source_kind in (?) and (?=true or aj1_0.character_comparison_input_hash is null) and (?=true or aj1_0.relationship_analysis_enabled=false) and (?=true or aj1_0.relationship_partial_results_enabled=false) and (?=true or aj1_0.job_type<>'SETTING_EXTRACTION' or aj1_0.source_kind='SETTING_BOOK' or exists(select rbw1_0.work_id from relationship_backfill_works rbw1_0 where rbw1_0.work_id=aj1_0.work_id and rbw1_0.state<>'COMPLETE') or not exists(select rga1_0.id from relationship_graph_analyses rga1_0 where rga1_0.work_id=aj1_0.work_id and rga1_0.status='APPLIED' and rga1_0.failure_code='PARTIAL_COMPARISON_FAILED' and ((rga1_0.generation=0 and not exists(select rbw2_0.work_id from relationship_backfill_works rbw2_0 where rbw2_0.work_id=aj1_0.work_id)) or exists(select rbw3_0.work_id from relationship_backfill_works rbw3_0 where rbw3_0.work_id=aj1_0.work_id and (rga1_0.generation=rbw3_0.published_generation or rga1_0.generation=rbw3_0.building_generation))))) and w1_0.lifecycle_status='ACTIVE' and not exists(select vr1_0.id from validation_reports vr1_0 where vr1_0.work_id=aj1_0.work_id and vr1_0.is_current=true and (vr1_0.episode_id=aj1_0.episode_id or exists(select te1_0.episode_id from analysis_jobs aj2_0 join analysis_job_episode_targets te1_0 on aj2_0.id=te1_0.analysis_job_id where aj2_0.id=aj1_0.id and te1_0.episode_id=vr1_0.episode_id)) and not exists(select vrc1_0.id from validation_review_completions vrc1_0 where vrc1_0.report_id=vr1_0.id)) and (aj1_0.analysis_mode='CONFIRMED_ONLY' or (aj1_0.journal_status='PENDING' and (aj1_0.run_sequence=0 or exists(select aj3_0.id from analysis_jobs aj3_0 where aj3_0.id=aj1_0.predecessor_job_id and aj3_0.analysis_run_id=aj1_0.analysis_run_id and aj3_0.run_generation=aj1_0.run_generation and aj3_0.work_id=aj1_0.work_id and aj3_0.run_sequence=(aj1_0.run_sequence-1) and aj3_0.status='SUCCEEDED' and aj3_0.journal_status='SEALED' and (aj3_0.review_mode='MANUAL' or aj3_0.automatic_applied_at is not null))))) and (aj1_0.job_type<>'SETTING_EXTRACTION' or not exists(select aj4_0.id from analysis_jobs aj4_0 where aj4_0.work_id=aj1_0.work_id and aj4_0.job_type='SETTING_EXTRACTION' and aj4_0.status='RUNNING')) group by aj1_0.work_id order by min(aj1_0.created_at),aj1_0.work_id fetch first ? rows only",
+      "selectedColumns": [
+        "work_id"
+      ],
+      "selectsJobJson": false
+    },
+    "q009": {
+      "sql": "select w1_0.id,w1_0.created_at,w1_0.description,w1_0.genre,w1_0.latest_episode_no,w1_0.lifecycle_status,w1_0.member_id,w1_0.relationship_input_version,w1_0.title,w1_0.updated_at from works w1_0 where w1_0.id=? for no key update of w1_0 skip locked",
+      "selectedColumns": [
+        "id",
+        "created_at",
+        "description",
+        "genre",
+        "latest_episode_no",
+        "lifecycle_status",
+        "member_id",
+        "relationship_input_version",
+        "title",
+        "updated_at"
+      ],
+      "selectsJobJson": false
+    },
+    "q010": {
+      "sql": "select aj1_0.id,aj1_0.analysis_mode,aj1_0.analysis_run_id,aj1_0.attempt_requested_at,aj1_0.automatic_applied_at,aj1_0.automatic_input_state,aj1_0.batch_id,aj1_0.character_comparison_input_hash,aj1_0.character_comparisons_handed_off,aj1_0.checkpoint_stage,aj1_0.claim_attempt_count,aj1_0.completed_at,aj1_0.created_at,aj1_0.current_step,aj1_0.episode_id,aj1_0.error_message,aj1_0.failure_code,aj1_0.failure_diagnostics,aj1_0.input_state_hash,aj1_0.input_token_count,aj1_0.job_type,aj1_0.journal_invalidation_reason,aj1_0.journal_status,aj1_0.lease_expires_at,aj1_0.lease_token,aj1_0.metrics_attempt_no,aj1_0.metrics_request_episode_count,aj1_0.metrics_request_id,aj1_0.metrics_request_started_at,aj1_0.metrics_user_retry,aj1_0.model_name,aj1_0.output_token_count,aj1_0.pending_since,aj1_0.predecessor_job_id,aj1_0.relationship_analysis_enabled,aj1_0.relationship_generation,aj1_0.relationship_partial_results_enabled,aj1_0.relationship_service_paid,aj1_0.result_outcome,aj1_0.result_ready_at,aj1_0.review_application_held_at,aj1_0.review_mode,aj1_0.run_base_state,aj1_0.run_generation,aj1_0.run_sequence,aj1_0.setting_candidate_id,aj1_0.source_content_hash,aj1_0.source_content_s3_key,aj1_0.source_content_s3_version,aj1_0.source_episode_no,aj1_0.source_kind,aj1_0.source_reference_invalidated_at,aj1_0.source_setting_book_id,aj1_0.source_setting_book_revision_id,aj1_0.started_at,aj1_0.state_journal,aj1_0.status,aj1_0.summary_json,aj1_0.updated_at,aj1_0.work_id,aj1_0.world_setting_candidate_id from analysis_jobs aj1_0 join works w1_0 on w1_0.id=aj1_0.work_id where aj1_0.job_type<>'RELATIONSHIP_EXTRACTION' and aj1_0.status='PENDING' and aj1_0.job_type in (?) and aj1_0.analysis_mode in (?) and aj1_0.source_kind in (?) and (?=true or aj1_0.character_comparison_input_hash is null) and (?=true or aj1_0.relationship_analysis_enabled=false) and (?=true or aj1_0.relationship_partial_results_enabled=false) and (?=true or aj1_0.job_type<>'SETTING_EXTRACTION' or aj1_0.source_kind='SETTING_BOOK' or exists(select rbw1_0.work_id from relationship_backfill_works rbw1_0 where rbw1_0.work_id=aj1_0.work_id and rbw1_0.state<>'COMPLETE') or not exists(select rga1_0.id from relationship_graph_analyses rga1_0 where rga1_0.work_id=aj1_0.work_id and rga1_0.status='APPLIED' and rga1_0.failure_code='PARTIAL_COMPARISON_FAILED' and ((rga1_0.generation=0 and not exists(select rbw2_0.work_id from relationship_backfill_works rbw2_0 where rbw2_0.work_id=aj1_0.work_id)) or exists(select rbw3_0.work_id from relationship_backfill_works rbw3_0 where rbw3_0.work_id=aj1_0.work_id and (rga1_0.generation=rbw3_0.published_generation or rga1_0.generation=rbw3_0.building_generation))))) and w1_0.lifecycle_status='ACTIVE' and not exists(select vr1_0.id from validation_reports vr1_0 where vr1_0.work_id=aj1_0.work_id and vr1_0.is_current=true and (vr1_0.episode_id=aj1_0.episode_id or exists(select te1_0.episode_id from analysis_jobs aj2_0 join analysis_job_episode_targets te1_0 on aj2_0.id=te1_0.analysis_job_id where aj2_0.id=aj1_0.id and te1_0.episode_id=vr1_0.episode_id)) and not exists(select vrc1_0.id from validation_review_completions vrc1_0 where vrc1_0.report_id=vr1_0.id)) and (aj1_0.analysis_mode='CONFIRMED_ONLY' or (aj1_0.journal_status='PENDING' and (aj1_0.run_sequence=0 or exists(select aj3_0.id from analysis_jobs aj3_0 where aj3_0.id=aj1_0.predecessor_job_id and aj3_0.analysis_run_id=aj1_0.analysis_run_id and aj3_0.run_generation=aj1_0.run_generation and aj3_0.work_id=aj1_0.work_id and aj3_0.run_sequence=(aj1_0.run_sequence-1) and aj3_0.status='SUCCEEDED' and aj3_0.journal_status='SEALED' and (aj3_0.review_mode='MANUAL' or aj3_0.automatic_applied_at is not null))))) and (aj1_0.job_type<>'SETTING_EXTRACTION' or not exists(select aj4_0.id from analysis_jobs aj4_0 where aj4_0.work_id=aj1_0.work_id and aj4_0.job_type='SETTING_EXTRACTION' and aj4_0.status='RUNNING')) and aj1_0.work_id=? order by aj1_0.created_at,aj1_0.run_sequence,aj1_0.id fetch first ? rows only for no key update of aj1_0",
+      "selectedColumns": [
+        "id",
+        "analysis_mode",
+        "analysis_run_id",
+        "attempt_requested_at",
+        "automatic_applied_at",
+        "automatic_input_state",
+        "batch_id",
+        "character_comparison_input_hash",
+        "character_comparisons_handed_off",
+        "checkpoint_stage",
+        "claim_attempt_count",
+        "completed_at",
+        "created_at",
+        "current_step",
+        "episode_id",
+        "error_message",
+        "failure_code",
+        "failure_diagnostics",
+        "input_state_hash",
+        "input_token_count",
+        "job_type",
+        "journal_invalidation_reason",
+        "journal_status",
+        "lease_expires_at",
+        "lease_token",
+        "metrics_attempt_no",
+        "metrics_request_episode_count",
+        "metrics_request_id",
+        "metrics_request_started_at",
+        "metrics_user_retry",
+        "model_name",
+        "output_token_count",
+        "pending_since",
+        "predecessor_job_id",
+        "relationship_analysis_enabled",
+        "relationship_generation",
+        "relationship_partial_results_enabled",
+        "relationship_service_paid",
+        "result_outcome",
+        "result_ready_at",
+        "review_application_held_at",
+        "review_mode",
+        "run_base_state",
+        "run_generation",
+        "run_sequence",
+        "setting_candidate_id",
+        "source_content_hash",
+        "source_content_s3_key",
+        "source_content_s3_version",
+        "source_episode_no",
+        "source_kind",
+        "source_reference_invalidated_at",
+        "source_setting_book_id",
+        "source_setting_book_revision_id",
+        "started_at",
+        "state_journal",
+        "status",
+        "summary_json",
+        "updated_at",
+        "work_id",
+        "world_setting_candidate_id"
+      ],
+      "selectsJobJson": true
+    },
+    "q011": {
+      "sql": "select e1_0.id,e1_0.char_count,e1_0.content_hash,e1_0.content_revision,e1_0.content_s3_key,e1_0.content_s3_version,e1_0.content_updated_at,e1_0.created_at,e1_0.episode_no,e1_0.source_file_id,e1_0.status,e1_0.title,e1_0.updated_at,e1_0.validation_upload_eligible,e1_0.work_id from episodes e1_0 where e1_0.id=?",
+      "selectedColumns": [
+        "id",
+        "char_count",
+        "content_hash",
+        "content_revision",
+        "content_s3_key",
+        "content_s3_version",
+        "content_updated_at",
+        "created_at",
+        "episode_no",
+        "source_file_id",
+        "status",
+        "title",
+        "updated_at",
+        "validation_upload_eligible",
+        "work_id"
+      ],
+      "selectsJobJson": false
+    },
+    "q012": {
+      "sql": "select aj1_0.id,aj1_0.analysis_mode,aj1_0.analysis_run_id,aj1_0.attempt_requested_at,aj1_0.automatic_applied_at,aj1_0.automatic_input_state,aj1_0.batch_id,aj1_0.character_comparison_input_hash,aj1_0.character_comparisons_handed_off,aj1_0.checkpoint_stage,aj1_0.claim_attempt_count,aj1_0.completed_at,aj1_0.created_at,aj1_0.current_step,aj1_0.episode_id,aj1_0.error_message,aj1_0.failure_code,aj1_0.failure_diagnostics,aj1_0.input_state_hash,aj1_0.input_token_count,aj1_0.job_type,aj1_0.journal_invalidation_reason,aj1_0.journal_status,aj1_0.lease_expires_at,aj1_0.lease_token,aj1_0.metrics_attempt_no,aj1_0.metrics_request_episode_count,aj1_0.metrics_request_id,aj1_0.metrics_request_started_at,aj1_0.metrics_user_retry,aj1_0.model_name,aj1_0.output_token_count,aj1_0.pending_since,aj1_0.predecessor_job_id,aj1_0.relationship_analysis_enabled,aj1_0.relationship_generation,aj1_0.relationship_partial_results_enabled,aj1_0.relationship_service_paid,aj1_0.result_outcome,aj1_0.result_ready_at,aj1_0.review_application_held_at,aj1_0.review_mode,aj1_0.run_base_state,aj1_0.run_generation,aj1_0.run_sequence,aj1_0.setting_candidate_id,aj1_0.source_content_hash,aj1_0.source_content_s3_key,aj1_0.source_content_s3_version,aj1_0.source_episode_no,aj1_0.source_kind,aj1_0.source_reference_invalidated_at,aj1_0.source_setting_book_id,aj1_0.source_setting_book_revision_id,aj1_0.started_at,aj1_0.state_journal,aj1_0.status,aj1_0.summary_json,aj1_0.updated_at,aj1_0.work_id,aj1_0.world_setting_candidate_id from analysis_jobs aj1_0 where aj1_0.analysis_run_id=? and aj1_0.run_generation=? order by aj1_0.run_sequence",
+      "selectedColumns": [
+        "id",
+        "analysis_mode",
+        "analysis_run_id",
+        "attempt_requested_at",
+        "automatic_applied_at",
+        "automatic_input_state",
+        "batch_id",
+        "character_comparison_input_hash",
+        "character_comparisons_handed_off",
+        "checkpoint_stage",
+        "claim_attempt_count",
+        "completed_at",
+        "created_at",
+        "current_step",
+        "episode_id",
+        "error_message",
+        "failure_code",
+        "failure_diagnostics",
+        "input_state_hash",
+        "input_token_count",
+        "job_type",
+        "journal_invalidation_reason",
+        "journal_status",
+        "lease_expires_at",
+        "lease_token",
+        "metrics_attempt_no",
+        "metrics_request_episode_count",
+        "metrics_request_id",
+        "metrics_request_started_at",
+        "metrics_user_retry",
+        "model_name",
+        "output_token_count",
+        "pending_since",
+        "predecessor_job_id",
+        "relationship_analysis_enabled",
+        "relationship_generation",
+        "relationship_partial_results_enabled",
+        "relationship_service_paid",
+        "result_outcome",
+        "result_ready_at",
+        "review_application_held_at",
+        "review_mode",
+        "run_base_state",
+        "run_generation",
+        "run_sequence",
+        "setting_candidate_id",
+        "source_content_hash",
+        "source_content_s3_key",
+        "source_content_s3_version",
+        "source_episode_no",
+        "source_kind",
+        "source_reference_invalidated_at",
+        "source_setting_book_id",
+        "source_setting_book_revision_id",
+        "started_at",
+        "state_journal",
+        "status",
+        "summary_json",
+        "updated_at",
+        "work_id",
+        "world_setting_candidate_id"
+      ],
+      "selectsJobJson": true
+    },
+    "q013": {
+      "sql": "select max(coalesce(se1_0.episode_no,e1_0.episode_no)) from character_facts cf1_0 left join episodes se1_0 on se1_0.id=cf1_0.source_episode_id left join setting_candidates sc1_0 on sc1_0.id=cf1_0.setting_candidate_id left join episodes e1_0 on e1_0.id=sc1_0.episode_id join characters wc1_0 on wc1_0.id=cf1_0.character_id where wc1_0.work_id=?",
+      "selectedColumns": [
+        "max"
+      ],
+      "selectsJobJson": false
+    },
+    "q014": {
+      "sql": "select max(e1_0.episode_no) from characters wc1_0 join episodes e1_0 on e1_0.id=wc1_0.first_appearance_episode_id where wc1_0.work_id=?",
+      "selectedColumns": [
+        "max"
+      ],
+      "selectsJobJson": false
+    },
+    "q015": {
+      "sql": "select max(e1_0.episode_no) from setting_candidates sc1_0 join episodes e1_0 on e1_0.id=sc1_0.episode_id where sc1_0.work_id=? and sc1_0.review_status='CONFIRMED'",
+      "selectedColumns": [
+        "max"
+      ],
+      "selectsJobJson": false
+    },
+    "q016": {
+      "sql": "select max(se1_0.episode_no) from world_setting_candidates wsc1_0 join episodes se1_0 on se1_0.id=wsc1_0.source_episode_id where wsc1_0.work_id=? and wsc1_0.review_status='CONFIRMED'",
+      "selectedColumns": [
+        "max"
+      ],
+      "selectsJobJson": false
+    },
+    "q017": {
+      "sql": "select sc1_0.id,sc1_0.analysis_job_id,sc1_0.attribute_name,sc1_0.attribute_value,sc1_0.automatic_review_hold_reason,sc1_0.candidate_kind,sc1_0.character_comparison_batch_id,sc1_0.character_comparison_candidate_ref,sc1_0.closed_at,sc1_0.closure_request_id,sc1_0.compared_at,sc1_0.comparison_base_snapshot_version,sc1_0.comparison_context_hash,sc1_0.comparison_dependency_candidate_ids,sc1_0.comparison_error_message,sc1_0.comparison_failure_analysis_job_id,sc1_0.comparison_failure_batch_id,sc1_0.comparison_failure_code,sc1_0.comparison_failure_diagnostics,sc1_0.comparison_reason,sc1_0.comparison_status,sc1_0.comparison_target_fact_key,sc1_0.comparison_target_fact_type,sc1_0.comparison_terminal_at,sc1_0.comparison_terminal_outcome,sc1_0.confidence,sc1_0.confirmed_application_mode,sc1_0.confirmed_group_decision_hash,sc1_0.created_at,sc1_0.effective_from_episode_no,sc1_0.entity_name,sc1_0.entity_type,sc1_0.episode_id,sc1_0.evidence_spans,sc1_0.match_status,sc1_0.matched_character_id,sc1_0.metrics_source_attempt_no,sc1_0.narrative_time,sc1_0.preparation_failure_stage,sc1_0.proposed_fact_value,sc1_0.proposed_value_json,sc1_0.provisional_subject_key,sc1_0.raw_ai_result_json,sc1_0.raw_comparison_json,sc1_0.raw_entity_mention,sc1_0.removed_snapshot_entries_json,sc1_0.resolved_canonical_fact_key,sc1_0.review_status,sc1_0.reviewed_application_mode,sc1_0.reviewed_automatically,sc1_0.reviewed_snapshot_version,sc1_0.source_chunk_id,sc1_0.source_content_s3_key,sc1_0.source_kind,sc1_0.source_setting_book_id,sc1_0.source_setting_book_revision_id,sc1_0.stored_evidence_validation,sc1_0.suggested_operation,sc1_0.temporal_scope,sc1_0.updated_at,sc1_0.user_content_modified,sc1_0.user_modified,sc1_0.value_json,sc1_0.value_type,sc1_0.work_id from setting_candidates sc1_0 where sc1_0.work_id=? and sc1_0.review_status=? order by sc1_0.created_at desc",
+      "selectedColumns": [
+        "id",
+        "analysis_job_id",
+        "attribute_name",
+        "attribute_value",
+        "automatic_review_hold_reason",
+        "candidate_kind",
+        "character_comparison_batch_id",
+        "character_comparison_candidate_ref",
+        "closed_at",
+        "closure_request_id",
+        "compared_at",
+        "comparison_base_snapshot_version",
+        "comparison_context_hash",
+        "comparison_dependency_candidate_ids",
+        "comparison_error_message",
+        "comparison_failure_analysis_job_id",
+        "comparison_failure_batch_id",
+        "comparison_failure_code",
+        "comparison_failure_diagnostics",
+        "comparison_reason",
+        "comparison_status",
+        "comparison_target_fact_key",
+        "comparison_target_fact_type",
+        "comparison_terminal_at",
+        "comparison_terminal_outcome",
+        "confidence",
+        "confirmed_application_mode",
+        "confirmed_group_decision_hash",
+        "created_at",
+        "effective_from_episode_no",
+        "entity_name",
+        "entity_type",
+        "episode_id",
+        "evidence_spans",
+        "match_status",
+        "matched_character_id",
+        "metrics_source_attempt_no",
+        "narrative_time",
+        "preparation_failure_stage",
+        "proposed_fact_value",
+        "proposed_value_json",
+        "provisional_subject_key",
+        "raw_ai_result_json",
+        "raw_comparison_json",
+        "raw_entity_mention",
+        "removed_snapshot_entries_json",
+        "resolved_canonical_fact_key",
+        "review_status",
+        "reviewed_application_mode",
+        "reviewed_automatically",
+        "reviewed_snapshot_version",
+        "source_chunk_id",
+        "source_content_s3_key",
+        "source_kind",
+        "source_setting_book_id",
+        "source_setting_book_revision_id",
+        "stored_evidence_validation",
+        "suggested_operation",
+        "temporal_scope",
+        "updated_at",
+        "user_content_modified",
+        "user_modified",
+        "value_json",
+        "value_type",
+        "work_id"
+      ],
+      "selectsJobJson": false
+    },
+    "q018": {
+      "sql": "select wsc1_0.id,wsc1_0.analysis_job_id,wsc1_0.applied_world_setting_version,wsc1_0.automatic_review_hold_reason,wsc1_0.base_world_setting_version,wsc1_0.before_value,wsc1_0.canonical_subject_key,wsc1_0.canonical_subject_name,wsc1_0.category,wsc1_0.closed_at,wsc1_0.closure_request_id,wsc1_0.compared_at,wsc1_0.comparison_batch_id,wsc1_0.comparison_candidate_ref,wsc1_0.comparison_decision_id,wsc1_0.comparison_diagnostics,wsc1_0.comparison_error_message,wsc1_0.comparison_failure_analysis_job_id,wsc1_0.comparison_failure_batch_id,wsc1_0.comparison_failure_code,wsc1_0.comparison_failure_diagnostics,wsc1_0.comparison_reason,wsc1_0.comparison_review_reason,wsc1_0.comparison_source_error_code,wsc1_0.comparison_source_reason_code,wsc1_0.comparison_status,wsc1_0.comparison_terminal_at,wsc1_0.comparison_terminal_outcome,wsc1_0.consolidation_status,wsc1_0.created_at,wsc1_0.effective_from_episode_no,wsc1_0.evidence_spans,wsc1_0.extracted_value,wsc1_0.extraction_confidence,wsc1_0.final_category,wsc1_0.final_operation,wsc1_0.final_scope_name,wsc1_0.final_setting_name,wsc1_0.final_subject_name,wsc1_0.final_value,wsc1_0.history_only,wsc1_0.matched_property_name,wsc1_0.matched_scope_name,wsc1_0.metrics_source_attempt_no,wsc1_0.preparation_failure_stage,wsc1_0.proposed_scope_name,wsc1_0.proposed_setting_name,wsc1_0.proposed_value,wsc1_0.provisional_subject_key,wsc1_0.raw_comparison_json,wsc1_0.raw_extraction_json,wsc1_0.resolved_provisional_subject_keys,wsc1_0.resolved_target_world_setting_ids,wsc1_0.review_note,wsc1_0.review_status,wsc1_0.reviewed_at,wsc1_0.reviewed_automatically,wsc1_0.reviewed_by,wsc1_0.scope_name,wsc1_0.setting_name,wsc1_0.source_episode_id,wsc1_0.source_kind,wsc1_0.source_setting_book_id,wsc1_0.source_setting_book_revision_id,wsc1_0.subject_name,wsc1_0.subject_resolution_type,wsc1_0.suggested_operation,wsc1_0.target_world_setting_id,wsc1_0.temporal_scope,wsc1_0.updated_at,wsc1_0.work_id from world_setting_candidates wsc1_0 where wsc1_0.work_id=? and wsc1_0.review_status=? order by wsc1_0.created_at desc",
+      "selectedColumns": [
+        "id",
+        "analysis_job_id",
+        "applied_world_setting_version",
+        "automatic_review_hold_reason",
+        "base_world_setting_version",
+        "before_value",
+        "canonical_subject_key",
+        "canonical_subject_name",
+        "category",
+        "closed_at",
+        "closure_request_id",
+        "compared_at",
+        "comparison_batch_id",
+        "comparison_candidate_ref",
+        "comparison_decision_id",
+        "comparison_diagnostics",
+        "comparison_error_message",
+        "comparison_failure_analysis_job_id",
+        "comparison_failure_batch_id",
+        "comparison_failure_code",
+        "comparison_failure_diagnostics",
+        "comparison_reason",
+        "comparison_review_reason",
+        "comparison_source_error_code",
+        "comparison_source_reason_code",
+        "comparison_status",
+        "comparison_terminal_at",
+        "comparison_terminal_outcome",
+        "consolidation_status",
+        "created_at",
+        "effective_from_episode_no",
+        "evidence_spans",
+        "extracted_value",
+        "extraction_confidence",
+        "final_category",
+        "final_operation",
+        "final_scope_name",
+        "final_setting_name",
+        "final_subject_name",
+        "final_value",
+        "history_only",
+        "matched_property_name",
+        "matched_scope_name",
+        "metrics_source_attempt_no",
+        "preparation_failure_stage",
+        "proposed_scope_name",
+        "proposed_setting_name",
+        "proposed_value",
+        "provisional_subject_key",
+        "raw_comparison_json",
+        "raw_extraction_json",
+        "resolved_provisional_subject_keys",
+        "resolved_target_world_setting_ids",
+        "review_note",
+        "review_status",
+        "reviewed_at",
+        "reviewed_automatically",
+        "reviewed_by",
+        "scope_name",
+        "setting_name",
+        "source_episode_id",
+        "source_kind",
+        "source_setting_book_id",
+        "source_setting_book_revision_id",
+        "subject_name",
+        "subject_resolution_type",
+        "suggested_operation",
+        "target_world_setting_id",
+        "temporal_scope",
+        "updated_at",
+        "work_id"
+      ],
+      "selectsJobJson": false
+    },
+    "q019": {
+      "sql": "select aj1_0.id,aj1_0.analysis_mode,aj1_0.analysis_run_id,aj1_0.attempt_requested_at,aj1_0.automatic_applied_at,aj1_0.automatic_input_state,aj1_0.batch_id,aj1_0.character_comparison_input_hash,aj1_0.character_comparisons_handed_off,aj1_0.checkpoint_stage,aj1_0.claim_attempt_count,aj1_0.completed_at,aj1_0.created_at,aj1_0.current_step,aj1_0.episode_id,aj1_0.error_message,aj1_0.failure_code,aj1_0.failure_diagnostics,aj1_0.input_state_hash,aj1_0.input_token_count,aj1_0.job_type,aj1_0.journal_invalidation_reason,aj1_0.journal_status,aj1_0.lease_expires_at,aj1_0.lease_token,aj1_0.metrics_attempt_no,aj1_0.metrics_request_episode_count,aj1_0.metrics_request_id,aj1_0.metrics_request_started_at,aj1_0.metrics_user_retry,aj1_0.model_name,aj1_0.output_token_count,aj1_0.pending_since,aj1_0.predecessor_job_id,aj1_0.relationship_analysis_enabled,aj1_0.relationship_generation,aj1_0.relationship_partial_results_enabled,aj1_0.relationship_service_paid,aj1_0.result_outcome,aj1_0.result_ready_at,aj1_0.review_application_held_at,aj1_0.review_mode,aj1_0.run_base_state,aj1_0.run_generation,aj1_0.run_sequence,aj1_0.setting_candidate_id,aj1_0.source_content_hash,aj1_0.source_content_s3_key,aj1_0.source_content_s3_version,aj1_0.source_episode_no,aj1_0.source_kind,aj1_0.source_reference_invalidated_at,aj1_0.source_setting_book_id,aj1_0.source_setting_book_revision_id,aj1_0.started_at,aj1_0.state_journal,aj1_0.status,aj1_0.summary_json,aj1_0.updated_at,aj1_0.work_id,aj1_0.world_setting_candidate_id from analysis_jobs aj1_0 where aj1_0.id=?",
+      "selectedColumns": [
+        "id",
+        "analysis_mode",
+        "analysis_run_id",
+        "attempt_requested_at",
+        "automatic_applied_at",
+        "automatic_input_state",
+        "batch_id",
+        "character_comparison_input_hash",
+        "character_comparisons_handed_off",
+        "checkpoint_stage",
+        "claim_attempt_count",
+        "completed_at",
+        "created_at",
+        "current_step",
+        "episode_id",
+        "error_message",
+        "failure_code",
+        "failure_diagnostics",
+        "input_state_hash",
+        "input_token_count",
+        "job_type",
+        "journal_invalidation_reason",
+        "journal_status",
+        "lease_expires_at",
+        "lease_token",
+        "metrics_attempt_no",
+        "metrics_request_episode_count",
+        "metrics_request_id",
+        "metrics_request_started_at",
+        "metrics_user_retry",
+        "model_name",
+        "output_token_count",
+        "pending_since",
+        "predecessor_job_id",
+        "relationship_analysis_enabled",
+        "relationship_generation",
+        "relationship_partial_results_enabled",
+        "relationship_service_paid",
+        "result_outcome",
+        "result_ready_at",
+        "review_application_held_at",
+        "review_mode",
+        "run_base_state",
+        "run_generation",
+        "run_sequence",
+        "setting_candidate_id",
+        "source_content_hash",
+        "source_content_s3_key",
+        "source_content_s3_version",
+        "source_episode_no",
+        "source_kind",
+        "source_reference_invalidated_at",
+        "source_setting_book_id",
+        "source_setting_book_revision_id",
+        "started_at",
+        "state_journal",
+        "status",
+        "summary_json",
+        "updated_at",
+        "work_id",
+        "world_setting_candidate_id"
+      ],
+      "selectsJobJson": true
+    },
+    "q020": {
+      "sql": "select sc1_0.id,sc1_0.analysis_job_id,sc1_0.attribute_name,sc1_0.attribute_value,sc1_0.automatic_review_hold_reason,sc1_0.candidate_kind,sc1_0.character_comparison_batch_id,sc1_0.character_comparison_candidate_ref,sc1_0.closed_at,sc1_0.closure_request_id,sc1_0.compared_at,sc1_0.comparison_base_snapshot_version,sc1_0.comparison_context_hash,sc1_0.comparison_dependency_candidate_ids,sc1_0.comparison_error_message,sc1_0.comparison_failure_analysis_job_id,sc1_0.comparison_failure_batch_id,sc1_0.comparison_failure_code,sc1_0.comparison_failure_diagnostics,sc1_0.comparison_reason,sc1_0.comparison_status,sc1_0.comparison_target_fact_key,sc1_0.comparison_target_fact_type,sc1_0.comparison_terminal_at,sc1_0.comparison_terminal_outcome,sc1_0.confidence,sc1_0.confirmed_application_mode,sc1_0.confirmed_group_decision_hash,sc1_0.created_at,sc1_0.effective_from_episode_no,sc1_0.entity_name,sc1_0.entity_type,sc1_0.episode_id,sc1_0.evidence_spans,sc1_0.match_status,sc1_0.matched_character_id,sc1_0.metrics_source_attempt_no,sc1_0.narrative_time,sc1_0.preparation_failure_stage,sc1_0.proposed_fact_value,sc1_0.proposed_value_json,sc1_0.provisional_subject_key,sc1_0.raw_ai_result_json,sc1_0.raw_comparison_json,sc1_0.raw_entity_mention,sc1_0.removed_snapshot_entries_json,sc1_0.resolved_canonical_fact_key,sc1_0.review_status,sc1_0.reviewed_application_mode,sc1_0.reviewed_automatically,sc1_0.reviewed_snapshot_version,sc1_0.source_chunk_id,sc1_0.source_content_s3_key,sc1_0.source_kind,sc1_0.source_setting_book_id,sc1_0.source_setting_book_revision_id,sc1_0.stored_evidence_validation,sc1_0.suggested_operation,sc1_0.temporal_scope,sc1_0.updated_at,sc1_0.user_content_modified,sc1_0.user_modified,sc1_0.value_json,sc1_0.value_type,sc1_0.work_id from setting_candidates sc1_0 where sc1_0.work_id=? and sc1_0.candidate_kind='CHARACTER_DISCOVERY' and sc1_0.review_status='CONFIRMED' and sc1_0.matched_character_id is not null order by sc1_0.created_at,sc1_0.id",
+      "selectedColumns": [
+        "id",
+        "analysis_job_id",
+        "attribute_name",
+        "attribute_value",
+        "automatic_review_hold_reason",
+        "candidate_kind",
+        "character_comparison_batch_id",
+        "character_comparison_candidate_ref",
+        "closed_at",
+        "closure_request_id",
+        "compared_at",
+        "comparison_base_snapshot_version",
+        "comparison_context_hash",
+        "comparison_dependency_candidate_ids",
+        "comparison_error_message",
+        "comparison_failure_analysis_job_id",
+        "comparison_failure_batch_id",
+        "comparison_failure_code",
+        "comparison_failure_diagnostics",
+        "comparison_reason",
+        "comparison_status",
+        "comparison_target_fact_key",
+        "comparison_target_fact_type",
+        "comparison_terminal_at",
+        "comparison_terminal_outcome",
+        "confidence",
+        "confirmed_application_mode",
+        "confirmed_group_decision_hash",
+        "created_at",
+        "effective_from_episode_no",
+        "entity_name",
+        "entity_type",
+        "episode_id",
+        "evidence_spans",
+        "match_status",
+        "matched_character_id",
+        "metrics_source_attempt_no",
+        "narrative_time",
+        "preparation_failure_stage",
+        "proposed_fact_value",
+        "proposed_value_json",
+        "provisional_subject_key",
+        "raw_ai_result_json",
+        "raw_comparison_json",
+        "raw_entity_mention",
+        "removed_snapshot_entries_json",
+        "resolved_canonical_fact_key",
+        "review_status",
+        "reviewed_application_mode",
+        "reviewed_automatically",
+        "reviewed_snapshot_version",
+        "source_chunk_id",
+        "source_content_s3_key",
+        "source_kind",
+        "source_setting_book_id",
+        "source_setting_book_revision_id",
+        "stored_evidence_validation",
+        "suggested_operation",
+        "temporal_scope",
+        "updated_at",
+        "user_content_modified",
+        "user_modified",
+        "value_json",
+        "value_type",
+        "work_id"
+      ],
+      "selectsJobJson": false
+    },
+    "q021": {
+      "sql": "select wc1_0.id,wc1_0.created_at,wc1_0.current_age,wc1_0.current_level,wc1_0.current_narrative_time,wc1_0.first_appearance_episode_id,wc1_0.items_json,wc1_0.manually_edited_slots,wc1_0.name,wc1_0.profile_json,wc1_0.role_label,wc1_0.skills_json,wc1_0.snapshot_version,wc1_0.stats_json,wc1_0.status,wc1_0.statuses_json,wc1_0.updated_at,wc1_0.work_id from characters wc1_0 where wc1_0.work_id=? and wc1_0.status=? order by wc1_0.created_at desc",
+      "selectedColumns": [
+        "id",
+        "created_at",
+        "current_age",
+        "current_level",
+        "current_narrative_time",
+        "first_appearance_episode_id",
+        "items_json",
+        "manually_edited_slots",
+        "name",
+        "profile_json",
+        "role_label",
+        "skills_json",
+        "snapshot_version",
+        "stats_json",
+        "status",
+        "statuses_json",
+        "updated_at",
+        "work_id"
+      ],
+      "selectsJobJson": false
+    },
+    "q022": {
+      "sql": "select css1_0.id,css1_0.created_at,css1_0.fact_key,css1_0.fact_type,css1_0.source_fact_id,sf1_0.id,sf1_0.confidence,sf1_0.created_at,sf1_0.effective_from_episode_no,sf1_0.extracted_by_job_id,sf1_0.fact_key,sf1_0.fact_type,sf1_0.fact_value,sf1_0.narrative_time,sf1_0.normalized_value,sc1_0.id,sc1_0.analysis_job_id,sc1_0.attribute_name,sc1_0.attribute_value,sc1_0.automatic_review_hold_reason,sc1_0.candidate_kind,sc1_0.character_comparison_batch_id,sc1_0.character_comparison_candidate_ref,sc1_0.closed_at,sc1_0.closure_request_id,sc1_0.compared_at,sc1_0.comparison_base_snapshot_version,sc1_0.comparison_context_hash,sc1_0.comparison_dependency_candidate_ids,sc1_0.comparison_error_message,sc1_0.comparison_failure_analysis_job_id,sc1_0.comparison_failure_batch_id,sc1_0.comparison_failure_code,sc1_0.comparison_failure_diagnostics,sc1_0.comparison_reason,sc1_0.comparison_status,sc1_0.comparison_target_fact_key,sc1_0.comparison_target_fact_type,sc1_0.comparison_terminal_at,sc1_0.comparison_terminal_outcome,sc1_0.confidence,sc1_0.confirmed_application_mode,sc1_0.confirmed_group_decision_hash,sc1_0.created_at,sc1_0.effective_from_episode_no,sc1_0.entity_name,sc1_0.entity_type,e1_0.id,e1_0.char_count,e1_0.content_hash,e1_0.content_revision,e1_0.content_s3_key,e1_0.content_s3_version,e1_0.content_updated_at,e1_0.created_at,e1_0.episode_no,e1_0.source_file_id,e1_0.status,e1_0.title,e1_0.updated_at,e1_0.validation_upload_eligible,e1_0.work_id,sc1_0.evidence_spans,sc1_0.match_status,sc1_0.matched_character_id,sc1_0.metrics_source_attempt_no,sc1_0.narrative_time,sc1_0.preparation_failure_stage,sc1_0.proposed_fact_value,sc1_0.proposed_value_json,sc1_0.provisional_subject_key,sc1_0.raw_ai_result_json,sc1_0.raw_comparison_json,sc1_0.raw_entity_mention,sc1_0.removed_snapshot_entries_json,sc1_0.resolved_canonical_fact_key,sc1_0.review_status,sc1_0.reviewed_application_mode,sc1_0.reviewed_automatically,sc1_0.reviewed_snapshot_version,sc1_0.source_chunk_id,sc1_0.source_content_s3_key,sc1_0.source_kind,sc1_0.source_setting_book_id,sc1_0.source_setting_book_revision_id,sc1_0.stored_evidence_validation,sc1_0.suggested_operation,sc1_0.temporal_scope,sc1_0.updated_at,sc1_0.user_content_modified,sc1_0.user_modified,sc1_0.value_json,sc1_0.value_type,sc1_0.work_id,sf1_0.source_chunk_id,se1_0.id,se1_0.char_count,se1_0.content_hash,se1_0.content_revision,se1_0.content_s3_key,se1_0.content_s3_version,se1_0.content_updated_at,se1_0.created_at,se1_0.episode_no,se1_0.source_file_id,se1_0.status,se1_0.title,se1_0.updated_at,se1_0.validation_upload_eligible,se1_0.work_id,sf1_0.updated_at,sf1_0.value_json,sf1_0.character_id,css1_0.source_order,css1_0.updated_at,css1_0.character_id from character_snapshot_sources css1_0 join character_facts sf1_0 on sf1_0.id=css1_0.source_fact_id left join setting_candidates sc1_0 on sc1_0.id=sf1_0.setting_candidate_id left join episodes e1_0 on e1_0.id=sc1_0.episode_id left join episodes se1_0 on se1_0.id=sf1_0.source_episode_id where css1_0.character_id=? order by css1_0.fact_type,css1_0.fact_key,css1_0.source_order",
+      "selectedColumns": [
+        "id",
+        "created_at",
+        "fact_key",
+        "fact_type",
+        "source_fact_id",
+        "id",
+        "confidence",
+        "created_at",
+        "effective_from_episode_no",
+        "extracted_by_job_id",
+        "fact_key",
+        "fact_type",
+        "fact_value",
+        "narrative_time",
+        "normalized_value",
+        "id",
+        "analysis_job_id",
+        "attribute_name",
+        "attribute_value",
+        "automatic_review_hold_reason",
+        "candidate_kind",
+        "character_comparison_batch_id",
+        "character_comparison_candidate_ref",
+        "closed_at",
+        "closure_request_id",
+        "compared_at",
+        "comparison_base_snapshot_version",
+        "comparison_context_hash",
+        "comparison_dependency_candidate_ids",
+        "comparison_error_message",
+        "comparison_failure_analysis_job_id",
+        "comparison_failure_batch_id",
+        "comparison_failure_code",
+        "comparison_failure_diagnostics",
+        "comparison_reason",
+        "comparison_status",
+        "comparison_target_fact_key",
+        "comparison_target_fact_type",
+        "comparison_terminal_at",
+        "comparison_terminal_outcome",
+        "confidence",
+        "confirmed_application_mode",
+        "confirmed_group_decision_hash",
+        "created_at",
+        "effective_from_episode_no",
+        "entity_name",
+        "entity_type",
+        "id",
+        "char_count",
+        "content_hash",
+        "content_revision",
+        "content_s3_key",
+        "content_s3_version",
+        "content_updated_at",
+        "created_at",
+        "episode_no",
+        "source_file_id",
+        "status",
+        "title",
+        "updated_at",
+        "validation_upload_eligible",
+        "work_id",
+        "evidence_spans",
+        "match_status",
+        "matched_character_id",
+        "metrics_source_attempt_no",
+        "narrative_time",
+        "preparation_failure_stage",
+        "proposed_fact_value",
+        "proposed_value_json",
+        "provisional_subject_key",
+        "raw_ai_result_json",
+        "raw_comparison_json",
+        "raw_entity_mention",
+        "removed_snapshot_entries_json",
+        "resolved_canonical_fact_key",
+        "review_status",
+        "reviewed_application_mode",
+        "reviewed_automatically",
+        "reviewed_snapshot_version",
+        "source_chunk_id",
+        "source_content_s3_key",
+        "source_kind",
+        "source_setting_book_id",
+        "source_setting_book_revision_id",
+        "stored_evidence_validation",
+        "suggested_operation",
+        "temporal_scope",
+        "updated_at",
+        "user_content_modified",
+        "user_modified",
+        "value_json",
+        "value_type",
+        "work_id",
+        "source_chunk_id",
+        "id",
+        "char_count",
+        "content_hash",
+        "content_revision",
+        "content_s3_key",
+        "content_s3_version",
+        "content_updated_at",
+        "created_at",
+        "episode_no",
+        "source_file_id",
+        "status",
+        "title",
+        "updated_at",
+        "validation_upload_eligible",
+        "work_id",
+        "updated_at",
+        "value_json",
+        "character_id",
+        "source_order",
+        "updated_at",
+        "character_id"
+      ],
+      "selectsJobJson": false
+    },
+    "q023": {
+      "sql": "select cf1_0.id,cf1_0.confidence,cf1_0.created_at,cf1_0.effective_from_episode_no,cf1_0.extracted_by_job_id,cf1_0.fact_key,cf1_0.fact_type,cf1_0.fact_value,cf1_0.narrative_time,cf1_0.normalized_value,cf1_0.setting_candidate_id,cf1_0.source_chunk_id,cf1_0.source_episode_id,cf1_0.updated_at,cf1_0.value_json,cf1_0.character_id from character_facts cf1_0 where cf1_0.character_id=? order by cf1_0.created_at desc",
+      "selectedColumns": [
+        "id",
+        "confidence",
+        "created_at",
+        "effective_from_episode_no",
+        "extracted_by_job_id",
+        "fact_key",
+        "fact_type",
+        "fact_value",
+        "narrative_time",
+        "normalized_value",
+        "setting_candidate_id",
+        "source_chunk_id",
+        "source_episode_id",
+        "updated_at",
+        "value_json",
+        "character_id"
+      ],
+      "selectsJobJson": false
+    },
+    "q024": {
+      "sql": "select sc1_0.id,sc1_0.analysis_job_id,sc1_0.attribute_name,sc1_0.attribute_value,sc1_0.automatic_review_hold_reason,sc1_0.candidate_kind,sc1_0.character_comparison_batch_id,sc1_0.character_comparison_candidate_ref,sc1_0.closed_at,sc1_0.closure_request_id,sc1_0.compared_at,sc1_0.comparison_base_snapshot_version,sc1_0.comparison_context_hash,sc1_0.comparison_dependency_candidate_ids,sc1_0.comparison_error_message,sc1_0.comparison_failure_analysis_job_id,sc1_0.comparison_failure_batch_id,sc1_0.comparison_failure_code,sc1_0.comparison_failure_diagnostics,sc1_0.comparison_reason,sc1_0.comparison_status,sc1_0.comparison_target_fact_key,sc1_0.comparison_target_fact_type,sc1_0.comparison_terminal_at,sc1_0.comparison_terminal_outcome,sc1_0.confidence,sc1_0.confirmed_application_mode,sc1_0.confirmed_group_decision_hash,sc1_0.created_at,sc1_0.effective_from_episode_no,sc1_0.entity_name,sc1_0.entity_type,sc1_0.episode_id,sc1_0.evidence_spans,sc1_0.match_status,sc1_0.matched_character_id,sc1_0.metrics_source_attempt_no,sc1_0.narrative_time,sc1_0.preparation_failure_stage,sc1_0.proposed_fact_value,sc1_0.proposed_value_json,sc1_0.provisional_subject_key,sc1_0.raw_ai_result_json,sc1_0.raw_comparison_json,sc1_0.raw_entity_mention,sc1_0.removed_snapshot_entries_json,sc1_0.resolved_canonical_fact_key,sc1_0.review_status,sc1_0.reviewed_application_mode,sc1_0.reviewed_automatically,sc1_0.reviewed_snapshot_version,sc1_0.source_chunk_id,sc1_0.source_content_s3_key,sc1_0.source_kind,sc1_0.source_setting_book_id,sc1_0.source_setting_book_revision_id,sc1_0.stored_evidence_validation,sc1_0.suggested_operation,sc1_0.temporal_scope,sc1_0.updated_at,sc1_0.user_content_modified,sc1_0.user_modified,sc1_0.value_json,sc1_0.value_type,sc1_0.work_id from setting_candidates sc1_0 where sc1_0.id=?",
+      "selectedColumns": [
+        "id",
+        "analysis_job_id",
+        "attribute_name",
+        "attribute_value",
+        "automatic_review_hold_reason",
+        "candidate_kind",
+        "character_comparison_batch_id",
+        "character_comparison_candidate_ref",
+        "closed_at",
+        "closure_request_id",
+        "compared_at",
+        "comparison_base_snapshot_version",
+        "comparison_context_hash",
+        "comparison_dependency_candidate_ids",
+        "comparison_error_message",
+        "comparison_failure_analysis_job_id",
+        "comparison_failure_batch_id",
+        "comparison_failure_code",
+        "comparison_failure_diagnostics",
+        "comparison_reason",
+        "comparison_status",
+        "comparison_target_fact_key",
+        "comparison_target_fact_type",
+        "comparison_terminal_at",
+        "comparison_terminal_outcome",
+        "confidence",
+        "confirmed_application_mode",
+        "confirmed_group_decision_hash",
+        "created_at",
+        "effective_from_episode_no",
+        "entity_name",
+        "entity_type",
+        "episode_id",
+        "evidence_spans",
+        "match_status",
+        "matched_character_id",
+        "metrics_source_attempt_no",
+        "narrative_time",
+        "preparation_failure_stage",
+        "proposed_fact_value",
+        "proposed_value_json",
+        "provisional_subject_key",
+        "raw_ai_result_json",
+        "raw_comparison_json",
+        "raw_entity_mention",
+        "removed_snapshot_entries_json",
+        "resolved_canonical_fact_key",
+        "review_status",
+        "reviewed_application_mode",
+        "reviewed_automatically",
+        "reviewed_snapshot_version",
+        "source_chunk_id",
+        "source_content_s3_key",
+        "source_kind",
+        "source_setting_book_id",
+        "source_setting_book_revision_id",
+        "stored_evidence_validation",
+        "suggested_operation",
+        "temporal_scope",
+        "updated_at",
+        "user_content_modified",
+        "user_modified",
+        "value_json",
+        "value_type",
+        "work_id"
+      ],
+      "selectsJobJson": false
+    },
+    "q025": {
+      "sql": "select c.stored_evidence_validation as receipt,\n       j.source_content_hash, j.source_content_s3_key, j.source_content_s3_version,\n       (j.source_reference_invalidated_at is not null or\n         (j.source_kind='EPISODE' and (e.id is null or e.status='ARCHIVED'\n           or e.content_s3_key is distinct from j.source_content_s3_key\n           or e.content_hash is distinct from j.source_content_hash\n           or e.content_s3_version is distinct from j.source_content_s3_version\n           or exists(select 1 from episode_source_purge_requests p\n              where p.episode_id=e.id and p.retained_content_key is distinct from j.source_content_s3_key)))) as invalidated\nfrom setting_candidates c join analysis_jobs j on j.id=c.analysis_job_id and j.work_id=c.work_id\nleft join episodes e on e.id=j.episode_id and e.work_id=j.work_id\nwhere c.id=? and c.work_id=? and c.analysis_job_id=?\n",
+      "selectedColumns": [
+        "receipt",
+        "source_content_hash",
+        "source_content_s3_key",
+        "source_content_s3_version",
+        "invalidated"
+      ],
+      "selectsJobJson": false
+    },
+    "q026": {
+      "sql": "select ws1_0.id,ws1_0.category,ws1_0.created_at,ws1_0.manually_edited_paths,ws1_0.normalized_subject_name,ws1_0.properties_json,ws1_0.subject_name,ws1_0.updated_at,ws1_0.version,ws1_0.work_id from world_settings ws1_0 where ws1_0.work_id=? order by ws1_0.id",
+      "selectedColumns": [
+        "id",
+        "category",
+        "created_at",
+        "manually_edited_paths",
+        "normalized_subject_name",
+        "properties_json",
+        "subject_name",
+        "updated_at",
+        "version",
+        "work_id"
+      ],
+      "selectsJobJson": false
+    },
+    "q027": {
+      "sql": "select wsc1_0.id,wsc1_0.analysis_job_id,wsc1_0.applied_world_setting_version,wsc1_0.automatic_review_hold_reason,wsc1_0.base_world_setting_version,wsc1_0.before_value,wsc1_0.canonical_subject_key,wsc1_0.canonical_subject_name,wsc1_0.category,wsc1_0.closed_at,wsc1_0.closure_request_id,wsc1_0.compared_at,wsc1_0.comparison_batch_id,wsc1_0.comparison_candidate_ref,cd1_0.id,cd1_0.base_world_setting_version,cd1_0.before_value,cd1_0.canonical_subject_name,cd1_0.comparison_batch_id,cd1_0.comparison_reason,cd1_0.comparison_review_reason,cd1_0.consolidation_status,cd1_0.created_at,cd1_0.decision_ref,cd1_0.existing_root_property_move_snapshots,cd1_0.matched_property_name,cd1_0.matched_scope_name,cd1_0.proposed_scope_name,cd1_0.proposed_setting_name,cd1_0.proposed_value,cd1_0.provisional_subject_key,cd1_0.raw_comparison_json,cd1_0.root_property_moves_applied_world_setting_version,cd1_0.root_property_moves_disabled,cd1_0.suggested_operation,cd1_0.target_world_setting_id,cd1_0.updated_at,wsc1_0.comparison_diagnostics,wsc1_0.comparison_error_message,wsc1_0.comparison_failure_analysis_job_id,wsc1_0.comparison_failure_batch_id,wsc1_0.comparison_failure_code,wsc1_0.comparison_failure_diagnostics,wsc1_0.comparison_reason,wsc1_0.comparison_review_reason,wsc1_0.comparison_source_error_code,wsc1_0.comparison_source_reason_code,wsc1_0.comparison_status,wsc1_0.comparison_terminal_at,wsc1_0.comparison_terminal_outcome,wsc1_0.consolidation_status,wsc1_0.created_at,wsc1_0.effective_from_episode_no,wsc1_0.evidence_spans,wsc1_0.extracted_value,wsc1_0.extraction_confidence,wsc1_0.final_category,wsc1_0.final_operation,wsc1_0.final_scope_name,wsc1_0.final_setting_name,wsc1_0.final_subject_name,wsc1_0.final_value,wsc1_0.history_only,wsc1_0.matched_property_name,wsc1_0.matched_scope_name,wsc1_0.metrics_source_attempt_no,wsc1_0.preparation_failure_stage,wsc1_0.proposed_scope_name,wsc1_0.proposed_setting_name,wsc1_0.proposed_value,wsc1_0.provisional_subject_key,wsc1_0.raw_comparison_json,wsc1_0.raw_extraction_json,wsc1_0.resolved_provisional_subject_keys,wsc1_0.resolved_target_world_setting_ids,wsc1_0.review_note,wsc1_0.review_status,wsc1_0.reviewed_at,wsc1_0.reviewed_automatically,rb1_0.id,rb1_0.age_requirement_confirmed_at,rb1_0.analysis_guide_shown_at,rb1_0.created_at,rb1_0.display_name,rb1_0.email,rb1_0.email_verified,rb1_0.feedback_prompt_shown_at,rb1_0.first_analysis_started_at,rb1_0.password_hash,rb1_0.phone_number,rb1_0.phone_verified,rb1_0.profile_image_url,rb1_0.role,rb1_0.status,rb1_0.updated_at,wsc1_0.scope_name,wsc1_0.setting_name,se1_0.id,se1_0.char_count,se1_0.content_hash,se1_0.content_revision,se1_0.content_s3_key,se1_0.content_s3_version,se1_0.content_updated_at,se1_0.created_at,se1_0.episode_no,se1_0.source_file_id,se1_0.status,se1_0.title,se1_0.updated_at,se1_0.validation_upload_eligible,se1_0.work_id,wsc1_0.source_kind,wsc1_0.source_setting_book_id,wsc1_0.source_setting_book_revision_id,wsc1_0.subject_name,wsc1_0.subject_resolution_type,wsc1_0.suggested_operation,wsc1_0.target_world_setting_id,wsc1_0.temporal_scope,wsc1_0.updated_at,wsc1_0.work_id from world_setting_candidates wsc1_0 left join world_setting_comparison_decisions cd1_0 on cd1_0.id=wsc1_0.comparison_decision_id left join members rb1_0 on rb1_0.id=wsc1_0.reviewed_by left join episodes se1_0 on se1_0.id=wsc1_0.source_episode_id where wsc1_0.target_world_setting_id=? and wsc1_0.review_status=? order by wsc1_0.reviewed_at desc,wsc1_0.created_at desc,wsc1_0.id desc",
+      "selectedColumns": [
+        "id",
+        "analysis_job_id",
+        "applied_world_setting_version",
+        "automatic_review_hold_reason",
+        "base_world_setting_version",
+        "before_value",
+        "canonical_subject_key",
+        "canonical_subject_name",
+        "category",
+        "closed_at",
+        "closure_request_id",
+        "compared_at",
+        "comparison_batch_id",
+        "comparison_candidate_ref",
+        "id",
+        "base_world_setting_version",
+        "before_value",
+        "canonical_subject_name",
+        "comparison_batch_id",
+        "comparison_reason",
+        "comparison_review_reason",
+        "consolidation_status",
+        "created_at",
+        "decision_ref",
+        "existing_root_property_move_snapshots",
+        "matched_property_name",
+        "matched_scope_name",
+        "proposed_scope_name",
+        "proposed_setting_name",
+        "proposed_value",
+        "provisional_subject_key",
+        "raw_comparison_json",
+        "root_property_moves_applied_world_setting_version",
+        "root_property_moves_disabled",
+        "suggested_operation",
+        "target_world_setting_id",
+        "updated_at",
+        "comparison_diagnostics",
+        "comparison_error_message",
+        "comparison_failure_analysis_job_id",
+        "comparison_failure_batch_id",
+        "comparison_failure_code",
+        "comparison_failure_diagnostics",
+        "comparison_reason",
+        "comparison_review_reason",
+        "comparison_source_error_code",
+        "comparison_source_reason_code",
+        "comparison_status",
+        "comparison_terminal_at",
+        "comparison_terminal_outcome",
+        "consolidation_status",
+        "created_at",
+        "effective_from_episode_no",
+        "evidence_spans",
+        "extracted_value",
+        "extraction_confidence",
+        "final_category",
+        "final_operation",
+        "final_scope_name",
+        "final_setting_name",
+        "final_subject_name",
+        "final_value",
+        "history_only",
+        "matched_property_name",
+        "matched_scope_name",
+        "metrics_source_attempt_no",
+        "preparation_failure_stage",
+        "proposed_scope_name",
+        "proposed_setting_name",
+        "proposed_value",
+        "provisional_subject_key",
+        "raw_comparison_json",
+        "raw_extraction_json",
+        "resolved_provisional_subject_keys",
+        "resolved_target_world_setting_ids",
+        "review_note",
+        "review_status",
+        "reviewed_at",
+        "reviewed_automatically",
+        "id",
+        "age_requirement_confirmed_at",
+        "analysis_guide_shown_at",
+        "created_at",
+        "display_name",
+        "email",
+        "email_verified",
+        "feedback_prompt_shown_at",
+        "first_analysis_started_at",
+        "password_hash",
+        "phone_number",
+        "phone_verified",
+        "profile_image_url",
+        "role",
+        "status",
+        "updated_at",
+        "scope_name",
+        "setting_name",
+        "id",
+        "char_count",
+        "content_hash",
+        "content_revision",
+        "content_s3_key",
+        "content_s3_version",
+        "content_updated_at",
+        "created_at",
+        "episode_no",
+        "source_file_id",
+        "status",
+        "title",
+        "updated_at",
+        "validation_upload_eligible",
+        "work_id",
+        "source_kind",
+        "source_setting_book_id",
+        "source_setting_book_revision_id",
+        "subject_name",
+        "subject_resolution_type",
+        "suggested_operation",
+        "target_world_setting_id",
+        "temporal_scope",
+        "updated_at",
+        "work_id"
+      ],
+      "selectsJobJson": false
+    },
+    "q028": {
+      "sql": "select css1_0.id,css1_0.aliases_json,css1_0.attribute_pattern,css1_0.created_at,css1_0.display_name,css1_0.enabled,css1_0.fact_type,css1_0.merge_policy,css1_0.schema_key,css1_0.source,css1_0.updated_at,css1_0.value_semantics,css1_0.value_type,css1_0.work_id from character_setting_schemas css1_0 where css1_0.enabled=true and (css1_0.work_id is null or css1_0.work_id=?) order by css1_0.schema_key",
+      "selectedColumns": [
+        "id",
+        "aliases_json",
+        "attribute_pattern",
+        "created_at",
+        "display_name",
+        "enabled",
+        "fact_type",
+        "merge_policy",
+        "schema_key",
+        "source",
+        "updated_at",
+        "value_semantics",
+        "value_type",
+        "work_id"
+      ],
+      "selectsJobJson": false
+    },
+    "q029": {
+      "sql": "select aj1_0.id,aj1_0.analysis_mode,aj1_0.analysis_run_id,aj1_0.attempt_requested_at,aj1_0.automatic_applied_at,aj1_0.automatic_input_state,aj1_0.batch_id,aj1_0.character_comparison_input_hash,aj1_0.character_comparisons_handed_off,aj1_0.checkpoint_stage,aj1_0.claim_attempt_count,aj1_0.completed_at,aj1_0.created_at,aj1_0.current_step,aj1_0.episode_id,aj1_0.error_message,aj1_0.failure_code,aj1_0.failure_diagnostics,aj1_0.input_state_hash,aj1_0.input_token_count,aj1_0.job_type,aj1_0.journal_invalidation_reason,aj1_0.journal_status,aj1_0.lease_expires_at,aj1_0.lease_token,aj1_0.metrics_attempt_no,aj1_0.metrics_request_episode_count,aj1_0.metrics_request_id,aj1_0.metrics_request_started_at,aj1_0.metrics_user_retry,aj1_0.model_name,aj1_0.output_token_count,aj1_0.pending_since,aj1_0.predecessor_job_id,aj1_0.relationship_analysis_enabled,aj1_0.relationship_generation,aj1_0.relationship_partial_results_enabled,aj1_0.relationship_service_paid,aj1_0.result_outcome,aj1_0.result_ready_at,aj1_0.review_application_held_at,aj1_0.review_mode,aj1_0.run_base_state,aj1_0.run_generation,aj1_0.run_sequence,aj1_0.setting_candidate_id,aj1_0.source_content_hash,aj1_0.source_content_s3_key,aj1_0.source_content_s3_version,aj1_0.source_episode_no,aj1_0.source_kind,aj1_0.source_reference_invalidated_at,aj1_0.source_setting_book_id,aj1_0.source_setting_book_revision_id,aj1_0.started_at,aj1_0.state_journal,aj1_0.status,aj1_0.summary_json,aj1_0.updated_at,aj1_0.work_id,aj1_0.world_setting_candidate_id from analysis_jobs aj1_0 where aj1_0.work_id=? and aj1_0.source_kind=? and aj1_0.job_type=? order by aj1_0.created_at desc,aj1_0.id desc",
+      "selectedColumns": [
+        "id",
+        "analysis_mode",
+        "analysis_run_id",
+        "attempt_requested_at",
+        "automatic_applied_at",
+        "automatic_input_state",
+        "batch_id",
+        "character_comparison_input_hash",
+        "character_comparisons_handed_off",
+        "checkpoint_stage",
+        "claim_attempt_count",
+        "completed_at",
+        "created_at",
+        "current_step",
+        "episode_id",
+        "error_message",
+        "failure_code",
+        "failure_diagnostics",
+        "input_state_hash",
+        "input_token_count",
+        "job_type",
+        "journal_invalidation_reason",
+        "journal_status",
+        "lease_expires_at",
+        "lease_token",
+        "metrics_attempt_no",
+        "metrics_request_episode_count",
+        "metrics_request_id",
+        "metrics_request_started_at",
+        "metrics_user_retry",
+        "model_name",
+        "output_token_count",
+        "pending_since",
+        "predecessor_job_id",
+        "relationship_analysis_enabled",
+        "relationship_generation",
+        "relationship_partial_results_enabled",
+        "relationship_service_paid",
+        "result_outcome",
+        "result_ready_at",
+        "review_application_held_at",
+        "review_mode",
+        "run_base_state",
+        "run_generation",
+        "run_sequence",
+        "setting_candidate_id",
+        "source_content_hash",
+        "source_content_s3_key",
+        "source_content_s3_version",
+        "source_episode_no",
+        "source_kind",
+        "source_reference_invalidated_at",
+        "source_setting_book_id",
+        "source_setting_book_revision_id",
+        "started_at",
+        "state_journal",
+        "status",
+        "summary_json",
+        "updated_at",
+        "work_id",
+        "world_setting_candidate_id"
+      ],
+      "selectsJobJson": true
+    },
+    "q030": {
+      "sql": "select aj1_0.id,aj1_0.analysis_mode,aj1_0.analysis_run_id,aj1_0.attempt_requested_at,aj1_0.automatic_applied_at,aj1_0.automatic_input_state,aj1_0.batch_id,aj1_0.character_comparison_input_hash,aj1_0.character_comparisons_handed_off,aj1_0.checkpoint_stage,aj1_0.claim_attempt_count,aj1_0.completed_at,aj1_0.created_at,aj1_0.current_step,e1_0.id,e1_0.char_count,e1_0.content_hash,e1_0.content_revision,e1_0.content_s3_key,e1_0.content_s3_version,e1_0.content_updated_at,e1_0.created_at,e1_0.episode_no,e1_0.source_file_id,e1_0.status,e1_0.title,e1_0.updated_at,e1_0.validation_upload_eligible,e1_0.work_id,aj1_0.error_message,aj1_0.failure_code,aj1_0.failure_diagnostics,aj1_0.input_state_hash,aj1_0.input_token_count,aj1_0.job_type,aj1_0.journal_invalidation_reason,aj1_0.journal_status,aj1_0.lease_expires_at,aj1_0.lease_token,aj1_0.metrics_attempt_no,aj1_0.metrics_request_episode_count,aj1_0.metrics_request_id,aj1_0.metrics_request_started_at,aj1_0.metrics_user_retry,aj1_0.model_name,aj1_0.output_token_count,aj1_0.pending_since,aj1_0.predecessor_job_id,aj1_0.relationship_analysis_enabled,aj1_0.relationship_generation,aj1_0.relationship_partial_results_enabled,aj1_0.relationship_service_paid,aj1_0.result_outcome,aj1_0.result_ready_at,aj1_0.review_application_held_at,aj1_0.review_mode,aj1_0.run_base_state,aj1_0.run_generation,aj1_0.run_sequence,aj1_0.setting_candidate_id,aj1_0.source_content_hash,aj1_0.source_content_s3_key,aj1_0.source_content_s3_version,aj1_0.source_episode_no,aj1_0.source_kind,aj1_0.source_reference_invalidated_at,aj1_0.source_setting_book_id,aj1_0.source_setting_book_revision_id,aj1_0.started_at,aj1_0.state_journal,aj1_0.status,aj1_0.summary_json,aj1_0.updated_at,aj1_0.work_id,w1_0.id,w1_0.created_at,w1_0.description,w1_0.genre,w1_0.latest_episode_no,w1_0.lifecycle_status,w1_0.member_id,w1_0.relationship_input_version,w1_0.title,w1_0.updated_at,aj1_0.world_setting_candidate_id from analysis_jobs aj1_0 join episodes e1_0 on e1_0.id=aj1_0.episode_id join works w1_0 on w1_0.id=aj1_0.work_id where w1_0.id=? and aj1_0.job_type='SETTING_EXTRACTION' and e1_0.episode_no<? order by aj1_0.created_at desc,aj1_0.id desc",
+      "selectedColumns": [
+        "id",
+        "analysis_mode",
+        "analysis_run_id",
+        "attempt_requested_at",
+        "automatic_applied_at",
+        "automatic_input_state",
+        "batch_id",
+        "character_comparison_input_hash",
+        "character_comparisons_handed_off",
+        "checkpoint_stage",
+        "claim_attempt_count",
+        "completed_at",
+        "created_at",
+        "current_step",
+        "id",
+        "char_count",
+        "content_hash",
+        "content_revision",
+        "content_s3_key",
+        "content_s3_version",
+        "content_updated_at",
+        "created_at",
+        "episode_no",
+        "source_file_id",
+        "status",
+        "title",
+        "updated_at",
+        "validation_upload_eligible",
+        "work_id",
+        "error_message",
+        "failure_code",
+        "failure_diagnostics",
+        "input_state_hash",
+        "input_token_count",
+        "job_type",
+        "journal_invalidation_reason",
+        "journal_status",
+        "lease_expires_at",
+        "lease_token",
+        "metrics_attempt_no",
+        "metrics_request_episode_count",
+        "metrics_request_id",
+        "metrics_request_started_at",
+        "metrics_user_retry",
+        "model_name",
+        "output_token_count",
+        "pending_since",
+        "predecessor_job_id",
+        "relationship_analysis_enabled",
+        "relationship_generation",
+        "relationship_partial_results_enabled",
+        "relationship_service_paid",
+        "result_outcome",
+        "result_ready_at",
+        "review_application_held_at",
+        "review_mode",
+        "run_base_state",
+        "run_generation",
+        "run_sequence",
+        "setting_candidate_id",
+        "source_content_hash",
+        "source_content_s3_key",
+        "source_content_s3_version",
+        "source_episode_no",
+        "source_kind",
+        "source_reference_invalidated_at",
+        "source_setting_book_id",
+        "source_setting_book_revision_id",
+        "started_at",
+        "state_journal",
+        "status",
+        "summary_json",
+        "updated_at",
+        "work_id",
+        "id",
+        "created_at",
+        "description",
+        "genre",
+        "latest_episode_no",
+        "lifecycle_status",
+        "member_id",
+        "relationship_input_version",
+        "title",
+        "updated_at",
+        "world_setting_candidate_id"
+      ],
+      "selectsJobJson": true
+    },
+    "q031": {
+      "sql": "select sc1_0.id,sc1_0.analysis_job_id,sc1_0.attribute_name,sc1_0.attribute_value,sc1_0.automatic_review_hold_reason,sc1_0.candidate_kind,sc1_0.character_comparison_batch_id,sc1_0.character_comparison_candidate_ref,sc1_0.closed_at,sc1_0.closure_request_id,sc1_0.compared_at,sc1_0.comparison_base_snapshot_version,sc1_0.comparison_context_hash,sc1_0.comparison_dependency_candidate_ids,sc1_0.comparison_error_message,sc1_0.comparison_failure_analysis_job_id,sc1_0.comparison_failure_batch_id,sc1_0.comparison_failure_code,sc1_0.comparison_failure_diagnostics,sc1_0.comparison_reason,sc1_0.comparison_status,sc1_0.comparison_target_fact_key,sc1_0.comparison_target_fact_type,sc1_0.comparison_terminal_at,sc1_0.comparison_terminal_outcome,sc1_0.confidence,sc1_0.confirmed_application_mode,sc1_0.confirmed_group_decision_hash,sc1_0.created_at,sc1_0.effective_from_episode_no,sc1_0.entity_name,sc1_0.entity_type,sc1_0.episode_id,sc1_0.evidence_spans,sc1_0.match_status,sc1_0.matched_character_id,sc1_0.metrics_source_attempt_no,sc1_0.narrative_time,sc1_0.preparation_failure_stage,sc1_0.proposed_fact_value,sc1_0.proposed_value_json,sc1_0.provisional_subject_key,sc1_0.raw_ai_result_json,sc1_0.raw_comparison_json,sc1_0.raw_entity_mention,sc1_0.removed_snapshot_entries_json,sc1_0.resolved_canonical_fact_key,sc1_0.review_status,sc1_0.reviewed_application_mode,sc1_0.reviewed_automatically,sc1_0.reviewed_snapshot_version,sc1_0.source_chunk_id,sc1_0.source_content_s3_key,sc1_0.source_kind,sc1_0.source_setting_book_id,sc1_0.source_setting_book_revision_id,sc1_0.stored_evidence_validation,sc1_0.suggested_operation,sc1_0.temporal_scope,sc1_0.updated_at,sc1_0.user_content_modified,sc1_0.user_modified,sc1_0.value_json,sc1_0.value_type,sc1_0.work_id from setting_candidates sc1_0 where sc1_0.analysis_job_id=? order by sc1_0.created_at,sc1_0.id",
+      "selectedColumns": [
+        "id",
+        "analysis_job_id",
+        "attribute_name",
+        "attribute_value",
+        "automatic_review_hold_reason",
+        "candidate_kind",
+        "character_comparison_batch_id",
+        "character_comparison_candidate_ref",
+        "closed_at",
+        "closure_request_id",
+        "compared_at",
+        "comparison_base_snapshot_version",
+        "comparison_context_hash",
+        "comparison_dependency_candidate_ids",
+        "comparison_error_message",
+        "comparison_failure_analysis_job_id",
+        "comparison_failure_batch_id",
+        "comparison_failure_code",
+        "comparison_failure_diagnostics",
+        "comparison_reason",
+        "comparison_status",
+        "comparison_target_fact_key",
+        "comparison_target_fact_type",
+        "comparison_terminal_at",
+        "comparison_terminal_outcome",
+        "confidence",
+        "confirmed_application_mode",
+        "confirmed_group_decision_hash",
+        "created_at",
+        "effective_from_episode_no",
+        "entity_name",
+        "entity_type",
+        "episode_id",
+        "evidence_spans",
+        "match_status",
+        "matched_character_id",
+        "metrics_source_attempt_no",
+        "narrative_time",
+        "preparation_failure_stage",
+        "proposed_fact_value",
+        "proposed_value_json",
+        "provisional_subject_key",
+        "raw_ai_result_json",
+        "raw_comparison_json",
+        "raw_entity_mention",
+        "removed_snapshot_entries_json",
+        "resolved_canonical_fact_key",
+        "review_status",
+        "reviewed_application_mode",
+        "reviewed_automatically",
+        "reviewed_snapshot_version",
+        "source_chunk_id",
+        "source_content_s3_key",
+        "source_kind",
+        "source_setting_book_id",
+        "source_setting_book_revision_id",
+        "stored_evidence_validation",
+        "suggested_operation",
+        "temporal_scope",
+        "updated_at",
+        "user_content_modified",
+        "user_modified",
+        "value_json",
+        "value_type",
+        "work_id"
+      ],
+      "selectsJobJson": false
+    },
+    "q032": {
+      "sql": "select wsc1_0.id,wsc1_0.analysis_job_id,wsc1_0.applied_world_setting_version,wsc1_0.automatic_review_hold_reason,wsc1_0.base_world_setting_version,wsc1_0.before_value,wsc1_0.canonical_subject_key,wsc1_0.canonical_subject_name,wsc1_0.category,wsc1_0.closed_at,wsc1_0.closure_request_id,wsc1_0.compared_at,wsc1_0.comparison_batch_id,wsc1_0.comparison_candidate_ref,wsc1_0.comparison_decision_id,wsc1_0.comparison_diagnostics,wsc1_0.comparison_error_message,wsc1_0.comparison_failure_analysis_job_id,wsc1_0.comparison_failure_batch_id,wsc1_0.comparison_failure_code,wsc1_0.comparison_failure_diagnostics,wsc1_0.comparison_reason,wsc1_0.comparison_review_reason,wsc1_0.comparison_source_error_code,wsc1_0.comparison_source_reason_code,wsc1_0.comparison_status,wsc1_0.comparison_terminal_at,wsc1_0.comparison_terminal_outcome,wsc1_0.consolidation_status,wsc1_0.created_at,wsc1_0.effective_from_episode_no,wsc1_0.evidence_spans,wsc1_0.extracted_value,wsc1_0.extraction_confidence,wsc1_0.final_category,wsc1_0.final_operation,wsc1_0.final_scope_name,wsc1_0.final_setting_name,wsc1_0.final_subject_name,wsc1_0.final_value,wsc1_0.history_only,wsc1_0.matched_property_name,wsc1_0.matched_scope_name,wsc1_0.metrics_source_attempt_no,wsc1_0.preparation_failure_stage,wsc1_0.proposed_scope_name,wsc1_0.proposed_setting_name,wsc1_0.proposed_value,wsc1_0.provisional_subject_key,wsc1_0.raw_comparison_json,wsc1_0.raw_extraction_json,wsc1_0.resolved_provisional_subject_keys,wsc1_0.resolved_target_world_setting_ids,wsc1_0.review_note,wsc1_0.review_status,wsc1_0.reviewed_at,wsc1_0.reviewed_automatically,wsc1_0.reviewed_by,wsc1_0.scope_name,wsc1_0.setting_name,wsc1_0.source_episode_id,wsc1_0.source_kind,wsc1_0.source_setting_book_id,wsc1_0.source_setting_book_revision_id,wsc1_0.subject_name,wsc1_0.subject_resolution_type,wsc1_0.suggested_operation,wsc1_0.target_world_setting_id,wsc1_0.temporal_scope,wsc1_0.updated_at,wsc1_0.work_id from world_setting_candidates wsc1_0 where wsc1_0.analysis_job_id=? order by wsc1_0.created_at,wsc1_0.id",
+      "selectedColumns": [
+        "id",
+        "analysis_job_id",
+        "applied_world_setting_version",
+        "automatic_review_hold_reason",
+        "base_world_setting_version",
+        "before_value",
+        "canonical_subject_key",
+        "canonical_subject_name",
+        "category",
+        "closed_at",
+        "closure_request_id",
+        "compared_at",
+        "comparison_batch_id",
+        "comparison_candidate_ref",
+        "comparison_decision_id",
+        "comparison_diagnostics",
+        "comparison_error_message",
+        "comparison_failure_analysis_job_id",
+        "comparison_failure_batch_id",
+        "comparison_failure_code",
+        "comparison_failure_diagnostics",
+        "comparison_reason",
+        "comparison_review_reason",
+        "comparison_source_error_code",
+        "comparison_source_reason_code",
+        "comparison_status",
+        "comparison_terminal_at",
+        "comparison_terminal_outcome",
+        "consolidation_status",
+        "created_at",
+        "effective_from_episode_no",
+        "evidence_spans",
+        "extracted_value",
+        "extraction_confidence",
+        "final_category",
+        "final_operation",
+        "final_scope_name",
+        "final_setting_name",
+        "final_subject_name",
+        "final_value",
+        "history_only",
+        "matched_property_name",
+        "matched_scope_name",
+        "metrics_source_attempt_no",
+        "preparation_failure_stage",
+        "proposed_scope_name",
+        "proposed_setting_name",
+        "proposed_value",
+        "provisional_subject_key",
+        "raw_comparison_json",
+        "raw_extraction_json",
+        "resolved_provisional_subject_keys",
+        "resolved_target_world_setting_ids",
+        "review_note",
+        "review_status",
+        "reviewed_at",
+        "reviewed_automatically",
+        "reviewed_by",
+        "scope_name",
+        "setting_name",
+        "source_episode_id",
+        "source_kind",
+        "source_setting_book_id",
+        "source_setting_book_revision_id",
+        "subject_name",
+        "subject_resolution_type",
+        "suggested_operation",
+        "target_world_setting_id",
+        "temporal_scope",
+        "updated_at",
+        "work_id"
+      ],
+      "selectsJobJson": false
+    },
+    "q033": {
+      "sql": "select te1_0.analysis_job_id,te1_1.id,te1_1.char_count,te1_1.content_hash,te1_1.content_revision,te1_1.content_s3_key,te1_1.content_s3_version,te1_1.content_updated_at,te1_1.created_at,te1_1.episode_no,te1_1.source_file_id,te1_1.status,te1_1.title,te1_1.updated_at,te1_1.validation_upload_eligible,te1_1.work_id from analysis_job_episode_targets te1_0 join episodes te1_1 on te1_1.id=te1_0.episode_id where te1_0.analysis_job_id=? order by te1_1.episode_no",
+      "selectedColumns": [
+        "analysis_job_id",
+        "id",
+        "char_count",
+        "content_hash",
+        "content_revision",
+        "content_s3_key",
+        "content_s3_version",
+        "content_updated_at",
+        "created_at",
+        "episode_no",
+        "source_file_id",
+        "status",
+        "title",
+        "updated_at",
+        "validation_upload_eligible",
+        "work_id"
+      ],
+      "selectsJobJson": false
+    },
+    "q034": {
+      "sql": "select w1_0.id,w1_0.created_at,w1_0.description,w1_0.genre,w1_0.latest_episode_no,w1_0.lifecycle_status,w1_0.member_id,w1_0.relationship_input_version,w1_0.title,w1_0.updated_at from works w1_0 where w1_0.id=? for no key update of w1_0",
+      "selectedColumns": [
+        "id",
+        "created_at",
+        "description",
+        "genre",
+        "latest_episode_no",
+        "lifecycle_status",
+        "member_id",
+        "relationship_input_version",
+        "title",
+        "updated_at"
+      ],
+      "selectsJobJson": false
+    },
+    "q035": {
+      "sql": "select rbw1_0.work_id,rbw1_0.blocked_reason,rbw1_0.building_generation,rbw1_0.campaign_key,rbw1_0.created_at,rbw1_0.published_generation,rbw1_0.state,rbw1_0.updated_at from relationship_backfill_works rbw1_0 where rbw1_0.work_id=?",
+      "selectedColumns": [
+        "work_id",
+        "blocked_reason",
+        "building_generation",
+        "campaign_key",
+        "created_at",
+        "published_generation",
+        "state",
+        "updated_at"
+      ],
+      "selectsJobJson": false
+    },
+    "q036": {
+      "sql": "select css1_0.id,css1_0.created_at,css1_0.fact_key,css1_0.fact_type,css1_0.source_fact_id,sf1_0.id,sf1_0.confidence,sf1_0.created_at,sf1_0.effective_from_episode_no,sf1_0.extracted_by_job_id,sf1_0.fact_key,sf1_0.fact_type,sf1_0.fact_value,sf1_0.narrative_time,sf1_0.normalized_value,sc1_0.id,sc1_0.analysis_job_id,sc1_0.attribute_name,sc1_0.attribute_value,sc1_0.automatic_review_hold_reason,sc1_0.candidate_kind,sc1_0.character_comparison_batch_id,sc1_0.character_comparison_candidate_ref,sc1_0.closed_at,sc1_0.closure_request_id,sc1_0.compared_at,sc1_0.comparison_base_snapshot_version,sc1_0.comparison_context_hash,sc1_0.comparison_dependency_candidate_ids,sc1_0.comparison_error_message,sc1_0.comparison_failure_analysis_job_id,sc1_0.comparison_failure_batch_id,sc1_0.comparison_failure_code,sc1_0.comparison_failure_diagnostics,sc1_0.comparison_reason,sc1_0.comparison_status,sc1_0.comparison_target_fact_key,sc1_0.comparison_target_fact_type,sc1_0.comparison_terminal_at,sc1_0.comparison_terminal_outcome,sc1_0.confidence,sc1_0.confirmed_application_mode,sc1_0.confirmed_group_decision_hash,sc1_0.created_at,sc1_0.effective_from_episode_no,sc1_0.entity_name,sc1_0.entity_type,sc1_0.episode_id,sc1_0.evidence_spans,sc1_0.match_status,sc1_0.matched_character_id,sc1_0.metrics_source_attempt_no,sc1_0.narrative_time,sc1_0.preparation_failure_stage,sc1_0.proposed_fact_value,sc1_0.proposed_value_json,sc1_0.provisional_subject_key,sc1_0.raw_ai_result_json,sc1_0.raw_comparison_json,sc1_0.raw_entity_mention,sc1_0.removed_snapshot_entries_json,sc1_0.resolved_canonical_fact_key,sc1_0.review_status,sc1_0.reviewed_application_mode,sc1_0.reviewed_automatically,sc1_0.reviewed_snapshot_version,sc1_0.source_chunk_id,sc1_0.source_content_s3_key,sc1_0.source_kind,sc1_0.source_setting_book_id,sc1_0.source_setting_book_revision_id,sc1_0.stored_evidence_validation,sc1_0.suggested_operation,sc1_0.temporal_scope,sc1_0.updated_at,sc1_0.user_content_modified,sc1_0.user_modified,sc1_0.value_json,sc1_0.value_type,sc1_0.work_id,sf1_0.source_chunk_id,sf1_0.source_episode_id,sf1_0.updated_at,sf1_0.value_json,sf1_0.character_id,css1_0.source_order,css1_0.updated_at,css1_0.character_id,wc2_0.id,wc2_0.created_at,wc2_0.current_age,wc2_0.current_level,wc2_0.current_narrative_time,wc2_0.first_appearance_episode_id,wc2_0.items_json,wc2_0.manually_edited_slots,wc2_0.name,wc2_0.profile_json,wc2_0.role_label,wc2_0.skills_json,wc2_0.snapshot_version,wc2_0.stats_json,wc2_0.status,wc2_0.statuses_json,wc2_0.updated_at,wc2_0.work_id from character_snapshot_sources css1_0 join character_facts sf1_0 on sf1_0.id=css1_0.source_fact_id left join setting_candidates sc1_0 on sc1_0.id=sf1_0.setting_candidate_id join characters wc2_0 on wc2_0.id=css1_0.character_id where css1_0.character_id in (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) and css1_0.fact_type=? order by css1_0.character_id,css1_0.fact_key,css1_0.source_order",
+      "selectedColumns": [
+        "id",
+        "created_at",
+        "fact_key",
+        "fact_type",
+        "source_fact_id",
+        "id",
+        "confidence",
+        "created_at",
+        "effective_from_episode_no",
+        "extracted_by_job_id",
+        "fact_key",
+        "fact_type",
+        "fact_value",
+        "narrative_time",
+        "normalized_value",
+        "id",
+        "analysis_job_id",
+        "attribute_name",
+        "attribute_value",
+        "automatic_review_hold_reason",
+        "candidate_kind",
+        "character_comparison_batch_id",
+        "character_comparison_candidate_ref",
+        "closed_at",
+        "closure_request_id",
+        "compared_at",
+        "comparison_base_snapshot_version",
+        "comparison_context_hash",
+        "comparison_dependency_candidate_ids",
+        "comparison_error_message",
+        "comparison_failure_analysis_job_id",
+        "comparison_failure_batch_id",
+        "comparison_failure_code",
+        "comparison_failure_diagnostics",
+        "comparison_reason",
+        "comparison_status",
+        "comparison_target_fact_key",
+        "comparison_target_fact_type",
+        "comparison_terminal_at",
+        "comparison_terminal_outcome",
+        "confidence",
+        "confirmed_application_mode",
+        "confirmed_group_decision_hash",
+        "created_at",
+        "effective_from_episode_no",
+        "entity_name",
+        "entity_type",
+        "episode_id",
+        "evidence_spans",
+        "match_status",
+        "matched_character_id",
+        "metrics_source_attempt_no",
+        "narrative_time",
+        "preparation_failure_stage",
+        "proposed_fact_value",
+        "proposed_value_json",
+        "provisional_subject_key",
+        "raw_ai_result_json",
+        "raw_comparison_json",
+        "raw_entity_mention",
+        "removed_snapshot_entries_json",
+        "resolved_canonical_fact_key",
+        "review_status",
+        "reviewed_application_mode",
+        "reviewed_automatically",
+        "reviewed_snapshot_version",
+        "source_chunk_id",
+        "source_content_s3_key",
+        "source_kind",
+        "source_setting_book_id",
+        "source_setting_book_revision_id",
+        "stored_evidence_validation",
+        "suggested_operation",
+        "temporal_scope",
+        "updated_at",
+        "user_content_modified",
+        "user_modified",
+        "value_json",
+        "value_type",
+        "work_id",
+        "source_chunk_id",
+        "source_episode_id",
+        "updated_at",
+        "value_json",
+        "character_id",
+        "source_order",
+        "updated_at",
+        "character_id",
+        "id",
+        "created_at",
+        "current_age",
+        "current_level",
+        "current_narrative_time",
+        "first_appearance_episode_id",
+        "items_json",
+        "manually_edited_slots",
+        "name",
+        "profile_json",
+        "role_label",
+        "skills_json",
+        "snapshot_version",
+        "stats_json",
+        "status",
+        "statuses_json",
+        "updated_at",
+        "work_id"
+      ],
+      "selectsJobJson": false
+    },
+    "q037": {
+      "sql": "select aj1_0.id,aj1_0.batch_id,aj1_0.episode_id,aj1_0.status,aj1_0.analysis_mode,aj1_0.review_mode,aj1_0.journal_status,aj1_0.automatic_applied_at,aj1_0.review_application_held_at,aj1_0.summary_json from analysis_jobs aj1_0 where aj1_0.work_id=? and aj1_0.batch_id in (?,?) and aj1_0.episode_id in (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) and aj1_0.job_type in ('SETTING_EXTRACTION','EPISODE_VALIDATION') and not exists(select aj2_0.id from analysis_jobs aj2_0 where aj2_0.work_id=aj1_0.work_id and aj2_0.batch_id=aj1_0.batch_id and aj2_0.episode_id=aj1_0.episode_id and aj2_0.job_type in ('SETTING_EXTRACTION','EPISODE_VALIDATION') and aj2_0.created_at>aj1_0.created_at) order by aj1_0.created_at desc",
+      "selectedColumns": [
+        "id",
+        "batch_id",
+        "episode_id",
+        "status",
+        "analysis_mode",
+        "review_mode",
+        "journal_status",
+        "automatic_applied_at",
+        "review_application_held_at",
+        "summary_json"
+      ],
+      "selectsJobJson": false
+    },
+    "q038": {
+      "sql": "select aj1_0.id,aj1_0.work_id,aj1_0.job_type,aj1_0.status,aj1_0.analysis_mode,aj1_0.journal_status,aj1_0.review_mode,aj1_0.automatic_applied_at,aj1_0.review_application_held_at,aj1_0.analysis_run_id,aj1_0.run_generation,aj1_0.run_sequence,aj1_0.predecessor_job_id,aj1_0.source_kind,aj1_0.source_episode_no,aj1_0.source_content_hash,aj1_0.source_content_s3_key,aj1_0.source_content_s3_version,e1_0.id,e1_0.work_id,e1_0.episode_no,e1_0.status,e1_0.content_hash,e1_0.content_s3_key,e1_0.content_s3_version,ssb1_0.id,ssb1_0.original_filename,b1_0.work_id,ssb1_0.archived_at,ssb1_0.current_setting_book_revision_id,ssbr1_0.id,ssbr1_0.setting_book_id,ssbr1_0.revision_no,ssbr1_0.reference_time_kind,ssbr1_0.reference_episode_no,ssbr1_0.content_hash,ssbr1_0.content_s3_key,ssbr1_0.content_s3_version from analysis_jobs aj1_0 left join episodes e1_0 on e1_0.id=aj1_0.episode_id left join upload_files ssb1_0 on ssb1_0.id=aj1_0.source_setting_book_id left join upload_batches b1_0 on b1_0.id=ssb1_0.batch_id left join setting_book_revisions ssbr1_0 on ssbr1_0.id=aj1_0.source_setting_book_revision_id where aj1_0.analysis_run_id=? and aj1_0.run_generation=? order by aj1_0.run_sequence",
+      "selectedColumns": [
+        "id",
+        "work_id",
+        "job_type",
+        "status",
+        "analysis_mode",
+        "journal_status",
+        "review_mode",
+        "automatic_applied_at",
+        "review_application_held_at",
+        "analysis_run_id",
+        "run_generation",
+        "run_sequence",
+        "predecessor_job_id",
+        "source_kind",
+        "source_episode_no",
+        "source_content_hash",
+        "source_content_s3_key",
+        "source_content_s3_version",
+        "id",
+        "work_id",
+        "episode_no",
+        "status",
+        "content_hash",
+        "content_s3_key",
+        "content_s3_version",
+        "id",
+        "original_filename",
+        "work_id",
+        "archived_at",
+        "current_setting_book_revision_id",
+        "id",
+        "setting_book_id",
+        "revision_no",
+        "reference_time_kind",
+        "reference_episode_no",
+        "content_hash",
+        "content_s3_key",
+        "content_s3_version"
+      ],
+      "selectsJobJson": false
+    },
+    "q039": {
+      "sql": "select aj1_0.id,aj1_0.work_id,aj1_0.job_type,aj1_0.status,aj1_0.analysis_mode,aj1_0.journal_status,aj1_0.review_mode,aj1_0.automatic_applied_at,aj1_0.review_application_held_at,aj1_0.analysis_run_id,aj1_0.run_generation,aj1_0.run_sequence,aj1_0.predecessor_job_id,aj1_0.source_kind,aj1_0.source_episode_no,aj1_0.source_content_hash,aj1_0.source_content_s3_key,aj1_0.source_content_s3_version,e1_0.id,e1_0.work_id,e1_0.episode_no,e1_0.status,e1_0.content_hash,e1_0.content_s3_key,e1_0.content_s3_version,ssb1_0.id,ssb1_0.original_filename,b1_0.work_id,ssb1_0.archived_at,ssb1_0.current_setting_book_revision_id,ssbr1_0.id,ssbr1_0.setting_book_id,ssbr1_0.revision_no,ssbr1_0.reference_time_kind,ssbr1_0.reference_episode_no,ssbr1_0.content_hash,ssbr1_0.content_s3_key,ssbr1_0.content_s3_version from analysis_jobs aj1_0 left join episodes e1_0 on e1_0.id=aj1_0.episode_id left join upload_files ssb1_0 on ssb1_0.id=aj1_0.source_setting_book_id left join upload_batches b1_0 on b1_0.id=ssb1_0.batch_id left join setting_book_revisions ssbr1_0 on ssbr1_0.id=aj1_0.source_setting_book_revision_id where aj1_0.work_id=? and aj1_0.job_type='SETTING_EXTRACTION'",
+      "selectedColumns": [
+        "id",
+        "work_id",
+        "job_type",
+        "status",
+        "analysis_mode",
+        "journal_status",
+        "review_mode",
+        "automatic_applied_at",
+        "review_application_held_at",
+        "analysis_run_id",
+        "run_generation",
+        "run_sequence",
+        "predecessor_job_id",
+        "source_kind",
+        "source_episode_no",
+        "source_content_hash",
+        "source_content_s3_key",
+        "source_content_s3_version",
+        "id",
+        "work_id",
+        "episode_no",
+        "status",
+        "content_hash",
+        "content_s3_key",
+        "content_s3_version",
+        "id",
+        "original_filename",
+        "work_id",
+        "archived_at",
+        "current_setting_book_revision_id",
+        "id",
+        "setting_book_id",
+        "revision_no",
+        "reference_time_kind",
+        "reference_episode_no",
+        "content_hash",
+        "content_s3_key",
+        "content_s3_version"
+      ],
+      "selectsJobJson": false
+    },
+    "q040": {
+      "sql": "select aj1_0.id,aj1_0.work_id,aj1_0.job_type,aj1_0.status,aj1_0.analysis_mode,aj1_0.journal_status,aj1_0.review_mode,aj1_0.automatic_applied_at,aj1_0.review_application_held_at,aj1_0.analysis_run_id,aj1_0.run_generation,aj1_0.run_sequence,aj1_0.predecessor_job_id,aj1_0.source_kind,aj1_0.source_episode_no,aj1_0.source_content_hash,aj1_0.source_content_s3_key,aj1_0.source_content_s3_version,e1_0.id,e1_0.work_id,e1_0.episode_no,e1_0.status,e1_0.content_hash,e1_0.content_s3_key,e1_0.content_s3_version,ssb1_0.id,ssb1_0.original_filename,b1_0.work_id,ssb1_0.archived_at,ssb1_0.current_setting_book_revision_id,ssbr1_0.id,ssbr1_0.setting_book_id,ssbr1_0.revision_no,ssbr1_0.reference_time_kind,ssbr1_0.reference_episode_no,ssbr1_0.content_hash,ssbr1_0.content_s3_key,ssbr1_0.content_s3_version from analysis_jobs aj1_0 left join episodes e1_0 on e1_0.id=aj1_0.episode_id left join upload_files ssb1_0 on ssb1_0.id=aj1_0.source_setting_book_id left join upload_batches b1_0 on b1_0.id=ssb1_0.batch_id left join setting_book_revisions ssbr1_0 on ssbr1_0.id=aj1_0.source_setting_book_revision_id where aj1_0.work_id=? and aj1_0.source_kind='SETTING_BOOK' and aj1_0.job_type='SETTING_EXTRACTION' order by aj1_0.created_at desc,aj1_0.id desc",
+      "selectedColumns": [
+        "id",
+        "work_id",
+        "job_type",
+        "status",
+        "analysis_mode",
+        "journal_status",
+        "review_mode",
+        "automatic_applied_at",
+        "review_application_held_at",
+        "analysis_run_id",
+        "run_generation",
+        "run_sequence",
+        "predecessor_job_id",
+        "source_kind",
+        "source_episode_no",
+        "source_content_hash",
+        "source_content_s3_key",
+        "source_content_s3_version",
+        "id",
+        "work_id",
+        "episode_no",
+        "status",
+        "content_hash",
+        "content_s3_key",
+        "content_s3_version",
+        "id",
+        "original_filename",
+        "work_id",
+        "archived_at",
+        "current_setting_book_revision_id",
+        "id",
+        "setting_book_id",
+        "revision_no",
+        "reference_time_kind",
+        "reference_episode_no",
+        "content_hash",
+        "content_s3_key",
+        "content_s3_version"
+      ],
+      "selectsJobJson": false
+    },
+    "q041": {
+      "sql": "select aj1_0.id,aj1_0.work_id,aj1_0.job_type,aj1_0.status,aj1_0.analysis_mode,aj1_0.journal_status,aj1_0.review_mode,aj1_0.automatic_applied_at,aj1_0.review_application_held_at,aj1_0.analysis_run_id,aj1_0.run_generation,aj1_0.run_sequence,aj1_0.predecessor_job_id,aj1_0.source_kind,aj1_0.source_episode_no,aj1_0.source_content_hash,aj1_0.source_content_s3_key,aj1_0.source_content_s3_version,e1_0.id,e1_0.work_id,e1_0.episode_no,e1_0.status,e1_0.content_hash,e1_0.content_s3_key,e1_0.content_s3_version,ssb1_0.id,ssb1_0.original_filename,b1_0.work_id,ssb1_0.archived_at,ssb1_0.current_setting_book_revision_id,ssbr1_0.id,ssbr1_0.setting_book_id,ssbr1_0.revision_no,ssbr1_0.reference_time_kind,ssbr1_0.reference_episode_no,ssbr1_0.content_hash,ssbr1_0.content_s3_key,ssbr1_0.content_s3_version from analysis_jobs aj1_0 left join episodes e1_0 on e1_0.id=aj1_0.episode_id left join upload_files ssb1_0 on ssb1_0.id=aj1_0.source_setting_book_id left join upload_batches b1_0 on b1_0.id=ssb1_0.batch_id left join setting_book_revisions ssbr1_0 on ssbr1_0.id=aj1_0.source_setting_book_revision_id where aj1_0.work_id=? and aj1_0.job_type='SETTING_EXTRACTION' and e1_0.episode_no<? order by aj1_0.created_at desc,aj1_0.id desc",
+      "selectedColumns": [
+        "id",
+        "work_id",
+        "job_type",
+        "status",
+        "analysis_mode",
+        "journal_status",
+        "review_mode",
+        "automatic_applied_at",
+        "review_application_held_at",
+        "analysis_run_id",
+        "run_generation",
+        "run_sequence",
+        "predecessor_job_id",
+        "source_kind",
+        "source_episode_no",
+        "source_content_hash",
+        "source_content_s3_key",
+        "source_content_s3_version",
+        "id",
+        "work_id",
+        "episode_no",
+        "status",
+        "content_hash",
+        "content_s3_key",
+        "content_s3_version",
+        "id",
+        "original_filename",
+        "work_id",
+        "archived_at",
+        "current_setting_book_revision_id",
+        "id",
+        "setting_book_id",
+        "revision_no",
+        "reference_time_kind",
+        "reference_episode_no",
+        "content_hash",
+        "content_s3_key",
+        "content_s3_version"
+      ],
+      "selectsJobJson": false
+    },
+    "q042": {
+      "sql": "select sc1_0.id,sc1_0.analysis_job_id,sc1_0.attribute_name,sc1_0.attribute_value,sc1_0.automatic_review_hold_reason,sc1_0.candidate_kind,sc1_0.character_comparison_batch_id,sc1_0.character_comparison_candidate_ref,sc1_0.closed_at,sc1_0.closure_request_id,sc1_0.compared_at,sc1_0.comparison_base_snapshot_version,sc1_0.comparison_context_hash,sc1_0.comparison_dependency_candidate_ids,sc1_0.comparison_error_message,sc1_0.comparison_failure_analysis_job_id,sc1_0.comparison_failure_batch_id,sc1_0.comparison_failure_code,sc1_0.comparison_failure_diagnostics,sc1_0.comparison_reason,sc1_0.comparison_status,sc1_0.comparison_target_fact_key,sc1_0.comparison_target_fact_type,sc1_0.comparison_terminal_at,sc1_0.comparison_terminal_outcome,sc1_0.confidence,sc1_0.confirmed_application_mode,sc1_0.confirmed_group_decision_hash,sc1_0.created_at,sc1_0.effective_from_episode_no,sc1_0.entity_name,sc1_0.entity_type,sc1_0.episode_id,sc1_0.evidence_spans,sc1_0.match_status,sc1_0.matched_character_id,sc1_0.metrics_source_attempt_no,sc1_0.narrative_time,sc1_0.preparation_failure_stage,sc1_0.proposed_fact_value,sc1_0.proposed_value_json,sc1_0.provisional_subject_key,sc1_0.raw_ai_result_json,sc1_0.raw_comparison_json,sc1_0.raw_entity_mention,sc1_0.removed_snapshot_entries_json,sc1_0.resolved_canonical_fact_key,sc1_0.review_status,sc1_0.reviewed_application_mode,sc1_0.reviewed_automatically,sc1_0.reviewed_snapshot_version,sc1_0.source_chunk_id,sc1_0.source_content_s3_key,sc1_0.source_kind,sc1_0.source_setting_book_id,sc1_0.source_setting_book_revision_id,sc1_0.stored_evidence_validation,sc1_0.suggested_operation,sc1_0.temporal_scope,sc1_0.updated_at,sc1_0.user_content_modified,sc1_0.user_modified,sc1_0.value_json,sc1_0.value_type,sc1_0.work_id from setting_candidates sc1_0 where sc1_0.analysis_job_id in (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) and sc1_0.review_status='PENDING_REVIEW' order by sc1_0.created_at,sc1_0.id",
+      "selectedColumns": [
+        "id",
+        "analysis_job_id",
+        "attribute_name",
+        "attribute_value",
+        "automatic_review_hold_reason",
+        "candidate_kind",
+        "character_comparison_batch_id",
+        "character_comparison_candidate_ref",
+        "closed_at",
+        "closure_request_id",
+        "compared_at",
+        "comparison_base_snapshot_version",
+        "comparison_context_hash",
+        "comparison_dependency_candidate_ids",
+        "comparison_error_message",
+        "comparison_failure_analysis_job_id",
+        "comparison_failure_batch_id",
+        "comparison_failure_code",
+        "comparison_failure_diagnostics",
+        "comparison_reason",
+        "comparison_status",
+        "comparison_target_fact_key",
+        "comparison_target_fact_type",
+        "comparison_terminal_at",
+        "comparison_terminal_outcome",
+        "confidence",
+        "confirmed_application_mode",
+        "confirmed_group_decision_hash",
+        "created_at",
+        "effective_from_episode_no",
+        "entity_name",
+        "entity_type",
+        "episode_id",
+        "evidence_spans",
+        "match_status",
+        "matched_character_id",
+        "metrics_source_attempt_no",
+        "narrative_time",
+        "preparation_failure_stage",
+        "proposed_fact_value",
+        "proposed_value_json",
+        "provisional_subject_key",
+        "raw_ai_result_json",
+        "raw_comparison_json",
+        "raw_entity_mention",
+        "removed_snapshot_entries_json",
+        "resolved_canonical_fact_key",
+        "review_status",
+        "reviewed_application_mode",
+        "reviewed_automatically",
+        "reviewed_snapshot_version",
+        "source_chunk_id",
+        "source_content_s3_key",
+        "source_kind",
+        "source_setting_book_id",
+        "source_setting_book_revision_id",
+        "stored_evidence_validation",
+        "suggested_operation",
+        "temporal_scope",
+        "updated_at",
+        "user_content_modified",
+        "user_modified",
+        "value_json",
+        "value_type",
+        "work_id"
+      ],
+      "selectsJobJson": false
+    },
+    "q043": {
+      "sql": "select wsc1_0.id,wsc1_0.analysis_job_id,wsc1_0.applied_world_setting_version,wsc1_0.automatic_review_hold_reason,wsc1_0.base_world_setting_version,wsc1_0.before_value,wsc1_0.canonical_subject_key,wsc1_0.canonical_subject_name,wsc1_0.category,wsc1_0.closed_at,wsc1_0.closure_request_id,wsc1_0.compared_at,wsc1_0.comparison_batch_id,wsc1_0.comparison_candidate_ref,wsc1_0.comparison_decision_id,wsc1_0.comparison_diagnostics,wsc1_0.comparison_error_message,wsc1_0.comparison_failure_analysis_job_id,wsc1_0.comparison_failure_batch_id,wsc1_0.comparison_failure_code,wsc1_0.comparison_failure_diagnostics,wsc1_0.comparison_reason,wsc1_0.comparison_review_reason,wsc1_0.comparison_source_error_code,wsc1_0.comparison_source_reason_code,wsc1_0.comparison_status,wsc1_0.comparison_terminal_at,wsc1_0.comparison_terminal_outcome,wsc1_0.consolidation_status,wsc1_0.created_at,wsc1_0.effective_from_episode_no,wsc1_0.evidence_spans,wsc1_0.extracted_value,wsc1_0.extraction_confidence,wsc1_0.final_category,wsc1_0.final_operation,wsc1_0.final_scope_name,wsc1_0.final_setting_name,wsc1_0.final_subject_name,wsc1_0.final_value,wsc1_0.history_only,wsc1_0.matched_property_name,wsc1_0.matched_scope_name,wsc1_0.metrics_source_attempt_no,wsc1_0.preparation_failure_stage,wsc1_0.proposed_scope_name,wsc1_0.proposed_setting_name,wsc1_0.proposed_value,wsc1_0.provisional_subject_key,wsc1_0.raw_comparison_json,wsc1_0.raw_extraction_json,wsc1_0.resolved_provisional_subject_keys,wsc1_0.resolved_target_world_setting_ids,wsc1_0.review_note,wsc1_0.review_status,wsc1_0.reviewed_at,wsc1_0.reviewed_automatically,wsc1_0.reviewed_by,wsc1_0.scope_name,wsc1_0.setting_name,wsc1_0.source_episode_id,wsc1_0.source_kind,wsc1_0.source_setting_book_id,wsc1_0.source_setting_book_revision_id,wsc1_0.subject_name,wsc1_0.subject_resolution_type,wsc1_0.suggested_operation,wsc1_0.target_world_setting_id,wsc1_0.temporal_scope,wsc1_0.updated_at,wsc1_0.work_id from world_setting_candidates wsc1_0 where wsc1_0.analysis_job_id in (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) and wsc1_0.review_status='PENDING_REVIEW' order by wsc1_0.created_at,wsc1_0.id",
+      "selectedColumns": [
+        "id",
+        "analysis_job_id",
+        "applied_world_setting_version",
+        "automatic_review_hold_reason",
+        "base_world_setting_version",
+        "before_value",
+        "canonical_subject_key",
+        "canonical_subject_name",
+        "category",
+        "closed_at",
+        "closure_request_id",
+        "compared_at",
+        "comparison_batch_id",
+        "comparison_candidate_ref",
+        "comparison_decision_id",
+        "comparison_diagnostics",
+        "comparison_error_message",
+        "comparison_failure_analysis_job_id",
+        "comparison_failure_batch_id",
+        "comparison_failure_code",
+        "comparison_failure_diagnostics",
+        "comparison_reason",
+        "comparison_review_reason",
+        "comparison_source_error_code",
+        "comparison_source_reason_code",
+        "comparison_status",
+        "comparison_terminal_at",
+        "comparison_terminal_outcome",
+        "consolidation_status",
+        "created_at",
+        "effective_from_episode_no",
+        "evidence_spans",
+        "extracted_value",
+        "extraction_confidence",
+        "final_category",
+        "final_operation",
+        "final_scope_name",
+        "final_setting_name",
+        "final_subject_name",
+        "final_value",
+        "history_only",
+        "matched_property_name",
+        "matched_scope_name",
+        "metrics_source_attempt_no",
+        "preparation_failure_stage",
+        "proposed_scope_name",
+        "proposed_setting_name",
+        "proposed_value",
+        "provisional_subject_key",
+        "raw_comparison_json",
+        "raw_extraction_json",
+        "resolved_provisional_subject_keys",
+        "resolved_target_world_setting_ids",
+        "review_note",
+        "review_status",
+        "reviewed_at",
+        "reviewed_automatically",
+        "reviewed_by",
+        "scope_name",
+        "setting_name",
+        "source_episode_id",
+        "source_kind",
+        "source_setting_book_id",
+        "source_setting_book_revision_id",
+        "subject_name",
+        "subject_resolution_type",
+        "suggested_operation",
+        "target_world_setting_id",
+        "temporal_scope",
+        "updated_at",
+        "work_id"
+      ],
+      "selectsJobJson": false
+    }
+  }
+}
