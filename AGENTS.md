@@ -979,6 +979,12 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - 입력·선행 회차를 한 번 검증하고, append는 새 event만 기존 projection에 순서대로 적용한다. 중복 event의 동일 내용은 멱등 처리하고 충돌·잘못된 경로는 부분 반영 없이 거절한다. lease·원문·journal 상태 검증과 개별 이력·근거는 유지한다.
 - `AnalysisHumanRejectionPolicy.beginMatching()`도 같은 처리 안에서만 사용한다. 최신 references를 매번 확인하고, anchor 조회는 작품·후보 ID 및 도메인별로 재사용한다. 실제 후보 또는 원문 상태를 요청 간에 공유하지 않는다.
 
+### 비교 메모리 경계 (#365)
+
+- 같은 Job의 캐릭터·세계관 비교 후보 조회는 `analysisJob` 및 `analysisJob.batch`를 EntityGraph로 fetch하지 않는다. Worker의 기존 Job 잠금과 영속성 컨텍스트를 사용하고 후보 필터·정렬·잠금·coverage를 유지한다. 후보마다 큰 입력/journal JSON이 SQL 결과에 반복되는 것을 막기 위한 경계이며 실제 PostgreSQL SQL과 잠금 회귀로 검증한다.
+- 캐릭터의 새 이력은 `AnalysisStateChange.ValueMode.APPEND_HISTORY`로 `characters/<ref>/historyFacts`에 추가된 항목만 기록한다. 이전 전체 배열 REPLACE와 새 추가 연산은 원래 순서로 재생하며 같은 event의 충돌·멱등, 보류 기여 복원과 원문 파기를 보존한다. 이력/근거를 잘라내거나 최신 값으로 대체하지 않는다.
+- DB journal은 새 추가 연산을 저장할 때만 envelope v2로 승격하고 v1/v2를 읽는다. Worker `analysisContext.formatVersion=1`은 별도 계약으로 유지한다. v1 안의 추가 연산과 알 수 없는 모드는 거절한다. 구 Java로 코드만 롤백하면 v2 재생이 거절되므로 배포/복구 때 저장 버전 호환을 확인한다. 규약과 한계는 `docs/analysis-comparison-memory.md`, 측정은 `docs/load-tests/gh365-comparison-memory.md`를 따른다.
+
 ### 캐릭터 비교 근거 수명 (#363)
 
 - V112는 `setting_candidates.stored_evidence_validation`을 DB가 파생하는 검증 기록으로 관리한다. 후보 저장/근거 변경 시 같은 출처의 DB 청크로 인용·Unicode 위치·시점·설정집 부모 프로필 근거를 검증하고, 입력 JSON 및 Job의 key/version/hash와 결속한다. 상태만 바뀌는 저장은 재청킹 후에도 기존 검증을 보존한다. 애플리케이션은 이 컬럼을 직접 쓰지 않는다.
