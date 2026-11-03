@@ -28,6 +28,8 @@ import static org.monitoring.catchholebackend.domain.validation.exception.Valida
 /** External reads sit between two brief transactions; final source/lease checks occur under Work. */
 @Slf4j @Service @RequiredArgsConstructor
 public class ValidationResultServiceImpl implements ValidationResultService {
+    /** #349 ③: the only keys an INCOMPLETE SETTING unit payload may carry (shared contract `judgeFlow.questionFailure`). */
+    private static final Set<String> INCOMPLETE_UNIT_FIELDS=Set.of("action","outcome","failure_code","failure_cause","failed_call","target_spans");
     private final PlatformTransactionManager transactions;
     private final ValidationExecutionAccess access;
     private final ValidationExecutionRepository results;
@@ -91,7 +93,7 @@ public class ValidationResultServiceImpl implements ValidationResultService {
                 return new PublicationResult(mapper.toCheckResponse(check),false);
             }
             if(!"INCOMPLETE".equals(c.outcome()))decisions.validate(p,check,c.outcome(),body);
-            else if(!safeCode(body.path("failure_code").asText()))throw error(VALIDATION_RESULT_INVALID);
+            else incomplete(check,body);
             check.decide(c.outcome(),body);
             // #314 B2: 대상·설정명·영향 등급은 이 revision의 질문 상태와 report 고정 기준으로 한 번만 기록한다(현재 설정값을 읽지 않는다).
             if(!Set.of("NO_CONFLICT","INCOMPLETE").contains(c.outcome())) {var target=targets.describe(j.getReport(),check.getState());
@@ -198,6 +200,20 @@ public class ValidationResultServiceImpl implements ValidationResultService {
         }
         if(!covered.equals(originals.keySet()))throw error(VALIDATION_RESULT_INVALID);em.flush();
     }
+    /**
+     * #349 ③(2026-11-02): 질문 단위 오류로 결론을 못 낸 질문 하나만 INCOMPLETE로 게시한다. 다른 질문 판정은 계속되고,
+     * check는 completed()가 아니어서 실행은 COMPLETED가 되지 않으며 작가 [다시 시도]가 이 질문만 다시 판정한다(같은 revision에 새 결론을 덮어쓴다).
+     * payload는 {action:INCOMPLETE, outcome:INCOMPLETE, failure_code, failure_cause(null 가능), failed_call(0~3), target_spans(그 질문의 span 전부)}만 둔다.
+     * target_spans는 검사하지 못한 문장을 작가에게 보여 주는 근거라 질문 초안의 span과 정확히 같아야 하며 인용 검사를 받는다.
+     */
+    private void incomplete(ValidationCheck check,JsonNode body) {
+        if(!body.isObject()||!INCOMPLETE_UNIT_FIELDS.containsAll(fieldNames(body))||!"INCOMPLETE".equals(body.path("action").asText())||!"INCOMPLETE".equals(body.path("outcome").asText())
+                ||!safeCode(body.path("failure_code").asText())||!(body.path("failure_cause").isNull()||body.path("failure_cause").isMissingNode()||safeCode(body.path("failure_cause").asText()))
+                ||!(body.path("failed_call").isMissingNode()||body.path("failed_call").isIntegralNumber()&&body.path("failed_call").asInt()>=0&&body.path("failed_call").asInt()<=3)
+                ||!body.path("target_spans").isArray()||!sameSpanSet(check.getState().path("draft").path("target_spans"),body.path("target_spans")))throw error(VALIDATION_RESULT_INVALID);
+    }
+    private boolean sameSpanSet(JsonNode a,JsonNode b) {var x=new HashSet<String>();var y=new HashSet<String>();a.forEach(n->x.add(journal.hash(n)));b.forEach(n->y.add(journal.hash(n)));return !x.isEmpty()&&a.size()==x.size()&&b.size()==y.size()&&x.equals(y);}
+    private static Set<String> fieldNames(JsonNode n) {var names=new HashSet<String>();n.fieldNames().forEachRemaining(names::add);return names;}
     private void validateTypo(Prepared p,String ref,JsonNode body) {
         ValidationPublicationValidator.batchSegments(body,ref);if(!body.path("suggestions").isArray()||!body.path("failure_code").isNull()&&!body.path("failure_code").isMissingNode())throw error(VALIDATION_RESULT_INVALID);
         var bounds=ValidationPublicationValidator.segment(p.grid(),ref);var accepted=new ArrayList<JsonNode>();
@@ -214,7 +230,13 @@ public class ValidationResultServiceImpl implements ValidationResultService {
         var m=new LinkedHashMap<String,Object>();m.put("reportId",j.getReport().getId());m.put("reportVersion",j.getReport().getVersion());m.put("jobId",j.getId());m.put("status",j.getStatus());m.put("failureCode",j.getFailureCode());
         m.put("settingStatus",branchStatus(j,ValidationBranch.SETTING));m.put("typoStatus",branchStatus(j,ValidationBranch.TYPO));
         var checks=results.checks(j.getReport().getId());m.put("completedNoCheckSegments",noCheckSegments(j));m.put("completedChecks",checks.stream().filter(ValidationCheck::completed).count());m.put("totalChecks",checks.size());
-        m.put("checks",checks.stream().map(c->{var v=new LinkedHashMap<String,Object>();v.put("checkId",c.getId());v.put("revision",c.getRevision());v.put("outcome",c.getOutcome());v.put("reason",c.getDecision()==null?null:c.getDecision().path("reason").asText());v.put("changeReason",c.getChangeReason());return v;}).toList());
+        // #349 ③: questions published INCOMPLETE are counted separately; the run is not COMPLETED while any remain.
+        m.put("incompleteChecks",checks.stream().filter(c->"INCOMPLETE".equals(c.getOutcome())).count());
+        m.put("checks",checks.stream().map(c->{var v=new LinkedHashMap<String,Object>();v.put("checkId",c.getId());v.put("revision",c.getRevision());v.put("outcome",c.getOutcome());v.put("reason",c.getDecision()==null||!c.getDecision().path("reason").isTextual()?null:c.getDecision().path("reason").asText());v.put("changeReason",c.getChangeReason());
+            // Which sentences could not be checked and why: the question's verified target spans and the safe failure codes only.
+            if("INCOMPLETE".equals(c.getOutcome())) {v.put("failureCode",c.getDecision().path("failure_code").asText());v.put("failureCause",c.getDecision().path("failure_cause").isTextual()?c.getDecision().path("failure_cause").asText():null);
+                v.put("targetSpans",mapper.toTransportValue(c.getState().path("draft").path("target_spans")));}
+            return v;}).toList());
         var stages=results.stages(j.getReport().getId());long required=0;if(j.getRequiredGrid()!=null)for(var grid:j.getRequiredGrid())required+=grid.path("units").size();
         m.put("coverage",Map.of("gridReady",j.isGridReady(),"requiredStages",required,"completedStages",stages.stream().filter(ValidationStage::isSuccessful).count(),"stages",stages.stream().map(s->Map.of("branch",s.getBranch(),"stage",s.getStage(),"ref",s.getRef(),"successful",s.isSuccessful())).toList()));
         m.put("findings",results.findings(j.getReport().getId()).stream().filter(f->f.getCheckId()==null||checks.stream().anyMatch(c->c.getId().equals(f.getCheckId())&&Objects.equals(c.getRevision(),f.getCheckRevision()))).map(this::publicFinding).toList());
