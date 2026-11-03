@@ -18,6 +18,8 @@ public class ValidationDecisionValidator {
     private final ValidationDataMapper frozen;
     private final AnalysisStateJournal journal;
     private static final Set<String> OUTCOMES=Set.of("CONFLICT","SUSPECTED_CONFLICT","NEEDS_CONTEXT","NO_CONFLICT");
+    /** #349 grid v4 reads: fixed rows, target context and semantic search only (no KEYWORD/DIRECT/NEIGHBORS raw-text reads). */
+    public static final Set<String> INTENT_OPERATIONS=Set.of("BASELINE","TARGET_CONTEXT","VECTOR");
     public void validate(Prepared p,ValidationCheck check,String outcome,JsonNode decision) {
         var bundle=decision.path("evidence_bundle");var question=check.getState().path("draft");var knownSettings=frozen.toValidationSettings(p.context().entries(),p.context().sourceReferences());
         if(!OUTCOMES.contains(outcome)||!"DECIDED".equals(decision.path("action").asText())||!outcome.equals(decision.path("outcome").asText())||!nonblank(decision,"reason")||!decision.path("completion").isObject()
@@ -28,7 +30,9 @@ public class ValidationDecisionValidator {
         Set<String> facts=new HashSet<>(),known=new HashSet<>();known.add("T1");
         if(!bundle.path("settings").isArray()||!bundle.path("evidence").isArray()||!bundle.path("receipts").isArray()||!bundle.path("target_context").isArray()||bundle.path("target_context").isEmpty()||!bundle.path("additional_target_context").isArray())throw error(VALIDATION_RESULT_INVALID);
         for(var setting:bundle.path("settings")) {setting(knownSettings,setting);if(!facts.add(setting.path("entry_ref").asText()))throw error(VALIDATION_RESULT_INVALID);}
-        Set<String> neededSettings=new HashSet<>();for(var entry:knownSettings.entrySet())for(var subject:question.path("subject_refs"))if(subject.asText().equals(entry.getValue().path("subject_ref").asText()))neededSettings.add(entry.getKey());
+        // #349 grid v4: the judge reads current rows only (characters/worldSettings); worldHistory rows are never bundle settings.
+        Set<String> neededSettings=new HashSet<>();for(var entry:knownSettings.entrySet())if(ValidationDataMapper.CURRENT_DOMAINS.contains(entry.getValue().path("domain").asText()))
+            for(var subject:question.path("subject_refs"))if(subject.asText().equals(entry.getValue().path("subject_ref").asText()))neededSettings.add(entry.getKey());
         for(var intent:check.getState().path("lookup_obligations"))if("BASELINE".equals(intent.path("operation").asText()))for(var ref:intent.path("evidence_refs"))neededSettings.add(ref.asText());
         if(!facts.equals(neededSettings))throw error(VALIDATION_RESULT_INVALID);known.addAll(facts);
         Set<String> evidence=new HashSet<>(),comparisonEvidence=new HashSet<>();for(var row:bundle.path("evidence")) {
@@ -49,7 +53,7 @@ public class ValidationDecisionValidator {
             if(!nonblank(a,"reason")||!strings(a.path("evidence_refs"),known,true)||!strings(a.path("receipt_refs"),receiptRefs,true))throw error(VALIDATION_RESULT_INVALID);
         }
         if(!textSet(decision.path("completion").path("required_reads").path("receipt_refs")).equals(receiptRefs)||!textSet(decision.path("completion").path("comparison_context").path("evidence_refs")).contains("T1")||!strings(decision.path("evidence_refs"),known,false))throw error(VALIDATION_RESULT_INVALID);
-        if(outcome.equals("SUSPECTED_CONFLICT")&&textSet(decision.path("completion").path("changes_exceptions").path("receipt_refs")).stream().map(receipts::get).noneMatch(r->"CHANGES_EXCEPTIONS".equals(r.path("intent").path("kind").asText())&&Set.of("KEYWORD","VECTOR").contains(r.path("intent").path("operation").asText())))throw error(VALIDATION_RESULT_INVALID);
+        if(outcome.equals("SUSPECTED_CONFLICT")&&textSet(decision.path("completion").path("changes_exceptions").path("receipt_refs")).stream().map(receipts::get).noneMatch(r->"CHANGES_EXCEPTIONS".equals(r.path("intent").path("kind").asText())&&"VECTOR".equals(r.path("intent").path("operation").asText())))throw error(VALIDATION_RESULT_INVALID);
         String expected=Map.of("CONFLICT","DIRECT_CONTRADICTION","SUSPECTED_CONFLICT","CHANGE_NOT_FOUND","NEEDS_CONTEXT","AMBIGUOUS_MEANING","NO_CONFLICT","COMPATIBLE").get(outcome);
         if(!Set.of(expected,"DB_RAW_DISAGREEMENT").contains(decision.path("basis").asText()))throw error(VALIDATION_RESULT_INVALID);
         if(outcome.equals("NO_CONFLICT")) {if(decision.hasNonNull("impact")||decision.hasNonNull("impact_reason"))throw error(VALIDATION_RESULT_INVALID);}
@@ -62,20 +66,21 @@ public class ValidationDecisionValidator {
             if(!"NEEDS_CONTEXT".equals(outcome))throw error(VALIDATION_RESULT_INVALID);
         }
     }
+    /** Grid v4: obligations are no longer derived from the draft (it has no lookup_intents); a missing list means []. */
     public JsonNode state(JsonNode state,Set<String> subjects) {
         if(!state.isObject())throw error(VALIDATION_RESULT_INVALID);draft(state.path("draft"),subjects);
-        var normalized=(ObjectNode)state.deepCopy();if(!normalized.has("lookup_obligations"))normalized.set("lookup_obligations",state.path("draft").path("lookup_intents").deepCopy());
+        var normalized=(ObjectNode)state.deepCopy();if(!normalized.has("lookup_obligations"))normalized.putArray("lookup_obligations");
         if(!normalized.path("lookup_obligations").isArray())throw error(VALIDATION_RESULT_INVALID);
         var obligations=JsonNodeFactory.instance.arrayNode();Set<String> signatures=new HashSet<>();
         for(var intent:normalized.path("lookup_obligations")) {validateIntent(intent);if(signatures.add(journal.hash(normalizeIntent(intent))))obligations.add(intent.deepCopy());}
-        for(var intent:state.path("draft").path("lookup_intents"))if(!signatures.contains(journal.hash(normalizeIntent(intent))))throw error(VALIDATION_RESULT_INVALID);
         normalized.set("lookup_obligations",obligations);return normalized;
     }
     public void draft(JsonNode q,Set<String> subjects) {
         if(!q.isObject()||!nonblank(q,"local_ref")||!q.path("target_spans").isArray()||q.path("target_spans").isEmpty()||!strings(q.path("subject_refs"),subjects,false)||!textArray(q.path("subject_mentions"))||!textArray(q.path("conditions"))
-                ||!Set.of("NARRATION","DIALOGUE","THOUGHT","HYPOTHETICAL","UNKNOWN").contains(q.path("assertion_mode").asText())||!nonblank(q,"property_or_rule")||!nonblank(q,"time_context")||!nonblank(q,"check_intent")||!nonblank(q,"reason")||!q.path("lookup_intents").isArray())throw error(VALIDATION_RESULT_INVALID);
+                ||!Set.of("NARRATION","DIALOGUE","THOUGHT","HYPOTHETICAL","UNKNOWN").contains(q.path("assertion_mode").asText())||!nonblank(q,"property_or_rule")||!nonblank(q,"time_context")||!nonblank(q,"check_intent")||!nonblank(q,"reason")
+                // #349 grid v4: the plan form has no "what to look up" list; the judge decides after reading the DB rows.
+                ||q.has("lookup_intents"))throw error(VALIDATION_RESULT_INVALID);
         for(var span:q.path("target_spans"))if(!"T1".equals(span.path("source_ref").asText())||!span.path("quote").isTextual()||!span.path("start").isIntegralNumber()||!span.path("end").isIntegralNumber())throw error(VALIDATION_RESULT_INVALID);
-        for(var intent:q.path("lookup_intents"))validateIntent(intent);
     }
     /**
      * GH349: bundle settings 행은 {entry_ref, subject_ref}다. entry_ref는 현재 고정 기준 항목이고 subject_ref가 그 항목과 같아야 한다.
@@ -88,7 +93,7 @@ public class ValidationDecisionValidator {
     }
     public Set<String> subjects(Prepared p) {var refs=new HashSet<String>();for(var value:frozen.toValidationSettings(p.context().entries(),p.context().sourceReferences()).values())refs.add(value.path("subject_ref").asText());return refs;}
     public void validateIntent(JsonNode intent) {
-        if(!nonblank(intent,"ref")||!nonblank(intent,"purpose")||!Set.of("COMPARISON_CONTEXT","CHANGES_EXCEPTIONS","NEW_CLUE").contains(intent.path("kind").asText())||!Set.of("BASELINE","TARGET_CONTEXT","DIRECT","KEYWORD","VECTOR","NEIGHBORS").contains(intent.path("operation").asText())||!textArray(intent.path("evidence_refs")))throw error(VALIDATION_RESULT_INVALID);
+        if(!nonblank(intent,"ref")||!nonblank(intent,"purpose")||!Set.of("COMPARISON_CONTEXT","CHANGES_EXCEPTIONS","NEW_CLUE").contains(intent.path("kind").asText())||!INTENT_OPERATIONS.contains(intent.path("operation").asText())||!textArray(intent.path("evidence_refs")))throw error(VALIDATION_RESULT_INVALID);
     }
     public boolean same(JsonNode a,JsonNode b) {return journal.hash(a).equals(journal.hash(b));}
     public JsonNode normalizeIntent(JsonNode n) {var r=JsonNodeFactory.instance.objectNode();for(String key:List.of("ref","kind","operation","purpose","query","source_ref","start","end","evidence_refs"))r.set(key,n.has(key)?n.path(key).deepCopy():NullNode.instance);return r;}

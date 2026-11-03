@@ -24,7 +24,7 @@ public class ValidationExecutionMapper {
         var branches=new LinkedHashMap<String,Object>();for(var entry:checkpoints.entrySet())branches.put(entry.getKey().name(),Map.of("version",entry.getValue().getVersion(),"payload",toTransportValue(entry.getValue().getPayload())));m.put("branches",branches);return m;
     }
     public Map<String,Object> toClaimResponse(ValidationJob j,Map<String,Object> checkpoint) {
-        var r=j.getReport();var m=new LinkedHashMap<String,Object>();m.put("contractVersion",1);m.put("projectionVersion",1);m.put("clueVersion",1);m.put("jobId",j.getId());m.put("scope",toScope(j));
+        var r=j.getReport();var m=new LinkedHashMap<String,Object>();m.put("contractVersion",1);m.put("projectionVersion",ValidationDataMapper.PROJECTION_VERSION);m.put("jobId",j.getId());m.put("scope",toScope(j));
         m.put("memberId",r.getMember().getId());m.put("workId",r.getWork().getId());m.put("episodeId",r.getEpisode().getId());m.put("reportRevision",r.getRevision());
         m.put("baselineRevision",r.getBaselineRevision());m.put("targetRevision",r.getSourceContentRevision());m.put("mode",r.getMode());m.put("baselineHash",r.getBaselineHash());m.put("targetHash",r.getSourceContentHash());m.put("manifestHash",j.getManifestHash());
         m.put("budgetRevision",j.getConfiguration().path("budgetRevision").asInt(1));m.put("attempt",j.getAttempt());m.put("leaseToken",j.getLeaseToken());m.put("leaseExpiresAt",j.getLeaseExpiresAt().toString());m.put("models",toTransportValue(j.getConfiguration().path("models")));m.put("budgets",toTransportValue(j.getConfiguration().path("budgets")));m.put("checkpoint",checkpoint);return m;

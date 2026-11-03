@@ -26,8 +26,9 @@ import org.springframework.stereotype.Component;
  * 현재 캐릭터·세계관 값을 조회하지 않는다. 캐릭터 설정 표시명만 기존 schema 표시명 규칙(CharacterSettingDisplayNameResolver)을 쓴다.
  *
  * <ul>
- *   <li>관련 기준 항목: 질문 subject_refs의 모든 항목과 BASELINE 조회 의무의 evidence_refs. 판정 저장 때 ValidationDecisionValidator가
- *       evidence_bundle.settings와 정확히 같기를 요구하는 집합이다.</li>
+ *   <li>관련 기준 항목: 질문 subject_refs의 모든 항목과 BASELINE 조회 의무의 evidence_refs. grid v4(#349 개편)의 판정은 현재값 domain(characters·worldSettings)만
+ *       evidence_bundle.settings로 받고 BASELINE 의무는 언제나 비어 있다. 이 계산은 worldHistory 항목도 후보로 두지만 아래 대표 대상·{@link #basis}는
+ *       정정 가능한 domain을 먼저 고르므로 결과가 같다.</li>
  *   <li>대표 대상: subject_refs의 첫 참조(없으면 BASELINE 조회 항목)의 항목 중 정정 가능한 domain(characters·worldSettings)을 먼저, 그다음 기준 순서.</li>
  *   <li>설정: 질문의 property_or_rule이 대표 대상의 고정 slot/path 하나와 정확히(NFC·소문자·공백 무시) 맞을 때만. 캐릭터는 slot key·factKey·표시명,
  *       세계관은 설정명·"범위/설정명"과 비교한다. 0개 또는 2개 이상이면 추정하지 않고 null이다.</li>

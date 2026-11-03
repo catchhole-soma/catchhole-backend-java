@@ -166,9 +166,8 @@ public class ValidationResultServiceImpl implements ValidationResultService {
     private Map<String,Object> publish(UUID id,UUID lease,Scope scope,String operation,String key,Object command,ValidationBranch branch,Object payload,List<Citation> citations,Publication action) {
         if(mapper.toTree(command).toString().getBytes(java.nio.charset.StandardCharsets.UTF_8).length>ValidationPublicationValidator.MAX_PAYLOAD_BYTES)throw error(VALIDATION_RESULT_INVALID);
         var replay=transaction(junk->{var j=access.running(id,lease,scope);requireCurrentUnit(j,command);return receipt(j,operation,key,command);});if(replay!=null)return replay;
-        var snapshot=transaction(junk->{var j=access.running(id,lease,scope);return new Preparation(context(j,lease),j.getRequiredGrid()==null?null:j.getRequiredGrid().path(branch.name()).deepCopy());});
-        String book=command instanceof Publish c&&c.stage()==ValidationStageKind.BOOK_SOURCE&&c.failureCode()==null?c.ref():null;
-        Context context=snapshot.context();var prepared=validator.prepare(context,branch,snapshot.grid(),book);validator.payload(prepared,mapper.toTree(payload),citations);
+        Context context=transaction(junk->{var j=access.running(id,lease,scope);return context(j,lease);});
+        var prepared=validator.prepare(context,branch);validator.payload(prepared,mapper.toTree(payload),citations);
         return transaction(junk->{var j=access.running(id,lease,scope);requireCurrentUnit(j,command);var existing=receipt(j,operation,key,command);if(existing!=null)return existing;validator.recheck(context);
             var old=j.getRequiredGrid()==null?null:j.getRequiredGrid().get(branch.name());var extended=validator.extendGrid(prepared,old);
             j.initializeGrid(branch,extended.grid());var publication=action.publish(j,extended);var response=mapper.toTransport(publication.response());if(publication.changed())j.getReport().advanceVersion();saveReceipt(j,operation,key,command,response);em.flush();return response;});
@@ -178,7 +177,8 @@ public class ValidationResultServiceImpl implements ValidationResultService {
         if(!ValidationPublicationValidator.sourcesReady(grid))throw error(VALIDATION_RESULT_INVALID);
         for(var unit:grid.path("units"))if(!"MERGED_PLAN".equals(unit.path("stage").asText())&&stages.stream().noneMatch(s->s.isSuccessful()&&s.getBranch()==ValidationBranch.SETTING&&s.getStage().name().equals(unit.path("stage").asText())&&s.getRef().equals(unit.path("ref").asText())))throw error(VALIDATION_RESULT_INVALID);
         if(!payload.path("questions").isArray())throw error(VALIDATION_RESULT_INVALID);
-        var originals=new HashMap<String,JsonNode>();for(var s:stages)if(s.getBranch()==ValidationBranch.SETTING&&Set.of(ValidationStageKind.PLANNER,ValidationStageKind.COVERAGE,ValidationStageKind.BOOK_COVERAGE).contains(s.getStage()))
+        // #349 grid v4: only PLANNER stages carry question originals (no COVERAGE/BOOK_COVERAGE).
+        var originals=new HashMap<String,JsonNode>();for(var s:stages)if(s.getBranch()==ValidationBranch.SETTING&&s.getStage()==ValidationStageKind.PLANNER)
             for(var q:s.getPayload().path("questions"))originals.put(s.getStage()+":"+s.getRef()+":"+q.path("local_ref").asText(),q);
         Set<String> covered=new HashSet<>(),locals=new HashSet<>();
         for(var q:payload.path("questions")) {
@@ -191,7 +191,6 @@ public class ValidationResultServiceImpl implements ValidationResultService {
                 for(String field:List.of("property_or_rule","time_context","assertion_mode"))if(!decisions.same(originalDraft.path(field),mergedDraft.path(field)))throw error(VALIDATION_RESULT_INVALID);
                 for(String field:List.of("subject_refs","conditions"))if(!sameTextSet(originalDraft.path(field),mergedDraft.path(field)))throw error(VALIDATION_RESULT_INVALID);
                 if(mergedDraft.path("subject_refs").isEmpty()&&q.path("originalRefs").size()!=1)throw error(VALIDATION_RESULT_INVALID);
-                for(var intent:originalDraft.path("lookup_intents"))if(!containsIntent(mergedDraft.path("lookup_intents"),intent))throw error(VALIDATION_RESULT_INVALID);
                 for(var original:originalDraft.path("target_spans"))if(!spanHashes.contains(journal.hash(original)))throw error(VALIDATION_RESULT_INVALID);
             }
             var state=decisions.state(q.path("state"),decisions.subjects(p));
@@ -275,6 +274,5 @@ public class ValidationResultServiceImpl implements ValidationResultService {
     private boolean safeCode(String code) {return code!=null&&code.matches("[A-Z][A-Z0-9_]{0,99}");}
     private <T>T transaction(Function<Void,T> action) {return new TransactionTemplate(transactions).execute(s->action.apply(null));}
     private record PublicationResult(Map<String,Object> response,boolean changed) {}
-    private record Preparation(Context context,JsonNode grid) {}
     private interface Publication {PublicationResult publish(ValidationJob j,Prepared p);}
 }

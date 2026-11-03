@@ -29,7 +29,6 @@ public class ValidationDataServiceImpl implements ValidationDataService {
     private final AnalysisStateJournal journal;
     private final ValidationDataMapper mapper;
     private final EntityManager em;
-    private final org.monitoring.catchholebackend.domain.validation.processor.ValidationClueCollector clues;
     private final org.monitoring.catchholebackend.domain.validation.processor.ValidationExecutionAccess execution;
 
     @Override
@@ -81,6 +80,24 @@ public class ValidationDataServiceImpl implements ValidationDataService {
                 int next = (int) Math.min(report.getBaselineEntries().size(), (long) request.offset() + request.limit());
                 response.put("nextOffset", next).put("hasMore", next < report.getBaselineEntries().size());
             }
+            case "SUBJECTS" -> {
+                // #349 grid v4: the Worker reads the subject list once at start; there is no paging (offset/limit are ignored).
+                var subjects=mapper.toValidationSubjectCatalogue(report.getBaselineEntries(),refs);
+                response.set("subjects",subjects);response.put("subjectCount",subjects.size()).put("entryCount",report.getBaselineEntries().size());
+            }
+            case "SETTINGS" -> {
+                // #349 grid v4: current rows of the requested subjects only (characters/worldSettings), in B order; worldHistory is never returned.
+                var wanted=request.subjectRefs();var known=new HashSet<String>();
+                ValidationDataMapper.toSubjectRefs(report.getBaselineEntries()).values().forEach(known::add);
+                if(wanted==null||wanted.isEmpty()||wanted.size()>100||wanted.stream().anyMatch(ref->ref==null||!ref.matches("S[1-9][0-9]*")||!known.contains(ref)))
+                    throw new AppException(CommonErrorCode.REQUEST_VALIDATION_FAILED);
+                var rows=mapper.toValidationCurrentSettings(report.getBaselineEntries(),refs,wanted);var settings=response.putArray("settings");rows.forEach(settings::add);
+                var proofs=response.putArray("authorCorrectionProofs");
+                for(var row:rows) {
+                    var entry=report.getBaselineEntries().path(Integer.parseInt(row.path("entry_ref").asText().substring(1))-1);
+                    if(entry.path("state").path("explicitAuthorCorrections").isArray())proofs.addObject().put("entryRef",row.path("entry_ref").asText()).set("proofs",entry.path("state").path("explicitAuthorCorrections").deepCopy());
+                }
+            }
             case "VALIDATE" -> {
                 for (var entry : refs.entrySet()) {
                     String status = sourceStatus(workId, report.getSourceEpisodeNo(), entry.getValue(), entry.getKey().equals("T1"));
@@ -106,7 +123,6 @@ public class ValidationDataServiceImpl implements ValidationDataService {
                 int start = request.start() == null ? 0 : request.start();
                 int end = request.end() == null ? length : request.end();
                 if (start < 0 || end < start || end > length) return response.put("status", "INVALID_RANGE");
-                if(request.sourceRef().equals("T1")&&start==0&&end==length)response.set("modelClues",clues.collectValidationClues(text,mapper.toValidationNames(report.getBaselineEntries())));
                 response.put("sourceRef", request.sourceRef()).put("contentHash", source.path("contentHash").asText())
                         .put("start", start).put("end", end).put("totalCodePoints", length)
                         .put("text", text.substring(text.offsetByCodePoints(0, start), text.offsetByCodePoints(0, end)));
