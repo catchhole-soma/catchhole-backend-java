@@ -49,7 +49,7 @@ class AutomaticComparisonFailureJournalTest {
     private final SettingCandidateRepository characters = mock(SettingCandidateRepository.class);
     private final WorldSettingCandidateRepository worlds = mock(WorldSettingCandidateRepository.class);
     private final AnalysisStateJournal journal = new AnalysisStateJournal();
-    private final AnalysisHumanRejectionPolicy rejections = new AnalysisHumanRejectionPolicy(characters, worlds, journal);
+    private final AnalysisHumanRejectionPolicy rejections = new AnalysisHumanRejectionPolicy(characters, worlds, journal, mock(org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceRepository.class));
     private final SettingCandidate character = mock(SettingCandidate.class);
     private final WorldSettingCandidate world = mock(WorldSettingCandidate.class);
     private final UUID candidateId = UUID.randomUUID();

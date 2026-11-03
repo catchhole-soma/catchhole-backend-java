@@ -47,7 +47,8 @@ class CharacterDiscoveryRejectionTest {
     private final SettingCandidateRepository candidates = mock(SettingCandidateRepository.class);
     private final WorldSettingCandidateRepository worlds = mock(WorldSettingCandidateRepository.class);
     private final AnalysisStateJournal journal = new AnalysisStateJournal();
-    private final AnalysisHumanRejectionPolicy policy = new AnalysisHumanRejectionPolicy(candidates, worlds, journal);
+    private final org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceRepository sourceJobs = mock(org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceRepository.class);
+    private final AnalysisHumanRejectionPolicy policy = new AnalysisHumanRejectionPolicy(candidates, worlds, journal, sourceJobs);
     private final AnalysisRunStateService states = mock(AnalysisRunStateService.class);
     private final AtomicReference<JsonNode> projected = new AtomicReference<>();
     private final CharacterAnalysisStateService service = new CharacterAnalysisStateService(
@@ -66,6 +67,9 @@ class CharacterDiscoveryRejectionTest {
         ReflectionTestUtils.setField(episode, "id", UUID.randomUUID());
         priorJob = job();
         job = job();
+        when(sourceJobs.findExtractionSourcesForWork(any())).thenAnswer(call -> List.of(
+                org.monitoring.catchholebackend.support.AnalysisJobSourceViewTestSupport.view(priorJob),
+                org.monitoring.catchholebackend.support.AnalysisJobSourceViewTestSupport.view(job)));
         when(states.prepareState(job)).thenAnswer(call -> new AnalysisRunStateService.PreparedState() {
             public JsonNode projectedState() { return states.getProjectedState(job); }
             public void append(List<AnalysisStateChange> changes) {

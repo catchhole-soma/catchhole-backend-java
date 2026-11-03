@@ -57,7 +57,7 @@ class CharacterNarrativeEvidenceLifecycleTest {
         point.set("evidenceSpans", json.createArrayNode().add(json.createObjectNode().put("quote", content)
                 .put("startOffset", 0).put("endOffset", length()).put("sourceChunkId", candidate.getSourceChunkId().toString())));
         candidate.recordNarrativeTime(json.createObjectNode().putNull("factTime").set("referenceTime", point));
-        resolver = new CharacterCurrentSupportingEvidenceResolver(org.monitoring.catchholebackend.support.StoredCharacterEvidenceTestSupport.verified(content));
+        resolver = new CharacterCurrentSupportingEvidenceResolver(org.monitoring.catchholebackend.support.StoredCharacterEvidenceTestSupport.verified(content), org.monitoring.catchholebackend.support.AnalysisJobSourceViewTestSupport.repositoryFor(job));
     }
 
     @Test

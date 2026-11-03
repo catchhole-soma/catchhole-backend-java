@@ -86,6 +86,9 @@ class SettingBookAnalysisIntegrationTest {
                 if(content==null) return org.monitoring.catchholebackend.domain.character.repository.StoredCharacterEvidenceRepository.Evidence.unavailable();
                 return org.monitoring.catchholebackend.support.StoredCharacterEvidenceTestSupport.verified(new String(content,StandardCharsets.UTF_8)).find(candidate);
             }).when(storedEvidence).find(any());
+            // Both capture and candidate projection read the same synthetic recorded receipt on H2.
+            org.mockito.Mockito.doAnswer(call -> storedEvidence.find(call.getArgument(0)))
+                    .when(storedEvidence).find(any(), any());
         }
 
         sql.execute("create table if not exists episode_chunks(id uuid primary key,episode_id uuid not null)");

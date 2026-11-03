@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.analysis.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -47,7 +48,8 @@ class AnalysisHumanRejectionPolicyTest {
     private final SettingCandidateRepository characters = mock(SettingCandidateRepository.class);
     private final WorldSettingCandidateRepository worlds = mock(WorldSettingCandidateRepository.class);
     private final AnalysisStateJournal journal = new AnalysisStateJournal();
-    private final AnalysisHumanRejectionPolicy policy = new AnalysisHumanRejectionPolicy(characters, worlds, journal);
+    private final org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceRepository sourceJobs = mock(org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceRepository.class);
+    private final AnalysisHumanRejectionPolicy policy = new AnalysisHumanRejectionPolicy(characters, worlds, journal, sourceJobs);
     private final AnalysisRunStateService states = mock(AnalysisRunStateService.class);
     private final AtomicReference<JsonNode> state = new AtomicReference<>();
     private Work work;
@@ -65,6 +67,9 @@ class AnalysisHumanRejectionPolicyTest {
         ReflectionTestUtils.setField(episode, "id", UUID.randomUUID());
         priorJob = job();
         nextJob = job();
+        when(sourceJobs.findExtractionSourcesForWork(any())).thenAnswer(call -> List.of(
+                org.monitoring.catchholebackend.support.AnalysisJobSourceViewTestSupport.view(priorJob),
+                org.monitoring.catchholebackend.support.AnalysisJobSourceViewTestSupport.view(nextJob)));
         target = UUID.randomUUID();
         when(states.getProjectedState(nextJob)).thenAnswer(call -> state.get().deepCopy());
         doAnswer(call -> {
@@ -103,6 +108,20 @@ class AnalysisHumanRejectionPolicyTest {
         assertThat(state.get().path("characters")).isEmpty();
         assertThat(state.get().path("references").path("human-rejection:" + extractedAgain.getId())
                 .path("rejectedCandidateId").asText()).isEqualTo(rejected.getId().toString());
+    }
+
+    @Test
+    @DisplayName("반려 후보의 Job 메타데이터가 사라지면 사용자 반려를 조용히 누락시키지 않는다")
+    void missingSourceMetadataDoesNotSilentlyDropHumanRejection() {
+        SettingCandidate rejected = character(priorJob, "북부 출신", 4);
+        rejected.recordUserModification();
+        rejected.dismiss();
+        when(sourceJobs.findExtractionSourcesForWork(work.getId())).thenReturn(List.of());
+        when(sourceJobs.findSourceById(priorJob.getId())).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> capture(List.of(rejected), List.of()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("반려 이력의 분석 출처가 없습니다.");
     }
 
     @Test

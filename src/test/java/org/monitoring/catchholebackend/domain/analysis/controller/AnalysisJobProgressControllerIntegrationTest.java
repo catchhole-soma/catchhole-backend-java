@@ -29,6 +29,8 @@ import org.springframework.test.context.ActiveProfiles;
 class AnalysisJobProgressControllerIntegrationTest extends AnalysisProgressApiFixture {
     @org.springframework.beans.factory.annotation.Autowired
     private org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository jobs;
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.monitoring.catchholebackend.domain.episode.repository.EpisodeAnalysisSummaryRepository episodeSummaries;
 
     @Test
     @DisplayName("관계 백필은 공개 생성·상세·재시도와 최신 회차 분석 상태에 노출하지 않는다")
@@ -48,8 +50,8 @@ class AnalysisJobProgressControllerIntegrationTest extends AnalysisProgressApiFi
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.code").value("ANALYSIS_JOB_TYPE_INVALID"));
         assertThat(jobs.findAllWithTargetsByWorkIdOrderByCreatedAtDesc(work.getId()))
                 .extracting(AnalysisJob::getId).containsExactly(core.getId());
-        assertThat(jobs.findAllRelevantForEpisodeSummaries(List.of(batch.getId()), List.of(core.getEpisode().getId())))
-                .extracting(AnalysisJob::getId).containsExactly(core.getId());
+        assertThat(episodeSummaries.findLatestForEpisodes(work.getId(), List.of(batch.getId()), List.of(core.getEpisode().getId())))
+                .extracting(org.monitoring.catchholebackend.domain.episode.repository.EpisodeAnalysisSummary::id).containsExactly(core.getId());
     }
 
     @ParameterizedTest

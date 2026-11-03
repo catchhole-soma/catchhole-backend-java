@@ -62,7 +62,7 @@ class OrderedWorldSettingWorkerTest {
     private final WorldSettingWorkerMapper mapper = new WorldSettingWorkerMapper();
     private final OrderedWorldSettingWorker worker = new OrderedWorldSettingWorker(new org.monitoring.catchholebackend.domain.analysis.processor.AnalysisFailureDiagnosticsSanitizer(org.mockito.Mockito.mock(org.springframework.jdbc.core.JdbcTemplate.class)), stateService, journal,
             new AnalysisRunContextMapper(new org.monitoring.catchholebackend.domain.character.mapper.CharacterFactEvidenceMapper(new org.monitoring.catchholebackend.domain.character.processor.CharacterFactSourceResolver(), org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection.class))), candidates, batches, decisions, sources, settings, mapper,
-            new WorldSettingAnalysisStateMapper(), new AnalysisHumanRejectionPolicy(mock(org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository.class), candidates, journal));
+            new WorldSettingAnalysisStateMapper(), new AnalysisHumanRejectionPolicy(mock(org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository.class), candidates, journal, mock(org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceRepository.class)));
     private AnalysisJob job;
     private WorldSettingCandidate candidate;
     private WorldSettingComparisonBatch batch;

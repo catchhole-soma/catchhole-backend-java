@@ -55,7 +55,11 @@ dependencies {
 
 tasks.named('test') {
     useJUnitPlatform()
-    // 전체 통합 테스트에서 Spring Context가 누적되어 CI 테스트 JVM의 heap이 고갈되지 않게 한다.
-    maxHeapSize = '1g'
-    systemProperty 'spring.test.context.cache.maxSize', '8'
+    // 클래스별 cache key로 재사용할 수 없는 이전 Context를 보관하지 않는다.
+    // 같은 클래스의 메서드 간 재사용은 유지하며 클래스 병렬 실행 도입 시 다시 검토한다.
+    // 한 클래스에서 수십 번 JPA Context를 재생성하는 회귀 검증의 초기화 여유를 둔다.
+    maxHeapSize = '2g'
+    systemProperty 'spring.test.context.cache.maxSize', '1'
+    // 긴 suite에서 누적되는 테스트 전용 메모리는 JVM을 주기적으로 교체해 회수한다.
+    forkEvery = 25
 }

@@ -18,7 +18,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
-import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus;
@@ -42,15 +42,25 @@ import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingRevi
 class AnalysisPendingReferenceSourceTest {
     private final SettingCandidateRepository characters = mock(SettingCandidateRepository.class);
     private final WorldSettingCandidateRepository worlds = mock(WorldSettingCandidateRepository.class);
-    private final AnalysisJobRepository jobs = mock(AnalysisJobRepository.class);
+    private final AnalysisJobSourceRepository jobs = mock(AnalysisJobSourceRepository.class);
     private final AnalysisPendingReferenceSource source = new AnalysisPendingReferenceSource(characters, worlds, jobs);
     private final Work work = mock(Work.class);
     private AnalysisJob current;
+    private final java.util.Map<UUID, List<SettingCandidate>> characterRows = new java.util.HashMap<>();
+    private final java.util.Map<UUID, List<WorldSettingCandidate>> worldRows = new java.util.HashMap<>();
 
     @BeforeEach
     void prepareWork() {
         when(work.getId()).thenReturn(UUID.randomUUID());
         current = job(7);
+        when(characters.findPendingReferencesByAnalysisJobIds(org.mockito.ArgumentMatchers.anyCollection())).thenAnswer(call -> {
+            java.util.Collection<UUID> ids = call.getArgument(0);
+            return ids.stream().flatMap(id -> characterRows.getOrDefault(id, List.of()).stream()).toList();
+        });
+        when(worlds.findPendingReferencesByAnalysisJobIds(org.mockito.ArgumentMatchers.anyCollection())).thenAnswer(call -> {
+            java.util.Collection<UUID> ids = call.getArgument(0);
+            return ids.stream().flatMap(id -> worldRows.getOrDefault(id, List.of()).stream()).toList();
+        });
     }
 
     @ParameterizedTest
@@ -355,8 +365,7 @@ class AnalysisPendingReferenceSourceTest {
         when(purged.getEvidenceSpans()).thenReturn(JsonNodeFactory.instance.arrayNode());
         var processing = character(earlier);
         when(processing.getComparisonStatus()).thenReturn(CharacterFactComparisonStatus.PROCESSING);
-        when(characters.findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(earlier.getId()))
-                .thenReturn(List.of(confirmed, dismissed, purged, processing));
+        characterRows.put(earlier.getId(), List.of(confirmed, dismissed, purged, processing));
         var world = world(earlier);
         when(world.getFinalOperation()).thenReturn(WorldSettingOperation.EXCLUDE);
         earlier(earlier);
@@ -373,7 +382,7 @@ class AnalysisPendingReferenceSourceTest {
         when(edited.isUserModified()).thenReturn(true);
         when(edited.getAttributeValue()).thenReturn("작가의 최신 수정");
         when(edited.getProposedFactValue()).thenReturn("과거 AI 제안");
-        when(characters.findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(earlier.getId())).thenReturn(List.of(original, edited));
+        characterRows.put(earlier.getId(), List.of(original, edited));
         var world = world(earlier);
         when(world.getFinalOperation()).thenReturn(WorldSettingOperation.UPDATE);
         when(world.getFinalSubjectName()).thenReturn("수정한 미궁");
@@ -450,7 +459,7 @@ class AnalysisPendingReferenceSourceTest {
     }
 
     private void earlier(AnalysisJob... history) {
-        when(jobs.findEarlierExtractionJobsForReferences(work.getId(), 7)).thenReturn(List.of(history));
+        when(jobs.findEarlierExtractionJobsForReferences(work.getId(), 7)).thenAnswer(call -> java.util.Arrays.stream(history).map(org.monitoring.catchholebackend.support.AnalysisJobSourceViewTestSupport::view).toList());
     }
 
     private AnalysisJob job(int number) {
@@ -480,6 +489,7 @@ class AnalysisPendingReferenceSourceTest {
     private SettingCandidate character(AnalysisJob job) {
         var candidate = mock(SettingCandidate.class);
         when(candidate.getId()).thenReturn(UUID.randomUUID());
+        when(candidate.getAnalysisJob()).thenReturn(job);
         doReturn(job.getWork()).when(candidate).getWork();
         doReturn(job.getEpisode()).when(candidate).getEpisode();
         doReturn(job.getSourceContentS3Key()).when(candidate).getSourceContentS3Key();
@@ -489,13 +499,14 @@ class AnalysisPendingReferenceSourceTest {
         when(candidate.getAttributeName()).thenReturn("정신");
         when(candidate.getAttributeValue()).thenReturn("35");
         when(candidate.getEvidenceSpans()).thenReturn(evidence());
-        when(characters.findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(job.getId())).thenReturn(List.of(candidate));
+        characterRows.put(job.getId(), List.of(candidate));
         return candidate;
     }
 
     private WorldSettingCandidate world(AnalysisJob job) {
         var candidate = mock(WorldSettingCandidate.class);
         when(candidate.getId()).thenReturn(UUID.randomUUID());
+        when(candidate.getAnalysisJob()).thenReturn(job);
         doReturn(job.getWork()).when(candidate).getWork();
         doReturn(job.getEpisode()).when(candidate).getSourceEpisode();
         when(candidate.getReviewStatus()).thenReturn(WorldSettingReviewStatus.PENDING_REVIEW);
@@ -505,7 +516,7 @@ class AnalysisPendingReferenceSourceTest {
         when(candidate.getSettingName()).thenReturn("조명");
         when(candidate.getExtractedValue()).thenReturn("바깥의 불빛");
         when(candidate.getEvidenceSpans()).thenReturn(evidence());
-        when(worlds.findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(job.getId())).thenReturn(List.of(candidate));
+        worldRows.put(job.getId(), List.of(candidate));
         return candidate;
     }
 

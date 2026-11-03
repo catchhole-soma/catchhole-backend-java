@@ -34,6 +34,7 @@ public final class StoredCharacterEvidenceTestSupport {
             return new StoredCharacterEvidenceRepository.Evidence(false, true,
                     GeneralEvidenceProjection.verifiedSpans(content, candidate.getEvidenceSpans()), timeValid, identity, timeSpans);
         });
+        when(repository.find(any(), any())).thenAnswer(call -> repository.find(call.getArgument(0)));
         return repository;
     }
 }

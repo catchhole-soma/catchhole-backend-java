@@ -10,6 +10,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode;
@@ -83,6 +84,48 @@ class EpisodeMapperTest {
         assertThat(response.analysisStatus()).isEqualTo(expected);
         if (expected != EpisodeAnalysisStatus.COMPLETED) assertThat(response.unresolvedFindingCount()).isNull();
         assertThat(job.getStatus()).isEqualTo(org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.SUCCEEDED);
+    }
+
+    @Test
+    @DisplayName("가벼운 목록 projection의 완료 판정은 Job의 모든 상태·반영 방식과 같다")
+    void projectionPreservesOrderedCompletionForEveryStatusAndApplicationLatch() {
+        AnalysisJob job = completedJob("{}");
+        for (AnalysisMode mode : AnalysisMode.values()) {
+            for (AnalysisReviewMode reviewMode : AnalysisReviewMode.values()) {
+                for (AnalysisJobStatus status : AnalysisJobStatus.values()) {
+                    for (AnalysisJournalStatus journal : AnalysisJournalStatus.values()) {
+                        for (String application : new String[]{"NONE", "APPLIED", "HELD"}) {
+                            ReflectionTestUtils.setField(job, "analysisMode", mode);
+                            ReflectionTestUtils.setField(job, "reviewMode", reviewMode);
+                            ReflectionTestUtils.setField(job, "status", status);
+                            ReflectionTestUtils.setField(job, "journalStatus", journal);
+                            ReflectionTestUtils.setField(job, "automaticAppliedAt",
+                                    application.equals("APPLIED") ? LocalDateTime.now() : null);
+                            ReflectionTestUtils.setField(job, "reviewApplicationHeldAt",
+                                    application.equals("HELD") ? LocalDateTime.now() : null);
+                            var summary = episodeMapper.toAnalysisSummary(job);
+                            assertThat(summary.isCompletedOrderedAnalysis())
+                                    .as("%s / %s / %s / %s / %s", mode, reviewMode, status, journal, application)
+                                    .isEqualTo(job.isCompletedOrderedAnalysis());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("회차 전체 확정을 보류한 자동 분석도 봉인 완료를 유지한다")
+    void heldReviewApplicationRemainsCompleted() {
+        AnalysisJob job = completedJob("{\"unresolvedFindingCount\":2}");
+        ReflectionTestUtils.setField(job, "analysisMode", AnalysisMode.ORDERED_PROVISIONAL);
+        ReflectionTestUtils.setField(job, "reviewMode", AnalysisReviewMode.AUTOMATIC);
+        ReflectionTestUtils.setField(job, "journalStatus", AnalysisJournalStatus.SEALED);
+        ReflectionTestUtils.setField(job, "reviewApplicationHeldAt", LocalDateTime.now());
+        EpisodeSummaryResponse response = episodeMapper.toSummaryResponseWithAnalysisSummary(
+                job.getEpisode(), null, episodeMapper.toAnalysisSummary(job), null);
+        assertThat(response.analysisStatus()).isEqualTo(EpisodeAnalysisStatus.COMPLETED);
+        assertThat(response.unresolvedFindingCount()).isEqualTo(2);
     }
 
     private AnalysisJob completedJob(String summaryJson) {

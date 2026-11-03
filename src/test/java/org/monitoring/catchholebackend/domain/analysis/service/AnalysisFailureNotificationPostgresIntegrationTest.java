@@ -78,6 +78,7 @@ class AnalysisFailureNotificationPostgresIntegrationTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired AnalysisFailureNotificationRepository notifications;
     @Autowired AnalysisJobRepository analysisJobs;
+    @Autowired org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceRepository sourceJobs;
     @Autowired PlatformTransactionManager transactions;
     @PersistenceContext EntityManager em;
     UUID work;
@@ -292,9 +293,11 @@ class AnalysisFailureNotificationPostgresIntegrationTest {
     void claimsConcurrentlyAndRejectsStaleAcknowledgement() throws Exception {
         failJob();
         insertWorld("FAILED");
+        // 준비 UPDATE가 두 묶음을 잠가 SKIP LOCKED 선점을 방해하지 않도록 먼저 끝낸다.
+        readyDeliveries();
         try (var executor = Executors.newFixedThreadPool(2)) {
-            var first = executor.submit(this::claimNotification);
-            var second = executor.submit(this::claimNotification);
+            var first = executor.submit(notifications::claimDelivery);
+            var second = executor.submit(notifications::claimDelivery);
             assertThat(first.get().orElseThrow().id()).isNotEqualTo(second.get().orElseThrow().id());
         }
         jdbc.update("UPDATE analysis_failure_notifications SET available_at=now()-interval '1 minute'");
@@ -727,7 +730,7 @@ class AnalysisFailureNotificationPostgresIntegrationTest {
         var storage = mock(ObjectStorageService.class);
         when(storage.getText("synthetic/retained-source")).thenReturn("합성 원문의 현재 인용");
         when(storage.contentHash("합성 원문의 현재 인용")).thenReturn("b".repeat(64));
-        var resolver = new CharacterCurrentSupportingEvidenceResolver(new org.monitoring.catchholebackend.domain.character.repository.StoredCharacterEvidenceRepository(jdbc));
+        var resolver = new CharacterCurrentSupportingEvidenceResolver(new org.monitoring.catchholebackend.domain.character.repository.StoredCharacterEvidenceRepository(jdbc), sourceJobs);
         new TransactionTemplate(transactions).executeWithoutResult(status -> {
             var previous = em.find(SettingCandidate.class, retained);
             var source = resolver.captureRetainedCandidate(resolver.begin(previous.getWork()), previous);
