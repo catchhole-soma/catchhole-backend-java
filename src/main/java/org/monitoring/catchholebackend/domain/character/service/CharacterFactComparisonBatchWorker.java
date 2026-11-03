@@ -325,7 +325,7 @@ public class CharacterFactComparisonBatchWorker {
         }
 
         LocalDateTime comparedAt = LocalDateTime.now();
-        JsonNode projectedTime = context.advisoryCurrentContext() == null ? null : workerMapper.toJsonNode(context.advisoryCurrentContext().currentNarrativeTime());
+        JsonNode projectedTime = context.currentNarrativeTime();
         var prepared = analysisJob.isOrderedProvisional() ? analysisStateService.prepareState(analysisJob) : null;
         for (ValidatedDecision decision : validated) {
             WorkerCharacterFactComparisonBatchCompleteRequest.Decision requestDecision = decision.request();
@@ -631,7 +631,7 @@ public class CharacterFactComparisonBatchWorker {
     ) {
         ContextInput context = prepareContext(batch, character, candidates, schemas);
         return new BatchContext(context.responseEntries(), context.projection(),
-                sha256(context.fingerprint()), context.advisoryCurrentContext());
+                sha256(context.fingerprint()), context.advisoryCurrentContext(), context.currentNarrativeTime());
     }
 
     private ContextInput prepareContext(
@@ -731,7 +731,8 @@ public class CharacterFactComparisonBatchWorker {
                 List.copyOf(responseEntries),
                 validationProjection,
                 fingerprint,
-                advisory
+                advisory,
+                org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.value(provenanceState.path("currentNarrativeTime"))
         );
     }
 
@@ -1301,7 +1302,7 @@ public class CharacterFactComparisonBatchWorker {
                     workerMapper.toJsonValue(candidate.getValueJson()),
                     workerMapper.toCandidateEvidenceSpans(candidate),
                     candidate.getConfidence(), org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisSourceResponse.from(candidate.getAnalysisJob()),
-                    workerMapper.toJsonValue(candidate.getNarrativeTime())));
+                    workerMapper.toCandidateNarrativeTime(candidate)));
         }
         return List.copyOf(result);
     }
@@ -1702,7 +1703,8 @@ public class CharacterFactComparisonBatchWorker {
             List<WorkerCharacterFactComparisonBatchContextResponse.SnapshotEntry> responseEntries,
             Projection projection,
             Map<String, Object> fingerprint,
-            org.monitoring.catchholebackend.domain.character.dto.response.WorkerCharacterAdvisoryCurrentContextPayload advisoryCurrentContext
+            org.monitoring.catchholebackend.domain.character.dto.response.WorkerCharacterAdvisoryCurrentContextPayload advisoryCurrentContext,
+            JsonNode currentNarrativeTime
     ) {
     }
 
@@ -1710,7 +1712,8 @@ public class CharacterFactComparisonBatchWorker {
             List<WorkerCharacterFactComparisonBatchContextResponse.SnapshotEntry> responseEntries,
             Projection projection,
             String contextToken,
-            org.monitoring.catchholebackend.domain.character.dto.response.WorkerCharacterAdvisoryCurrentContextPayload advisoryCurrentContext
+            org.monitoring.catchholebackend.domain.character.dto.response.WorkerCharacterAdvisoryCurrentContextPayload advisoryCurrentContext,
+            JsonNode currentNarrativeTime
     ) {
     }
 

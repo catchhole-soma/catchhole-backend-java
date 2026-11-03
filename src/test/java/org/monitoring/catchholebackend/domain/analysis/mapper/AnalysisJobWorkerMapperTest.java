@@ -30,6 +30,54 @@ class AnalysisJobWorkerMapperTest {
             new CharacterFactEvidenceMapper(new CharacterFactSourceResolver(), org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection.class))
     );
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    @DisplayName("누적 claim의 기존·임시 인물은 검증된 시점 인용만 전달하고 내부 기준값은 변경하지 않는다")
+    void orderedClaimSeparatesModelEvidenceFromStoredCurrentTime(boolean verified) {
+        Work work = Work.create(Member.register("time@example.invalid", "password123", "01012345678", "작가"),
+                "시점", WorkGenre.FANTASY, "");
+        ReflectionTestUtils.setField(work, "id", UUID.randomUUID());
+        AnalysisJob job = AnalysisJob.create(work, null, null, AnalysisJobType.SETTING_EXTRACTION);
+        ReflectionTestUtils.setField(job, "id", UUID.randomUUID());
+        ReflectionTestUtils.setField(job, "analysisMode", org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode.ORDERED_PROVISIONAL);
+        ReflectionTestUtils.setField(job, "analysisRunId", UUID.randomUUID());
+        ReflectionTestUtils.setField(job, "runGeneration", 1L);
+        ReflectionTestUtils.setField(job, "inputStateHash", "a".repeat(64));
+        ReflectionTestUtils.setField(job, "sourceContentHash", "b".repeat(64));
+        var input = objectMapper.createObjectNode();
+        var owners = input.putObject("characters");
+        var current = objectMapper.createObjectNode().put("description", "장마 첫날")
+                .put("sourceCandidateId", UUID.randomUUID().toString());
+        current.putArray("evidenceSpans").addObject().put("quote", "시점 원문 인용")
+                .put("startOffset", 0).put("endOffset", 8).put("sourceChunkId", UUID.randomUUID().toString());
+        var reference = current.deepCopy();
+        reference.remove("sourceCandidateId");
+        var origin = current.putObject("supportingSource");
+        if (verified) origin.putObject("narrativeTime").set("referenceTime", reference);
+        else origin.putNull("narrativeTime");
+        var known = owners.putObject("known").put("actualCharacterId", UUID.randomUUID().toString())
+                .putNull("provisionalSubjectKey").put("name", "기존 인물");
+        known.putObject("slots");
+        known.set("currentNarrativeTime", current.deepCopy());
+        var provisional = owners.putObject("provisional").putNull("actualCharacterId")
+                .put("provisionalSubjectKey", "provisional-character:" + UUID.randomUUID()).put("name", "임시 인물");
+        provisional.putObject("slots");
+        provisional.set("currentNarrativeTime", current.deepCopy());
+        var before = input.deepCopy();
+
+        var payload = mapper.toResponse(job, null, List.of(), List.of(), List.of(), input);
+
+        for (Object time : List.of(payload.knownCharacters().getFirst().currentNarrativeTime(),
+                payload.provisionalCharacters().getFirst().currentNarrativeTime())) {
+            var modelTime = objectMapper.valueToTree(time);
+            assertThat(modelTime.path("description").asText()).isEqualTo("장마 첫날");
+            assertThat(modelTime.path("evidenceSpans")).hasSize(verified ? 1 : 0);
+            assertThat(modelTime.has("supportingSource")).isFalse();
+            if (!verified) assertThat(modelTime.toString()).doesNotContain("시점 원문 인용");
+        }
+        assertThat(input).isEqualTo(before);
+    }
+
     @Test
     @DisplayName("활성 STATUS를 빠짐없이 정렬하고 legacy 표시값은 provenance로 보완한다")
     void mapsEveryActiveStatusWithLegacyProvenanceFallback() {

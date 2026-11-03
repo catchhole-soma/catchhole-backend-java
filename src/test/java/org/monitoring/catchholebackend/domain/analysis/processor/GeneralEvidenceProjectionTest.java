@@ -44,7 +44,7 @@ class GeneralEvidenceProjectionTest {
     @Test void missingPositionsHideEvenAnExactOrRepeatedQuoteWithoutReadingStorage() throws Exception {
         var storage = mock(ObjectStorageService.class);
         var sources = mock(GeneralEvidenceSourceRepository.class);
-        var projection = new GeneralEvidenceProjection(storage, sources);
+        var projection = new GeneralEvidenceProjection(storage, sources, org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.character.repository.StoredCharacterEvidenceRepository.class));
         var candidate = mock(SettingCandidate.class);
         var work = mock(Work.class);
         when(work.getId()).thenReturn(UUID.randomUUID());
@@ -61,7 +61,7 @@ class GeneralEvidenceProjectionTest {
         RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
         var storage = mock(ObjectStorageService.class);
         var sources = mock(GeneralEvidenceSourceRepository.class);
-        var projection = new GeneralEvidenceProjection(storage, sources);
+        var projection = new GeneralEvidenceProjection(storage, sources, org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.character.repository.StoredCharacterEvidenceRepository.class));
         UUID workId = UUID.randomUUID(), jobId = UUID.randomUUID();
         var work = mock(Work.class);
         var job = mock(AnalysisJob.class);

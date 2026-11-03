@@ -41,6 +41,7 @@ import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 class WorkerNarrativeTimeHttpContractTest {
  @LocalServerPort int port;
  @Autowired CharacterFactComparisonWorkerMapper candidateMapper;
+ @MockitoBean org.monitoring.catchholebackend.domain.character.repository.StoredCharacterEvidenceRepository storedEvidence;
  @Autowired CharacterFactComparisonBatchWorker batchMapper;
  @Autowired AnalysisJobWorkerMapper jobMapper;
  @MockitoBean CharacterFactComparisonWorkerService comparisons;
@@ -155,6 +156,9 @@ class WorkerNarrativeTimeHttpContractTest {
  }
 
  @Test void productionTimeValuesSurviveActualHttpIncludingLegacyNulls() throws Exception {
+  var verified=org.monitoring.catchholebackend.support.StoredCharacterEvidenceTestSupport.verified(quote);
+  when(storedEvidence.find(any())).thenAnswer(call -> verified.find(call.getArgument(0)));
+
   Member member=Member.register("time-contract@fixture.invalid","fixture",null,"검증");
   Work work=Work.create(member,"시점 HTTP 계약",WorkGenre.FANTASY,null);id(work,UUID.randomUUID());
   Episode episode=Episode.create(work,null,2,"장마 첫날","fixture/time.txt",null,hash,quote.codePointCount(0,quote.length()));id(episode,UUID.randomUUID());

@@ -21,6 +21,15 @@ public final class CharacterNarrativeTime {
         return result;
     }
 
+    /** Model-facing value from a captured state; never use the redacted copy as expectedCurrent. */
+    public static JsonNode modelValue(JsonNode time) {
+        JsonNode result = value(time);
+        if (result.isObject() && !time.path("supportingSource").path("narrativeTime").path("referenceTime").isObject()) {
+            ((ObjectNode) result).putArray("evidenceSpans");
+        }
+        return result;
+    }
+
     public static void requirePoint(JsonNode point) {
         if (!point.isObject() || point.size() != 2 || !point.path("description").isTextual()
                 || point.path("description").asText().isBlank() || !point.path("evidenceSpans").isArray()

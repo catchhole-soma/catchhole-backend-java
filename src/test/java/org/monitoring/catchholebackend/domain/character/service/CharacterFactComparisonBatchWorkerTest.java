@@ -106,6 +106,7 @@ class CharacterFactComparisonBatchWorkerTest {
     private CharacterFactComparisonJobCoordinator comparisonJobCoordinator;
 
     @Mock private CharacterAnalysisStateSource analysisStateSource;
+    @Mock private org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection evidenceProjection;
     private CharacterFactComparisonBatchWorker worker;
     private Work work;
     private WorkCharacter character;
@@ -129,7 +130,7 @@ class CharacterFactComparisonBatchWorkerTest {
                 new CharacterSnapshotAccessor(),
                 valueValidator,
                 new CharacterFactComparisonDecisionValidator(valueValidator),
-                new CharacterFactComparisonWorkerMapper(org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection.class)),
+                new CharacterFactComparisonWorkerMapper(evidenceProjection),
                 analysisStateService, analysisStateSource,
                 new org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisRunContextMapper(new org.monitoring.catchholebackend.domain.character.mapper.CharacterFactEvidenceMapper(new org.monitoring.catchholebackend.domain.character.processor.CharacterFactSourceResolver(), org.mockito.Mockito.mock(org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection.class))),
                 comparisonJobCoordinator
@@ -236,6 +237,59 @@ class CharacterFactComparisonBatchWorkerTest {
         assertBatchNarrativeTime(true);
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    @DisplayName("일반·누적 묶음은 AI에서 숨긴 옛 시점 인용과 무관하게 원래 값으로 새 시점 선택을 저장한다")
+    void completionUsesServerCurrentTimeInsteadOfRedactedPayload(boolean ordered) {
+        ObjectNode state = ordered ? orderedState(0)
+                : new org.monitoring.catchholebackend.domain.character.mapper.CharacterAnalysisStateMapper()
+                    .toState(character, Map.of(), Map.of());
+        var previous = objectMapper.createObjectNode().put("description", "장마 첫날")
+                .put("sourceCandidateId", UUID.randomUUID().toString());
+        previous.putArray("evidenceSpans").addObject().put("quote", "옛 회차의 검증 불가 인용")
+                .put("startOffset", 0).put("endOffset", 14).put("sourceChunkId", UUID.randomUUID().toString());
+        character.updateCurrentNarrativeTime(previous, true);
+        var frozen = previous.deepCopy();
+        var source = frozen.putObject("supportingSource");
+        source.put("sourceCandidateId", previous.path("sourceCandidateId").asText())
+                .put("sourceAnalysisJobId", UUID.randomUUID().toString()).put("availability", "UNAVAILABLE")
+                .put("unavailableReason", "EVIDENCE_UNAVAILABLE").put("candidateWasEdited", false)
+                .putNull("source").put("quoteRelation", "SOURCE_CONTEXT_ONLY").putNull("narrativeTime");
+        source.putArray("evidenceSpans");
+        state.set("currentNarrativeTime", frozen);
+        if (!ordered) when(analysisStateSource.captureCharacter(character)).thenReturn(state);
+        var next = candidate("status.새관측", "새 관측", 10);
+        var point = objectMapper.createObjectNode().put("description", "장마 둘째 날");
+        point.putArray("evidenceSpans").addObject().put("quote", "장마 둘째 날")
+                .put("startOffset", 0).put("endOffset", 7).put("sourceChunkId", UUID.randomUUID().toString());
+        var verified = objectMapper.createObjectNode().putNull("factTime").set("referenceTime", point);
+        next.recordNarrativeTime(verified);
+        when(evidenceProjection.forProcessingNarrativeTime(next)).thenReturn(verified);
+        org.mockito.Mockito.doAnswer(call -> {
+            SettingCandidate selected = call.getArgument(0);
+            selected.recordNarrativeTimeSelection(org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.selection(
+                    selected, call.getArgument(1), call.getArgument(2), verified));
+            return null;
+        }).when(analysisStateService).recordNarrativeTimeSelection(eq(next), eq(true), any());
+
+        var claim = worker.claimNext(analysisJobId, leaseToken).orElseThrow();
+        var context = worker.getContext(analysisJobId, claim.comparisonBatchId(), leaseToken);
+        var modelTime = objectMapper.valueToTree(context.advisoryCurrentContext().currentNarrativeTime());
+        assertThat(modelTime.path("evidenceSpans")).isEmpty();
+        assertThat(modelTime.toString()).doesNotContain("옛 회차의 검증 불가 인용");
+        worker.complete(analysisJobId, claim.comparisonBatchId(), leaseToken,
+                new WorkerCharacterFactComparisonBatchCompleteRequest(context.contextToken(), List.of(
+                        new WorkerCharacterFactComparisonBatchCompleteRequest.Decision("C1", CharacterFactOperation.ADD,
+                                "status.새관측", null, List.of(), List.of(), "새 관측", valueMap("새 관측"),
+                                CharacterFactTemporalScope.PRESENT, "검증된 새 관측", Map.of(), null, true)), List.of(), Map.of()));
+
+        assertThat(next.getRawComparisonJson().path("validatedNarrativeTime").path("expectedCurrent")).isEqualTo(previous);
+        var selected = org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.selected(next, character.getCurrentNarrativeTime());
+        assertThat(selected).isNotNull();
+        assertThat(selected.path("description").asText()).isEqualTo("장마 둘째 날");
+        assertThat(state.path("currentNarrativeTime")).isEqualTo(frozen);
+    }
+
     private void assertBatchNarrativeTime(boolean ordered) throws Exception {
         if (ordered) orderedState(0);
         SettingCandidate timed = candidate("status.부상", "부상", 10);
@@ -244,6 +298,7 @@ class CharacterFactComparisonBatchWorkerTest {
                  "referenceTime":{"description":"치료 뒤","evidenceSpans":[{"quote":"치료 뒤","startOffset":5,"endOffset":9,"sourceChunkId":"10000000-0000-4000-8000-000000000002"}]}}
                 """);
         timed.recordNarrativeTime(time);
+        when(evidenceProjection.forProcessingNarrativeTime(timed)).thenReturn(time);
         candidate("status.출혈", "출혈", 20); // Existing candidates may have no located time.
         var claim = worker.claimNext(analysisJobId, leaseToken).orElseThrow();
         var context = worker.getContext(analysisJobId, claim.comparisonBatchId(), leaseToken);

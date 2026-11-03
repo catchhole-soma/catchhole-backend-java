@@ -70,12 +70,24 @@ class SettingBookAnalysisIntegrationTest {
     @Autowired org.monitoring.catchholebackend.domain.character.service.CharacterAnalysisStateService characterStates;
     @Autowired org.monitoring.catchholebackend.domain.worldsetting.service.WorldSettingWorkerService worldWorker;
     @MockitoBean ObjectStorage storage;
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+    org.monitoring.catchholebackend.domain.character.repository.StoredCharacterEvidenceRepository storedEvidence;
     final ObjectMapper json = new ObjectMapper();
     final Map<String, byte[]> objects = new HashMap<>();
     Work work;
     String bearer;
 
     @BeforeEach void setup() {
+        if (sql.execute((org.springframework.jdbc.core.ConnectionCallback<Boolean>) connection -> connection.getMetaData().getURL().startsWith("jdbc:h2:"))) {
+            // H2 lacks the production receipt trigger. PostgreSQL subclass exercises the real implementation.
+            org.mockito.Mockito.doAnswer(call -> {
+                SettingCandidate candidate=call.getArgument(0);
+                byte[] content=objects.get(candidate.getAnalysisJob().getSourceContentS3Key());
+                if(content==null) return org.monitoring.catchholebackend.domain.character.repository.StoredCharacterEvidenceRepository.Evidence.unavailable();
+                return org.monitoring.catchholebackend.support.StoredCharacterEvidenceTestSupport.verified(new String(content,StandardCharsets.UTF_8)).find(candidate);
+            }).when(storedEvidence).find(any());
+        }
+
         sql.execute("create table if not exists episode_chunks(id uuid primary key,episode_id uuid not null)");
         Member member = members.save(Member.register(UUID.randomUUID()+"@example.invalid", "test-only", null, "설정 작가"));
         work = works.save(Work.create(member, "설정집만 있는 작품", WorkGenre.FANTASY, null));
@@ -1020,6 +1032,9 @@ class SettingBookAnalysisIntegrationTest {
         uploadReference(content, kind, number);
         JsonNode claim = claimBook();
         AnalysisJob origin = jobs.findById(UUID.fromString(claim.path("analysisJobId").asText())).orElseThrow();
+        em.flush();
+        sql.update("insert into setting_book_chunks(id,analysis_job_id,setting_book_revision_id,chunk_index,chunk_text,start_offset,end_offset,paragraph_start_index,paragraph_end_index,created_at,updated_at) values(?,?,?,0,?,0,?,0,0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
+                UUID.randomUUID(),origin.getId(),origin.getSourceSettingBookRevision().getId(),content,content.codePointCount(0,content.length()));
         var j = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance;
         java.util.List<SettingCandidate> discoveries = new java.util.ArrayList<>();
         java.util.List<SettingCandidate> children = new java.util.ArrayList<>();

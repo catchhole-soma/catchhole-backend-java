@@ -90,11 +90,13 @@ public final class CharacterAdvisoryCurrentContextMapper {
             exact(currentTime, Set.of("description", "evidenceSpans", "sourceCandidateId", "supportingSource"));
             var point = ((com.fasterxml.jackson.databind.node.ObjectNode) currentTime.deepCopy());
             point.remove(List.of("sourceCandidateId", "supportingSource"));
-            if ("VERIFIED".equals(currentTime.path("supportingSource").path("availability").asText())) {
+            JsonNode verifiedReference = currentTime.path("supportingSource").path("narrativeTime").path("referenceTime");
+            if (verifiedReference.isObject()) {
                 org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.requirePoint(point);
             } else if (!point.path("description").isTextual() || !point.path("evidenceSpans").isArray()) throw invalid();
             UUID id = uuid(currentTime.get("sourceCandidateId"), false);
-            var frozen = (com.fasterxml.jackson.databind.node.ObjectNode) currentTime.deepCopy();
+            var frozen = (com.fasterxml.jackson.databind.node.ObjectNode)
+                    org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.modelValue(currentTime);
             frozen.set("supportingSource", safeOrigin(currentTime.get("supportingSource"), id));
             currentTime = frozen;
         }

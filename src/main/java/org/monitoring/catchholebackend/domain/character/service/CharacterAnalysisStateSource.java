@@ -113,12 +113,13 @@ public class CharacterAnalysisStateSource implements AnalysisStateSource {
             if (!character.getId().equals(sourceOwner)) throw new org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException();
             ObjectNode frozen = current.deepCopy();
             ObjectNode origin = supportingEvidence.captureRetainedCandidate(capture, source);
-            if ("VERIFIED".equals(origin.path("availability").asText())
-                    || java.util.Set.of("QUOTE_NOT_FOUND", "OFFSETS_UNAVAILABLE", "INVALID_OFFSETS", "EVIDENCE_UNAVAILABLE")
-                            .contains(origin.path("unavailableReason").asText())) {
+            if (!origin.path("narrativeTime").path("referenceTime").isMissingNode()
+                    && !origin.path("narrativeTime").path("referenceTime").isNull()) {
                 ObjectNode point = frozen.deepCopy(); point.remove("sourceCandidateId");
                 if (!point.equals(origin.path("narrativeTime").path("referenceTime"))) throw new org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException();
             }
+            // Preserve the exact expected-current value for approval/replay. The response mapper
+            // removes uncertified quotes from the model-facing copy without changing this state.
             frozen.set("supportingSource", origin);
             state.set("currentNarrativeTime", frozen);
         }

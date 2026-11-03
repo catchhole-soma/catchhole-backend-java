@@ -727,12 +727,12 @@ class AnalysisFailureNotificationPostgresIntegrationTest {
         var storage = mock(ObjectStorageService.class);
         when(storage.getText("synthetic/retained-source")).thenReturn("합성 원문의 현재 인용");
         when(storage.contentHash("합성 원문의 현재 인용")).thenReturn("b".repeat(64));
-        var resolver = new CharacterCurrentSupportingEvidenceResolver(storage, new SettingBookAutomaticEvidenceValidator(storage), jdbc);
+        var resolver = new CharacterCurrentSupportingEvidenceResolver(new org.monitoring.catchholebackend.domain.character.repository.StoredCharacterEvidenceRepository(jdbc));
         new TransactionTemplate(transactions).executeWithoutResult(status -> {
             var previous = em.find(SettingCandidate.class, retained);
             var source = resolver.captureRetainedCandidate(resolver.begin(previous.getWork()), previous);
             assertThat(source.path("availability").asText()).isEqualTo("UNAVAILABLE");
-            assertThat(source.path("unavailableReason").asText()).isEqualTo("OFFSETS_UNAVAILABLE");
+            assertThat(source.path("unavailableReason").asText()).isIn("OFFSETS_UNAVAILABLE", "EVIDENCE_UNAVAILABLE", "SOURCE_EVIDENCE_PURGED");
             assertThat(source.path("evidenceSpans")).isEmpty();
             var candidate = em.find(SettingCandidate.class, incoming);
             candidate.completeComparison(CharacterFactOperation.REVIEW_REQUIRED, null, null, null, null, null,

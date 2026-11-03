@@ -273,6 +273,7 @@ erDiagram
         varchar input_state_hash
         int source_episode_no
         varchar source_content_hash
+        datetime source_reference_invalidated_at
         text source_content_s3_key
         varchar source_content_s3_version
         jsonb state_journal
@@ -365,6 +366,7 @@ erDiagram
         varchar value_type
         jsonb value_json
         jsonb evidence_spans
+        jsonb stored_evidence_validation
         decimal confidence
         varchar review_status
         boolean user_modified
