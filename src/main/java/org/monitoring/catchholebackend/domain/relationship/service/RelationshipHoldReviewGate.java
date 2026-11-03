@@ -38,9 +38,10 @@ public class RelationshipHoldReviewGate {
         Map<Integer, RelationshipHoldReviewRow> latest = new TreeMap<>();
         closures.findReviewRows(workId, generation, beforeEpisodeNo)
                 .forEach(row -> latest.put(row.episodeNo(), row));
-        // Follow the existing graph's source boundary without changing frozen comparison input.
-        int unavailableFrom = latest.values().stream().filter(row -> !row.sourceAvailable()
-                        || row.status() == AnalysisStatus.INVALIDATED)
+        // GH367: public episodes are independent. INVALIDATED excludes that row, not every
+        // later hold. Actual unavailable source remains a prefix boundary. This query only reads
+        // the published generation; private backfill's stricter build boundary is unchanged.
+        int unavailableFrom = latest.values().stream().filter(row -> !row.sourceAvailable())
                 .mapToInt(RelationshipHoldReviewRow::episodeNo).min().orElse(Integer.MAX_VALUE);
         var visible = latest.values().stream().filter(row -> row.episodeNo() < unavailableFrom
                 && row.status() == AnalysisStatus.APPLIED).toList();
