@@ -9,6 +9,12 @@ import org.springframework.http.HttpStatus;
 @RequiredArgsConstructor
 public enum AnalysisJobErrorCode implements ResultCode {
 
+    ANALYSIS_PREVIOUS_ANALYSIS_IN_PROGRESS(HttpStatus.CONFLICT, "이전 회차 분석이 진행 중입니다. 완료 후 필요한 설정 검토를 마치고 다음 회차를 분석해 주세요."),
+
+    ANALYSIS_MANUAL_REVIEW_REQUIRED(HttpStatus.CONFLICT, "이전 회차에서 직접 검토할 설정이 남아 있습니다. 후보를 반영하거나 제외한 뒤 다음 회차를 분석해 주세요."),
+    ANALYSIS_REVIEW_ACKNOWLEDGEMENT_REQUIRED(HttpStatus.CONFLICT, "확정되지 않은 애매한 후보가 있습니다. 안내를 확인하고 계속 분석할지 선택해 주세요."),
+    ANALYSIS_REVIEW_GATE_CHANGED(HttpStatus.CONFLICT, "검토할 후보 또는 분석 대상이 달라졌습니다. 최신 안내를 확인한 뒤 다시 선택해 주세요."),
+
     ANALYSIS_CURRENT_EVIDENCE_INVALID(HttpStatus.CONFLICT, "현재 설정의 고정 원문 근거를 검증할 수 없습니다."),
     ANALYSIS_CURRENT_EVIDENCE_SOURCE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "현재 설정의 원문 저장소에 일시적으로 접근할 수 없습니다."),
     ANALYSIS_REVIEW_WAIT_REQUIRED(HttpStatus.CONFLICT, "진행 중이거나 재개를 기다리는 순차 분석이 있습니다. 분석 목록에서 상태를 확인하고, 분석이 모두 끝난 뒤 설정을 변경해 주세요."),

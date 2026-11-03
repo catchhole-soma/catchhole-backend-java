@@ -26,6 +26,19 @@ class OpenApiContractIntegrationTest {
     private MockMvc mockMvc;
 
     @Test
+    @DisplayName("자유 JSON은 Jackson 버전과 무관하게 getter 객체가 아닌 모든 JSON 값으로 문서화한다")
+    void jsonNodeRemainsFreeJsonWhenJacksonVersionsCoexist() throws Exception {
+        var result = mockMvc.perform(get("/v3/api-docs")).andExpect(status().isOk()).andReturn();
+        var schemas = new com.fasterxml.jackson.databind.ObjectMapper().readTree(result.getResponse().getContentAsString())
+                .path("components").path("schemas");
+        org.assertj.core.api.Assertions.assertThat(schemas.path("JsonNode").isObject()).isTrue();
+        org.assertj.core.api.Assertions.assertThat(schemas.path("JsonNode").has("properties")).isFalse();
+        org.assertj.core.api.Assertions.assertThat(schemas.path("JsonNode").has("type")).isFalse();
+        org.assertj.core.api.Assertions.assertThat(schemas.path("SettingCandidateResponse").path("properties")
+                .path("evidenceSpans").path("anyOf").get(0).path("$ref").asText()).endsWith("JsonNode");
+    }
+
+    @Test
     @DisplayName("claim 전용 CURRENT는 optional object이며 nullable 필드와 모든 JSON 값을 정확히 문서화한다")
     void semanticCurrentClaimSchemaPreservesCompleteNullableValues() throws Exception {
         var result = mockMvc.perform(get("/v3/api-docs")).andExpect(status().isOk()).andReturn();

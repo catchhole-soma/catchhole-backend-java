@@ -71,6 +71,12 @@ class CatchHoleBackendApplicationTests {
     private org.monitoring.catchholebackend.domain.relationship.repository.RelationshipGraphAnalysisRepository relationshipGraphAnalysisRepository;
 
     @MockitoBean
+    private org.monitoring.catchholebackend.domain.relationship.repository.RelationshipHoldClosureRepository relationshipHoldClosureRepository;
+
+    @MockitoBean
+    private org.monitoring.catchholebackend.domain.analysis.repository.AnalysisReviewContinuationRepository analysisReviewContinuationRepository;
+
+    @MockitoBean
     private org.monitoring.catchholebackend.domain.relationship.repository.RelationshipBackfillWorkRepository relationshipBackfillWorkRepository;
 
     @MockitoBean

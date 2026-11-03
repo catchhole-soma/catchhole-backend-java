@@ -51,6 +51,12 @@ public class SwaggerConfig {
     @Bean
     public OpenApiCustomizer nullableJsonSchemaCustomizer() {
         return openApi -> {
+            // Jackson 2/3의 동일한 JsonNode 이름이 함께 등록돼도 Java getter 목록을 JSON 계약으로 노출하지 않는다.
+            // 자유 JSON은 object뿐 아니라 배열·문자열·숫자·boolean·null을 모두 받을 수 있다.
+            if (openApi.getComponents() != null && openApi.getComponents().getSchemas() != null
+                    && openApi.getComponents().getSchemas().containsKey("JsonNode")) {
+                openApi.getComponents().addSchemas("JsonNode", new JsonSchema());
+            }
             replaceWithNullableJsonUnion(openApi, "SettingCandidateResponse", "valueJson");
             replaceWithNullableJsonUnion(openApi, "SettingCandidateResponse", "proposedValueJson");
             replaceWithNullableJsonUnion(openApi, "SettingCandidateResponse", "evidenceSpans");

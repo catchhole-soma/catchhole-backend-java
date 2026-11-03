@@ -131,7 +131,8 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
                       and analysisJob.batch.id = :batchId
               and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
                 or analysisJob.id = :sourceAnalysisJobId)
-                      and (:reviewStatus is null or candidate.reviewStatus = :reviewStatus)
+                      and ((:reviewStatus is null and candidate.reviewStatus <> org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.CLOSED)
+                   or candidate.reviewStatus = :reviewStatus)
                       and candidate.matchStatus in :matchStatuses
                     order by episode.episodeNo asc, candidate.createdAt asc, candidate.id asc
                     """,
@@ -143,7 +144,8 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
                       and analysisJob.batch.id = :batchId
               and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
                 or analysisJob.id = :sourceAnalysisJobId)
-                      and (:reviewStatus is null or candidate.reviewStatus = :reviewStatus)
+                      and ((:reviewStatus is null and candidate.reviewStatus <> org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.CLOSED)
+                   or candidate.reviewStatus = :reviewStatus)
                       and candidate.matchStatus in :matchStatuses
                     """
     )
@@ -170,7 +172,8 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
               and analysisJob.batch.id = :batchId
               and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
                 or analysisJob.id = :sourceAnalysisJobId)
-              and (:reviewStatus is null or candidate.reviewStatus = :reviewStatus)
+              and ((:reviewStatus is null and candidate.reviewStatus <> org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.CLOSED)
+                   or candidate.reviewStatus = :reviewStatus)
               and candidate.matchStatus in :matchStatuses
             order by episode.episodeNo asc, candidate.createdAt asc, candidate.id asc
             """)
@@ -197,7 +200,8 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
                       and analysisJob.batch.id = :batchId
               and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
                 or analysisJob.id = :sourceAnalysisJobId)
-                      and (:reviewStatus is null or candidate.reviewStatus = :reviewStatus)
+                      and ((:reviewStatus is null and candidate.reviewStatus <> org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.CLOSED)
+                   or candidate.reviewStatus = :reviewStatus)
                       and candidate.matchStatus in :matchStatuses
                     order by episode.episodeNo asc, candidate.createdAt asc, candidate.id asc
                     """,
@@ -209,7 +213,8 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
                       and analysisJob.batch.id = :batchId
               and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
                 or analysisJob.id = :sourceAnalysisJobId)
-                      and (:reviewStatus is null or candidate.reviewStatus = :reviewStatus)
+                      and ((:reviewStatus is null and candidate.reviewStatus <> org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.CLOSED)
+                   or candidate.reviewStatus = :reviewStatus)
                       and candidate.matchStatus in :matchStatuses
                     """
     )
@@ -236,7 +241,8 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
               and analysisJob.batch.id = :batchId
               and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
                 or analysisJob.id = :sourceAnalysisJobId)
-              and (:reviewStatus is null or candidate.reviewStatus = :reviewStatus)
+              and ((:reviewStatus is null and candidate.reviewStatus <> org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.CLOSED)
+                   or candidate.reviewStatus = :reviewStatus)
               and candidate.matchStatus in :matchStatuses
             order by episode.episodeNo asc, candidate.createdAt asc, candidate.id asc
             """)
@@ -320,7 +326,8 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
                          and analysisJob.status in (org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING, org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING)))
                      then 1 else 0 end), 0) as processingCandidateCount
             from SettingCandidate candidate join candidate.analysisJob analysisJob
-            where candidate.work.id = :workId and analysisJob.work.id = :workId
+            where candidate.reviewStatus <> org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.CLOSED
+              and candidate.work.id = :workId and analysisJob.work.id = :workId
               and analysisJob.id in :analysisJobIds
               and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.SETTING_BOOK
             group by analysisJob.id
@@ -365,7 +372,8 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
                    end), 0) as attentionRequiredCandidateCount
             from SettingCandidate candidate
             join candidate.analysisJob analysisJob
-            where candidate.work.id = :workId
+            where candidate.reviewStatus <> org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.CLOSED
+              and candidate.work.id = :workId
               and analysisJob.batch.id = :batchId
               and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
                 or analysisJob.id = :sourceAnalysisJobId)
@@ -396,7 +404,8 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
                    end), 0) as pendingCandidateCount
             from SettingCandidate candidate
             join candidate.analysisJob analysisJob
-            where candidate.work.id = :workId
+            where candidate.reviewStatus <> org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.CLOSED
+              and candidate.work.id = :workId
               and analysisJob.batch.id in :batchIds
               and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE
             group by analysisJob.batch.id
@@ -661,4 +670,44 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
     );
 
     Optional<SettingCandidate> findByIdAndWorkIdAndAnalysisJobBatchId(UUID id, UUID workId, UUID batchId);
+
+    /** Scalar-only preflight: never select AnalysisJob's input/journal JSON. */
+    @Query("""
+            select candidate.id as id, job.id as sourceJobId, candidate.updatedAt as updatedAt,
+                   job.updatedAt as sourceUpdatedAt, cast(job.reviewMode as string) as reviewMode,
+                   cast(job.status as string) as jobStatus, cast(job.analysisMode as string) as analysisMode,
+                   cast(job.journalStatus as string) as journalStatus,
+                   job.automaticAppliedAt as automaticAppliedAt, job.reviewApplicationHeldAt as reviewApplicationHeldAt,
+                   cast(candidate.comparisonStatus as string) as comparisonStatus,
+                   cast(candidate.suggestedOperation as string) as suggestedOperation,
+                   cast(candidate.automaticReviewHoldReason as string) as holdReason,
+                   candidate.userModified as userModified, cast(candidate.reviewedApplicationMode as string) as reviewedApplicationMode,
+                   cast(candidate.matchStatus as string) as matchStatus, cast(candidate.candidateKind as string) as candidateKind,
+                   cast(null as string) as comparisonReviewReason, cast(null as string) as consolidationStatus
+            from SettingCandidate candidate
+            join candidate.analysisJob job
+            join candidate.episode episode
+            where candidate.work.id = :workId and job.work.id = :workId
+              and candidate.reviewStatus = org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.PENDING_REVIEW
+              and job.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE
+              and job.jobType = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION
+              and job.episode.id = episode.id and episode.episodeNo > 0 and episode.episodeNo < :beforeEpisodeNo
+              and episode.status <> org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.ARCHIVED
+              and job.sourceReferenceInvalidatedAt is null
+              and job.sourceEpisodeNo = episode.episodeNo
+              and job.sourceContentS3Key = episode.contentS3Key and job.sourceContentHash = episode.contentHash
+              and ((job.sourceContentS3Version is null and episode.contentS3Version is null)
+                    or job.sourceContentS3Version = episode.contentS3Version)
+              and not exists (select newer.id from AnalysisJob newer
+                  where newer.episode.id = episode.id
+                    and newer.jobType = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION
+                    and (newer.createdAt > job.createdAt or (newer.createdAt = job.createdAt and newer.id > job.id)))
+            order by candidate.id
+            """)
+    List<org.monitoring.catchholebackend.domain.analysis.repository.AnalysisCandidateGateRow> findContinuationGateRows(
+            @Param("workId") UUID workId, @Param("beforeEpisodeNo") int beforeEpisodeNo);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select candidate from SettingCandidate candidate where candidate.work.id = :workId and candidate.id in :ids order by candidate.id")
+    List<SettingCandidate> findContinuationCandidatesForUpdate(@Param("workId") UUID workId, @Param("ids") Collection<UUID> ids);
 }

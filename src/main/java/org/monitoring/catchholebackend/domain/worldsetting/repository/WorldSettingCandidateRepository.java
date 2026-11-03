@@ -73,7 +73,8 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
               and analysisJob.batch.id = :batchId
               and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
                 or analysisJob.id = :sourceAnalysisJobId)
-              and (:reviewStatus is null or candidate.reviewStatus = :reviewStatus)
+              and ((:reviewStatus is null and candidate.reviewStatus <> org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus.CLOSED)
+                   or candidate.reviewStatus = :reviewStatus)
               and (:category is null
                   or (candidate.finalCategory is not null and candidate.finalCategory = :category)
                   or (candidate.finalCategory is null and targetWorldSetting is not null
@@ -119,7 +120,8 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
               and analysisJob.batch.id = :batchId
               and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
                 or analysisJob.id = :sourceAnalysisJobId)
-              and (:reviewStatus is null or candidate.reviewStatus = :reviewStatus)
+              and ((:reviewStatus is null and candidate.reviewStatus <> org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus.CLOSED)
+                   or candidate.reviewStatus = :reviewStatus)
               and (:category is null
                   or (candidate.finalCategory is not null and candidate.finalCategory = :category)
                   or (candidate.finalCategory is null and targetWorldSetting is not null
@@ -164,7 +166,8 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
                          and analysisJob.status in (org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING, org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING)))
                      then 1 else 0 end), 0) as processingCandidateCount
             from WorldSettingCandidate candidate join candidate.analysisJob analysisJob
-            where candidate.work.id = :workId and analysisJob.work.id = :workId
+            where candidate.reviewStatus <> org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus.CLOSED
+              and candidate.work.id = :workId and analysisJob.work.id = :workId
               and analysisJob.id in :analysisJobIds
               and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.SETTING_BOOK
             group by analysisJob.id
@@ -222,7 +225,8 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
                        as conflictCandidateCount
             from WorldSettingCandidate candidate
             join candidate.analysisJob analysisJob
-            where candidate.work.id = :workId
+            where candidate.reviewStatus <> org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus.CLOSED
+              and candidate.work.id = :workId
               and analysisJob.batch.id = :batchId
               and ((:sourceAnalysisJobId is null and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE)
                 or analysisJob.id = :sourceAnalysisJobId)
@@ -272,7 +276,8 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
                        then 1 else 0 end), 0) as blockedTokenInterruptedComparisonCount
             from WorldSettingCandidate candidate
             join candidate.analysisJob analysisJob
-            where candidate.work.id = :workId
+            where candidate.reviewStatus <> org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus.CLOSED
+              and candidate.work.id = :workId
               and analysisJob.batch.id in :batchIds
               and analysisJob.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE
             group by analysisJob.batch.id
@@ -502,4 +507,45 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
             @Param("jobType") AnalysisJobType jobType,
             @Param("reviewStatus") WorldSettingReviewStatus reviewStatus
     );
+
+    /** Scalar-only preflight: never select AnalysisJob's input/journal JSON. */
+    @Query("""
+            select candidate.id as id, job.id as sourceJobId, candidate.updatedAt as updatedAt,
+                   job.updatedAt as sourceUpdatedAt, cast(job.reviewMode as string) as reviewMode,
+                   cast(job.status as string) as jobStatus, cast(job.analysisMode as string) as analysisMode,
+                   cast(job.journalStatus as string) as journalStatus,
+                   job.automaticAppliedAt as automaticAppliedAt, job.reviewApplicationHeldAt as reviewApplicationHeldAt,
+                   cast(candidate.comparisonStatus as string) as comparisonStatus,
+                   cast(candidate.suggestedOperation as string) as suggestedOperation,
+                   cast(candidate.automaticReviewHoldReason as string) as holdReason,
+                   case when candidate.finalOperation is not null then true else false end as userModified,
+                   cast(null as string) as reviewedApplicationMode, cast(null as string) as matchStatus,
+                   cast(null as string) as candidateKind, cast(candidate.comparisonReviewReason as string) as comparisonReviewReason,
+                   cast(candidate.consolidationStatus as string) as consolidationStatus
+            from WorldSettingCandidate candidate
+            join candidate.analysisJob job
+            join candidate.sourceEpisode episode
+            where candidate.work.id = :workId and job.work.id = :workId
+              and candidate.reviewStatus = org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus.PENDING_REVIEW
+              and job.sourceKind = org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE
+              and job.jobType = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION
+              and job.episode.id = episode.id and episode.episodeNo > 0 and episode.episodeNo < :beforeEpisodeNo
+              and episode.status <> org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.ARCHIVED
+              and job.sourceReferenceInvalidatedAt is null
+              and job.sourceEpisodeNo = episode.episodeNo
+              and job.sourceContentS3Key = episode.contentS3Key and job.sourceContentHash = episode.contentHash
+              and ((job.sourceContentS3Version is null and episode.contentS3Version is null)
+                    or job.sourceContentS3Version = episode.contentS3Version)
+              and not exists (select newer.id from AnalysisJob newer
+                  where newer.episode.id = episode.id
+                    and newer.jobType = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION
+                    and (newer.createdAt > job.createdAt or (newer.createdAt = job.createdAt and newer.id > job.id)))
+            order by candidate.id
+            """)
+    List<org.monitoring.catchholebackend.domain.analysis.repository.AnalysisCandidateGateRow> findContinuationGateRows(
+            @Param("workId") UUID workId, @Param("beforeEpisodeNo") int beforeEpisodeNo);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select candidate from WorldSettingCandidate candidate where candidate.work.id = :workId and candidate.id in :ids order by candidate.id")
+    List<WorldSettingCandidate> findContinuationCandidatesForUpdate(@Param("workId") UUID workId, @Param("ids") Collection<UUID> ids);
 }
