@@ -53,6 +53,8 @@ quote가 정확하지 않은 위치에 있으면 **모델 자신의 quote**가 �
 
 `FrozenRetrievalRepository`는 DB report와 validation_baseline_sources를 검색의 공통 SQL 조건에 결합한다.
 회원/작품/수명·target·정확한 허용 출처 hash/key/version·대상 이전 회차 필터를 순위/LIMIT 전에 적용한다.
+접수 때 색인 채우기(2026-11-02) 뒤로는 고정 manifest에서 `currentRevision: true`인 설정집 revision의 V114 색인도 같은 report fence와 manifest
+identity로 묶어 readiness에 넣고, VECTOR는 회차·설정집 조각을 한 거리 순위로 합쳐 top-k를 고른다(`FrozenRetrievalRepository.frozen_vector`).
 `FrozenRetrievalSearchService`는 호출자가 명시적으로 주입한 읽기 session factory만 사용하며 기본 DB/embedding provider를 만들지 않는다.
 grid v4의 검색은 VECTOR 하나다. 벡터 호출에는 같은 index spec의 계량 embedding client를 주입한다.
 
@@ -60,15 +62,22 @@ grid v4의 검색은 VECTOR 하나다. 벡터 호출에는 같은 index spec의 
 한 실행 안에서 한 번만 실제로 검색한다(조회 1회, embedding 1회). 재사용한 결과는 새 L-ref에 `reused_from`을 단다.
 embedding·검색·proof 기록 전체를 실행당 lock 하나로 직렬화하므로 동시에 같은 문장을 묻는 두 판정도 검색은 한 번이다.
 키워드·직접·인접 읽기, 미색인 회차/설정집 원문 읽기, 조각마다 저장소를 다시 읽는 확인은 없다. 인용 검증은 게시 때 서버가 한다.
-과거 회차 출처가 없으면 VECTOR는 근거 없이 성공하고(`vector_status=NOT_APPLICABLE`) embedding을 만들지 않는다.
-회차 출처가 있는데 색인이 완전하지 않으면 검색을 제안하지 않으며, 필요한 변화 검색은 `VECTOR_NOT_READY`로 그 질문을 끝낸다.
-검색 시점 readiness가 허용 회차 전체를 덮지 못하면 실패 receipt에 readiness를 남기고 `VECTOR_INDEX_PARTIAL`이다.
-설정집은 RAG 색인이 생길 때까지 직접 참조하지 않는다(#349 결정).
+RAG 범위(`search.indexed_sources`)는 앞 회차와 현재 판 설정집이다. 범위가 비면 VECTOR는 근거 없이 성공하고(`vector_status=NOT_APPLICABLE`)
+embedding을 만들지 않는다. 범위가 있는데 색인이 완전하지 않으면 검색을 제안하지 않으며, 필요한 변화 검색은 그 질문을 INCOMPLETE로 끝낸다:
+접수 때 색인 채우기가 실패했으면 `VECTOR_INDEX_FILL_FAILED`(원인 `INDEX_FILL_*`), 채울 수 없었으면 `VECTOR_NOT_READY`.
+검색 시점 readiness가 범위 전체를 덮지 못하면 실패 receipt에 readiness를 남기고 `VECTOR_INDEX_PARTIAL`이다.
+설정집은 원문을 통째로 읽지 않고 RAG 조각으로만 참조한다. 설정집 조각의 E ref는 `source_kind=SETTING_BOOK`이며 판정 프롬프트는 이를 회차가 아닌
+설정집으로 표시한다.
+
+**접수 때 색인 채우기**(`app/validation/index_fill.py`, `ValidationIndexFill`): 실행의 INDEX_EMBEDDING 역할과 쓰기 연결이 있으면 INPUT 직후
+계획과 동시에 범위의 빈 곳만 채우고, 판정은 그 결과를 기다린 뒤 readiness를 한 번 읽는다. 완전한 출처는 원문도 읽지 않고, 아니면 READ_SOURCE 전문을
+같은 규칙으로 잘라 `store.prepare`(같으면 유지·다르면 다시 자름) 뒤 READY가 아닌 조각만 32개씩 임베딩한다. provider·cap·DB·원문 문제는 채우기만
+실패시키고 실행은 계속된다. lease 상실·입력 변경은 실행 단위 실패다. 비용은 서비스 부담(SERVICE_PAID_V1)이며 상세는 `docs/validation-execution-v1.md`.
 
 ## 질문·판정 (grid v4, #349 개편)
 
 `SettingValidationService(data_client, model_client, budget, roles, search=None, embedding_client=None, checkpoint=None,
-experiment=False, judge_concurrency=4).inspect()`가 진입점이다. `roles`는 PLANNER·JUDGE의 `RoleRuntime(model, call_options,
+experiment=False, judge_concurrency=4, index_fill=None).inspect()`가 진입점이다(`index_fill`은 접수 때 색인 채우기). `roles`는 PLANNER·JUDGE의 `RoleRuntime(model, call_options,
 max_output_tokens)`이다. `model_client`는 create_text_response와 exact count_input_tokens를 제공해야 한다(`for_validation_role`이 있으면 역할별 client).
 검수 과금/Worker 원장 연결은 GH310의 책임이다. 기존 추출용 MeteredTextGenerationClient를 재사용하기 위해 가짜 AnalysisJob/lease를 생성하지 않는다.
 
@@ -119,7 +128,7 @@ DB 현재값과 확보한 근거가 충분하면 검색을 생략할 수 있으�
 GH341(grid v4): DECIDED SUSPECTED_CONFLICT가 호출 한도 전에 왔는데 그 질문에 성공한 `CHANGES_EXCEPTIONS` VECTOR receipt가 없으면, Worker가 ref
 `Qn-CHANGES_EXCEPTIONS`, 고정 purpose `Worker가 충돌 의심 판정 전에 요구하는 변화·예외 검색`, query = 중복 없는 비어 있지 않은 `subject_mentions` 뒤에
 `property_or_rule`(1000자 이내)인 VECTOR 검색 하나를 실행하고 FINAL로 다시 묻는다(`CHANGE_SEARCH_INSERTED`). 세 번째 호출은 이 경로로만 가므로 최종
-SUSPECTED_CONFLICT에는 항상 그 receipt가 있다. query를 만들 수 없으면 `INVALID_DECISION_CHANGE_SEARCH_MISSING`, 검색을 쓸 수 없으면 `VECTOR_NOT_READY`다.
+SUSPECTED_CONFLICT에는 항상 그 receipt가 있다. query를 만들 수 없으면 `INVALID_DECISION_CHANGE_SEARCH_MISSING`, 검색을 쓸 수 없으면 `VECTOR_NOT_READY`(채우기 실패 뒤에는 `VECTOR_INDEX_FILL_FAILED`)다.
 다시 받은 판정이 그 receipt를 인용하지 않으면 Worker가 receipt와 알려진 근거(없으면 `T1`)를 덧붙인다(`CHANGE_SEARCH_RECEIPT_FILLED`).
 모든 판정은 대상 원고 T1 문맥을 받으므로, `completion.comparison_context.evidence_refs`에 `T1`이 빠지면 Worker가 앞에 덧붙인다(`COMPARISON_CONTEXT_TARGET_FILLED`). 판정·사유·등급은 바꾸지 않는다.
 

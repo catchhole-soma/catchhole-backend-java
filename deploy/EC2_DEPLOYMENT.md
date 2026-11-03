@@ -166,7 +166,7 @@ DATABASE_POOL_MINIMUM_IDLE=2
 
 켜는 순서:
 
-1. 저장소에서 `jq -c . deploy/validation-execution.prod.example.json`으로 한 줄 JSON을 만든다. 결과에 `$`가 없어야 Compose 보간과 충돌하지 않는다. 예시의 `roles.QUERY_EMBEDDING`과 `query-embedding-model`은 AI 검수 Worker를 `--query-embedding`으로 실행해 의미 검색을 켤 때만 필요하다. 켜지 않으면 두 값을 함께 빼도 된다. 역할만 남기고 모델을 빼면 기동이 실패한다.
+1. 저장소에서 `jq -c . deploy/validation-execution.prod.example.json`으로 한 줄 JSON을 만든다. 결과에 `$`가 없어야 Compose 보간과 충돌하지 않는다. 예시의 `roles.QUERY_EMBEDDING`과 `query-embedding-model`은 AI 검수 Worker를 `--query-embedding`으로 실행해 의미 검색을 켤 때만 필요하다. 켜지 않으면 두 값을 함께 빼도 된다. 역할만 남기고 모델을 빼면 기동이 실패한다. `roles.INDEX_EMBEDDING`은 접수 때 색인 채우기(2026-11-02 결정)의 서비스 부담 임베딩 cap이며 AI 검수 Worker의 `VALIDATION_INDEX_DATABASE_URL`을 켤 때만 쓰인다. QUERY_EMBEDDING 없이 INDEX_EMBEDDING만 두면 기동이 실패한다(`검수 색인 채우기에는 검색 임베딩(QUERY_EMBEDDING) 예산이 필요합니다.`). 쓰지 않으면 INDEX_EMBEDDING만 빼도 된다.
 2. 자동 배포·챗봇 bootstrap과 같은 `.api-deploy.lock`을 잡은 셸에서 3~5를 끝낸다. `api.env`는 비공개로 백업하고 `BACKEND_IMAGE` 등 다른 값은 바꾸지 않는다.
 
    ```bash
@@ -207,6 +207,8 @@ DATABASE_POOL_MINIMUM_IDLE=2
 검수 판정 bundle 배포(#349 후속): 판정 게시(`/units`)의 `evidence_bundle.settings`가 항목 전체 사본 대신 `entry_ref`·`subject_ref`만 담는다. 운영 캐릭터 항목 하나가 게시 상한(131,072 bytes)을 넘어 그 대상의 판정이 `VALIDATION_RESULT_INVALID`로 끝났기 때문이다. 새 서버는 이전 Worker의 전체 행도 받는다. Backend와 AI를 검수 Job이 `RUNNING`이 아닐 때 함께 배포한다(새 Worker는 새 서버가 필요).
 
 검수 grid v4·configuration v2 배포(#349 개편): SETTING은 1만 자 기준 구간마다 PLANNER와 MERGED_PLAN만 요구하고(설정집·지칭 해소·COVERAGE·기계 단서 없음), 역할별 출력 상한·모델·추론 강도가 설정으로 옮겨진다. 예시 JSON의 키가 바뀌었다(setting/typo의 `output-tokens`·`catalogue-page-size` 삭제, roles의 PLANNER·JUDGE·TYPO에 `output-tokens`·`model`·`reasoning-effort` 추가, RELATED_SELECTION·COVERAGE 삭제). **옛 JSON을 그대로 두고 켠 채 새 이미지를 올리면 기동이 실패한다**(`검수 grid v4에서 없어진 역할 … 예산은 설정에서 빼야 합니다.` 또는 `검수 생성 역할에는 출력 상한·모델·추론 강도가 필요합니다.`). 순서: (1) QUEUED·RUNNING 검수 Job이 없는지 확인한다. (2) 위 2~3 절차로 `api.env`의 `SPRING_APPLICATION_JSON`을 새 예시로 바꾼다(새 이미지 배포와 같은 lock 아래). (3) Backend(Flyway V113 `run_start_generation` 포함)와 AI 검수 Worker를 같은 release로 올린다. 옛 Worker는 `projectionVersion: 2`, 새 Worker는 `1`과 configuration v2가 아닌 claim을 거절한다. 배포 때 남은 legacy 설정 Job은 새 Worker가 시작하지 않아 lease 회수 한도 뒤 FAILED가 되고, PARTIAL·FAILED legacy Job과 함께 작가의 "다시 시도"가 SETTING 분기를 버리고 v4로 다시 만든다(오탈자 분기·정정 receipt·사용량 원장 유지). 진단 조회는 [검수 실행 문서](../docs/validation-execution-v1.md)의 "legacy grid(v1~v3)와 legacy 설정의 retry 전환" 절에 있다.
+
+접수 때 색인 채우기 배포(2026-11-02 결정): Flyway V114(`retrieval_setting_book_sources`·`retrieval_setting_book_chunks`)을 포함한 Backend와 AI 검수 Worker를 같은 release로 올린다. V114 이후 접수한 report만 설정집 manifest에 `currentRevision`이 있어 설정집이 검색 범위에 들어간다(이전 report는 회차만 채운다). AI 쪽은 읽기 전용 reader에 두 표 SELECT를 주고(`app.retrieval.bootstrap` 재실행) `worker.env`의 `VALIDATION_INDEX_DATABASE_URL`을 켠다(AI `deploy/WORKER_EC2_DEPLOYMENT.md`). 되돌릴 때는 `roles.INDEX_EMBEDDING`을 빼거나 Worker 쪽 URL을 비우면 채우기만 꺼지고 검수는 지금처럼 동작한다.
 
 끄기: 같은 lock 아래에서 `VALIDATION_EXECUTION_ENABLED=false`로 바꾸거나 두 값을 함께 지운 뒤 4~5와 같이 backend를 재생성한다. 꺼진 앱은 새 Job 생성을 하지 않고 검수 Worker의 claim과 retry를 `VALIDATION_RUNTIME_DISABLED`로 거절한다. 이미 만든 Job과 리포트는 지우지 않는다.
 

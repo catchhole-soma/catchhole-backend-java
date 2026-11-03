@@ -445,7 +445,8 @@ roles의 PLANNER·JUDGE·TYPO(`max-calls`, `max-reserved-tokens`, `output-tokens
   "PLANNER":{"max-calls":10,"max-reserved-tokens":800000,"output-tokens":50000,"model":"gpt-6.1-terra","reasoning-effort":"medium"},
   "JUDGE":{"max-calls":200,"max-reserved-tokens":10000000,"output-tokens":20000,"model":"gpt-6-luna","reasoning-effort":"high"},
   "TYPO":{"max-calls":20,"max-reserved-tokens":640000,"output-tokens":12000,"model":"gpt-6.1-terra","reasoning-effort":"low"},
-  "QUERY_EMBEDDING":{"max-calls":250,"max-reserved-tokens":400000}},
+  "QUERY_EMBEDDING":{"max-calls":250,"max-reserved-tokens":400000},
+  "INDEX_EMBEDDING":{"max-calls":400,"max-reserved-tokens":40000000}},
  "query-embedding-model":"text-embedding-3-small"}}}
 ```
 
@@ -460,10 +461,12 @@ Job configuration v2는 `processor.ValidationExecutionConfiguration` 한 곳에�
  "budgets":{"setting":{"modelCalls":200,"lookups":300,"seconds":3600.0,"inputTokens":80000,"segmentChars":10000,"contextChars":1000,"searchLimit":10},
             "typo":{...같은 key...},
             "roles":{"PLANNER":{"maxCalls":10,"maxReservedTokens":800000,"outputTokens":50000},
-                     "JUDGE":{...},"TYPO":{...},"QUERY_EMBEDDING":{"maxCalls":250,"maxReservedTokens":400000}}},
+                     "JUDGE":{...},"TYPO":{...},"QUERY_EMBEDDING":{"maxCalls":250,"maxReservedTokens":400000},
+                     "INDEX_EMBEDDING":{"maxCalls":400,"maxReservedTokens":40000000}}},
  "budgetRevision":1,"budgetHistory":[],
  "models":{"PLANNER":{"model":"gpt-6.1-terra","reasoningEffort":"medium"},"JUDGE":{"model":"gpt-6-luna","reasoningEffort":"high"},"TYPO":{...},
-           "QUERY_EMBEDDING":{"model":"text-embedding-3-small","version":"v1","dimensions":1536}}}
+           "QUERY_EMBEDDING":{"model":"text-embedding-3-small","version":"v1","dimensions":1536},
+           "INDEX_EMBEDDING":{"model":"text-embedding-3-small","version":"v1","dimensions":1536}}}
 ```
 
 claim은 `configurationVersion`·`models`·`budgets`를 그대로 싣는다. 모델·추론 강도는 코드 상수가 아니라 이 설정이 정한다(`ValidationRole`의 하드코딩 강도 삭제).
@@ -499,15 +502,55 @@ QUERY_EMBEDDING 예약 전에 adapter가 실제 query의 UTF-8 SHA-256(공백·�
 기존 색인 model/version/dimensions를 typed queryInput으로 고정한다. 원장의 immutable validation_call_input은 V95의 nullable JSONB이고
 일반 generation 역할은 null만 허용한다. 같은 requestId를 다른 queryInput으로 재전송하면 거절한다. 원문·query 본문은 원장에 저장하지 않는다.
 성공 VECTOR receipt의 readiness.query_embedding은 원래 requestId와 동일 proof를 보존한다. 재사용은 한 실행 안의 같은 검색 문장에 한한다.
-version은 기존 chat.retrieval-embedding-version override를 snapshot하고 차원은 기존 vector(1536)이다. 새 색인/백필·모델 교체나 자동 cap 증액은 하지 않는다.
+version은 기존 chat.retrieval-embedding-version override를 snapshot하고 차원은 기존 vector(1536)이다. 접수 때 색인 채우기(아래 절, INDEX_EMBEDDING) 밖에서 새 색인/백필·모델 교체나 자동 cap 증액은 하지 않는다.
 
 `/plans`는 SETTING 계획(PLANNER, MERGED_PLAN) 전용이며 TYPO_SEGMENT는 `/units`의 제안·분류 검증을 거쳐야 한다.
 
 
+## 접수 때 색인 채우기 (2026-11-02 결정)
+
+결정 메모: "RAG 색인은 검수를 접수할 때 그 작품의 빈 곳(앞 회차·설정집)만 채운다. 검수를 안 쓰는 작품은 채우지 않는다." 그리고 "설정집도 분석할 때
+회차처럼 RAG 색인에 올린다(조각 + 임베딩)". 이번 범위는 접수 때 채우기(회차·설정집)와 판정 VECTOR가 설정집 조각을 근거로 돌려주는 것이다.
+분석 단계의 설정집 임베딩은 하지 않았다(회차도 분석 때는 검색 조각 준비만 하고 임베딩은 별도 경로다).
+
+- **범위(RAG scope).** 고정 manifest의 앞 회차(`sourceKind=EPISODE`)와, 접수 때 그 설정집의 현재 판이고 보관되지 않은 revision만이다. 서버가 접수
+  (`ValidationBaselineService.capture`)에서 SETTING_BOOK manifest 행마다 boolean `currentRevision`을 기록한다. 과거 판은 확정 Fact 출처 확인용으로만
+  남고 색인·검색하지 않는다(회차도 현재 원고만 색인한다). 설정집 수정·보관은 기존처럼 그 report를 무효화하고, 그 설정집의 색인 행도 같은 트랜잭션에서
+  지운다(`SettingBookRetrievalIndexCleanup`).
+- **저장.** 회차는 기존 V76 `retrieval_sources`/`retrieval_chunks`, 설정집은 V114 `retrieval_setting_book_sources`(PK revision)/
+  `retrieval_setting_book_chunks`(같은 모양, 조각 정책 `cl100k-800-100-boundary-v1`, 원문 slice와 Unicode code point offset). 작품 파기는 두 표도 지운다.
+- **언제.** 검수 Job이 claim된 실행의 준비 단계다. Worker가 INPUT·T1·SUBJECTS를 읽은 직후 채우기를 시작해 PLANNER와 동시에 진행하고, JUDGE는
+  채우기가 끝난 뒤(최대 `min(남은 seconds, 1200초)`) readiness를 한 번 읽고 시작한다. 접수 직후 Job이 claim되므로 사실상 접수 때 채운다.
+- **빈 곳만.** 출처마다 header(key·version·hash·정책)가 고정 manifest와 같고 모든 조각이 그 색인 model/version의 유효한 READY 벡터이면 원문도 읽지 않고
+  건너뛴다(벡터를 읽지 않는 집계 SQL 한 번). 아니면 data API READ_SOURCE(서버가 manifest·hash 확인)로 전문을 읽어 같은 규칙으로 자르고 기존
+  `RetrievalStore.prepare`가 같은 조각 묶음은 그대로 두고 달라진 원고는 지운 뒤 다시 만든다(섞지 않음). READY가 아닌 조각만 32개씩 임베딩한다.
+  이미 READY인 조각은 다시 임베딩하지 않으므로 retry·lease 회수·두 번째 실행은 남은 조각만 채우거나 아무것도 하지 않는다.
+- **쓰기 연결.** 검수 Worker의 쓰기용 DB 연결은 명시 플래그 `--index-url-env`(운영 Compose `VALIDATION_INDEX_DATABASE_URL`, 기본 빈 값)로만 켠다.
+  검색 색인 표만 쓰고 validation 상태는 쓰지 않는다. 비어 있으면 채우지 않고 지금처럼 판정한다. 읽기 전용 reader는 설정집 색인 표 두 개의 SELECT가
+  더 필요하다(`app/retrieval/bootstrap.py` RELATIONS 12개, 관리 DSN 재실행으로 멱등 부여).
+- **비용.** 역할 `INDEX_EMBEDDING`(원장 purpose `VALIDATION_INDEX_EMBEDDING`)이며 QUERY_EMBEDDING과 같은 색인 identity를 쓴다. 선택 역할이고 켜려면
+  QUERY_EMBEDDING도 있어야 한다. 실행 단위 cap(`maxCalls`, `maxReservedTokens`)과 lease로 막고 원장에 raw 사용량을 남기며, 차감은 서비스 부담
+  `SERVICE_PAID_V1`(작가 계정 hold·차감 0)이다. 기존 검색 색인 임베딩(OPERATIONAL_BACKFILL)이 작가 과금 경로를 쓰지 않는 규칙을 따른다.
+  임베딩 역할은 분기 호출당 입력 상한(`inputTokens + outputTokens`) 대신 실행 cap으로만 막는다. 예약마다 typed `indexInput`
+  (`contractVersion, inputDigest, manifestHash, sourceRef, sourceHash, chunkCount, chunkDigest, indexModel, indexVersion, indexDimensions`)을
+  고정하며 sourceRef는 이 실행의 앞 회차 또는 `currentRevision` 설정집이어야 하고 sourceHash가 그 contentHash와 같아야 한다. `chunkDigest`는
+  묶음 조각 `chunk_hash`를 줄바꿈으로 이은 SHA-256이다. 다른 역할은 indexInput을 보내지 않는다. 사용량 조회는 v1 key를 유지해 INDEX 행의 고정 입력도
+  `queryInput` 칸에 보인다.
+- **실패.** provider 오류·역할 cap·쓰기 DB 오류·원문 변경·읽을 수 없는 원문(예: 2,000,000 byte 초과 설정집)·시간 초과는 채우기만 끝낸다. 실행은 계속되고
+  준비가 덜 된 색인은 준비됐다고 하지 않으므로(“범위 전부 임베딩됨” 규칙 유지) 검색이 필요한 질문만 INCOMPLETE `failure_code=VECTOR_INDEX_FILL_FAILED`,
+  `failure_cause=INDEX_FILL_*`로 남는다. 쓰기 연결이나 역할이 없어 채울 수 없으면 지금처럼 `VECTOR_NOT_READY`다. lease 상실·입력 변경은 실행을 멈춘다.
+  실패한 조각은 FAILED로 표시되며 다음 채우기가 MISSING과 같이 다시 임베딩한다.
+- **설정집 근거.** VECTOR는 회차·설정집 조각을 같은 거리 순위로 합쳐 top-k(`searchLimit`)를 고른다(같은 거리면 회차 먼저). 설정집 조각은 그
+  SETTING_BOOK 출처의 R ref·`source_kind=SETTING_BOOK`·`source_context{revisionNo, referenceTimeKind, referenceEpisodeNo}`인 E ref가 되고,
+  판정 프롬프트는 SETTING_BOOK이 설정집이며 회차가 아니라고 적는다. 서버는 인용 검증을 그대로 적용한다: 고정 identity(hash·version)와 같고, 출처마다 한 번
+  hash 확인한 설정집 전문을 code point로 잘라 quote와 비교한다.
+- **배포.** Backend(V114, INDEX_EMBEDDING 역할·`currentRevision` manifest)와 AI를 같은 release로 올린다. api.env 예산 JSON에 INDEX_EMBEDDING을 넣지 않으면
+  Worker는 채우지 않는다. 배포 전에 접수한 report의 manifest에는 `currentRevision`이 없어 설정집이 범위 밖이다(회차는 채운다).
+
 ## Python 실행기와 의미 재개
 
 `EpisodeValidationWorker.claim_next/process_claimed/aclose`는 기존 호출형 inspect/check_typos와 별도다.
-`ValidationExecutionClient`가 CommonResponse.data/실제 lease/scope를 사용하며, Python은 validation DB에 쓰지 않는다.
+`ValidationExecutionClient`가 CommonResponse.data/실제 lease/scope를 사용하며, Python은 validation DB에 쓰지 않는다(접수 때 색인 채우기는 검색 색인 표만 쓴다).
 claim의 configuration v2에서 PLANNER·JUDGE·TYPO `RoleRuntime(model, LlmCallOptions, max_output_tokens)`을 만들고 역할마다 metered client를 둔다.
 PLANNER는 모든 구간을 병렬로 호출하고 각 단계를 검증 직후 게시한다. 모든 구간이 끝나면 서버 v4 grid의 segments를 로컬 분할과 비교한 뒤
 MERGED_PLAN으로 서버 check UUID/revision/checkInputDigest를 받는다. SETTINGS를 질문 주체 전체에 대해 100개씩 미리 읽고(실행 안 캐시·중복 요청 합침)

@@ -221,7 +221,8 @@ org.monitoring.catchholebackend
 │   │   ├── service
 │   │   └── type
 │   ├── retrieval
-│   │   └── entity
+│   │   ├── entity
+│   │   └── processor
 │   ├── relationship
 │   │   ├── controller
 │   │   ├── dto
@@ -500,7 +501,7 @@ domain/<domain>
 
 - GH310 실행은 `VALIDATION_EXECUTION_ENABLED=false`가 기본이다. 활성화에는 lease/회수 한도, 양쪽 모든 InvocationBudget와 생성 역할 PLANNER·JUDGE·TYPO의 cap·출력 상한·모델·추론 강도(configuration v2, #349 개편)를 명시한다. 퇴역 역할 RELATED_SELECTION·COVERAGE 키는 켜진 기동에서 거절하고 enum 상수는 저장 원장·binding 호환으로 남긴다. 운영은 `deploy/validation-execution.prod.example.json`의 한 줄 JSON을 `SPRING_APPLICATION_JSON`으로 스위치와 함께 API Compose에 넘기며(#344), 운영 수치를 코드 기본값으로 오인하지 않도록 YAML·Java로 옮기지 않는다. 일반 API 기동에는 이 예산이 필요하지 않으며 과거 대기 report를 자동 backfill하지 않는다. 명시 START/RECHECK 복구 또는 RETRY만 queue한다. retry는 Work 잠금 아래 최신 활성 회차를 확인하되 성공한 원 receipt 재전송과 기존 lease 복구에는 후속 회차만으로 거절하지 않는다.
 - 전용 lease/실행 세대·inputDigest와 current check revision/checkInputDigest는 public reportVersion과 다르다. 두 분기는 별도 checkpoint CAS를 쓰며 heartbeat/조회/동일 결과 재전송은 reportVersion을 올리지 않는다. 원문 I/O 전후 실제 lease/현재 입력을 확인하고 I/O 뒤 짧은 Work → Job → 항목/원장·계정 잠금 안에서 다시 검증한다.
-- 서버는 실제 code point 원문 길이와 고정 segmentChars·contextChars로 필수 grid를 산출하고 projectionVersion 2의 modelSourceCatalogue·SUBJECTS(주체 목록)·SETTINGS(요청 주체의 characters/worldSettings 현재값 행, worldHistory 제외)를 준다. 기계 단서(modelClues)·설정집 BOOK_SOURCE/BOOK_COVERAGE 의무는 없다(설정집 RAG 색인은 후속). Worker 실행은 이를 소비하며 모델이 source/member/work/lease/cap을 정하지 않는다. 정상 0건은 저장된 완료 check/typo/검증된 NO_CHECK 처리로만 센다. 공개 results에는 전체 bundle·catalogue·checkpoint·호출 원장을 노출하지 않는다.
+- 서버는 실제 code point 원문 길이와 고정 segmentChars·contextChars로 필수 grid를 산출하고 projectionVersion 2의 modelSourceCatalogue·SUBJECTS(주체 목록)·SETTINGS(요청 주체의 characters/worldSettings 현재값 행, worldHistory 제외)를 준다. 기계 단서(modelClues)·설정집 BOOK_SOURCE/BOOK_COVERAGE 의무는 없다. 설정집은 접수 때 색인 채우기(아래) 뒤 RAG 조각으로만 근거가 된다. Worker 실행은 이를 소비하며 모델이 source/member/work/lease/cap을 정하지 않는다. 정상 0건은 저장된 완료 check/typo/검증된 NO_CHECK 처리로만 센다. 공개 results에는 전체 bundle·catalogue·checkpoint·호출 원장을 노출하지 않는다.
 - 게시 인용은 고정 출처 identity(frozen hash·version)와 같아야 하고 출처마다 한 번 hash 확인한 전문을 code point로 잘라 비교한다. 인용마다 범위 READ_SOURCE(저장소 전체 GET)를 반복하지 않는다(#349 개편, 판정 unit 하나가 과거 근거 수십 개를 인용).
 - #349 개편 SETTING gridVersion 4는 원고를 segmentChars(1만) 기준 구간 수로 같은 길이로 나누고 줄바꿈 바로 뒤에서 자르며(`ValidationPublicationValidator.settingSegments`, Java·Python이 공통 fixture `gridCases`로 같은 결과를 확인) 구간마다 PLANNER, 끝에 MERGED_PLAN만 요구한다. PLANNER는 rules·clue_checks·lookup_intents가 없고 span은 핵심 구간 안이며, 판정 receipt 연산은 BASELINE·TARGET_CONTEXT·VECTOR뿐이다(SUSPECTED_CONFLICT는 VECTOR 변화 검색 receipt 필수). 키워드·직접·인접 원문 읽기, SUBJECT_RESOLUTION·COVERAGE·설정집 검토·최종 VALIDATE는 되살리지 않는다(작가 결정). v1~v3 stage enum은 저장 이력용으로만 남기고 v4 grid에서 게시하면 거절한다. TYPO grid는 v1이다. extendGrid는 두 분기 모두 엄격하며, 공개 retry가 v4가 아닌 SETTING grid나 legacy 설정(configurationVersion 없음)을 만나면 SETTING finding과 그 판단·판단 이력, SETTING stage·checkpoint·check/이력·인용·plan/checkpoint receipt를 버리고 재검사로 다시 만든다(TYPO 분기·정정 receipt·원장은 보존). 질문 단위 오류는 그 질문만 INCOMPLETE unit(원인 코드·질문 span)으로 저장하고 나머지는 계속 판정하며(결정 ③), INCOMPLETE check는 completed()가 아니어서 실행은 COMPLETED가 될 수 없고 같은 입력 retry가 그 질문만 다시 판정한다. 상세는 `docs/validation-execution-v1.md`의 grid v4 절이다.
 - 같은 입력 RETRY는 성공 단계/check와 실제 원장 행을 보존한다. 유효 saved seed의 준비 실패는 source 수명/hash 검증 뒤 기존 materialize로 복구하고 seedless/invalidated는 새 기준 접수 경계를 유지한다. 명시 retry에서만 현재 역할 cap·출력 상한과 호출·조회·시간·입력 상한을 새 budgetRevision에 채택하며 segmentation/context/search 폭과 모델·추론은 보존한다(legacy 설정은 이때 configuration v2로 전환하고 TYPO 구간 폭·저장 TYPO 모델은 유지). 역할 cap은 실행(run) 단위라 V113 `run_start_generation` 이상의 generation 사용량만 세며 작가 retry만 새 실행을 시작하고 lease 회수(expire)는 같은 실행으로 이어 센다. 그래서 retry 전 cap 소진 사전 거절과 query embedding 재사용 판정은 없다. 기존 RETRY key는 원 response_snapshot을 반환한다. 초기 optional query embedding은 명시 cap+기존 색인 호환 모델과 미사용 증명을 요구하고, actual reserve cap(호출당 분기 입력 상한+역할 출력 상한 포함)은 항상 검사한다. 설정 JSON은 `processor.ValidationExecutionConfiguration` 한 곳에서만 만든다.
@@ -1076,6 +1077,7 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 ### 원문 검색 준비 (#239)
 
 - `domain/retrieval/entity`는 Python이 준비하는 검색 manifest/청크의 생명주기 매핑이다. V76 schema와 Python 매핑, 공통 `docs/retrieval-index-v1.md`를 함께 검증한다. vector 필드/생성은 Python/pgvector가 소유한다.
+- 접수 때 색인 채우기(2026-11-02 결정): V114 `retrieval_setting_book_sources`(PK revision)/`retrieval_setting_book_chunks`는 설정집 revision 하나를 회차 표와 같은 모양으로 담는 RAG 색인이며 생명주기 매핑 Entity만 둔다(벡터는 Python/pgvector 소유). 검수 Worker가 접수 때 고정 manifest의 앞 회차와 `currentRevision: true` 설정집(접수 시점의 현재·비보관 revision, `ValidationBaselineService.capture`가 기록)의 빈 곳만 채운다. 설정집 수정·보관은 `retrieval.processor.SettingBookRetrievalIndexCleanup`이 `SettingBookSourceChanged`에서 그 설정집 색인을 같은 트랜잭션으로 지우고 작품 파기는 두 표를 지운다. 분석용 `setting_book_chunks`와 섞지 않는다.
 - 검색용 `retrieval_sources`/`retrieval_chunks`를 기존 분석 `episode_chunks`와 분리한다. 회차/작품 purge에서 검색 텍스트·벡터·manifest도 삭제하며, 파기 요청이 남으면 물리 데이터가 있어도 `retrieval_current_chunks`에서 제외한다.
 - 운영 실행기는 기존 OPERATIONAL_BACKFILL 원장과 RETRIEVAL_INDEX_SERVICE_PAID_V1 정책을 사용해 사용자 토큰을 예약·차감하지 않는다. provider 호출 전·저장 전 원문 검증은 기존 Work row 잠금과 직렬화한다. Java V76/파기 코드 배포 후 AI를 배포한다.
 - #240의 모든 검색 경로는 현재 출처 일치/보관·파기/서버 작품·회차 범위와 policy/model/version을 재검증한다. 원문 회차 번호를 사건 시점으로 해석하지 않으며 설정집·과거 원문은 지원 전 준비 완료로 집계하지 않는다.
@@ -1126,6 +1128,7 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - AI는 EPISODE의 모델 입력만 같은 도메인·관련 주체로 투영하며 전체 transport/equality/source/lease/journal을 유지한다. 보류는 현재값·선택 대상·변경/의존 참조·과거 후보 자동 승인이 아니다. 1차 캐릭터 입력은 기존 이름/활성 STATUS와 별도 미확정 이름/STATUS 힌트, 세계관은 원문·metadata·정적 규칙만 사용하며 BOOK 입력과 기존 시점 보호를 유지한다.
 
 - GH310 query embedding 예약은 QUERY 역할에만 typed queryInput을 요구하고 V95 immutable validation_call_input으로 원 호출 identity를 고정한다. UTF-8 query hash는 trim/정규화 없이 실제 provider 입력과 같아야 하며 현재 input/manifest/기존 index model/version/1536 차원을 대조한다. 검색 재사용은 한 실행 안의 같은 문장에 한하며(Worker), retry 사이 receipt 재사용·사전 거절은 없다(#349 개편).
+- 검수 역할 `INDEX_EMBEDDING`(purpose `VALIDATION_INDEX_EMBEDDING`)은 접수 때 색인 채우기의 선택 역할이며 QUERY_EMBEDDING이 있을 때만 켤 수 있다. 예약마다 typed `indexInput`(입력 digest·manifest·이 실행의 고정 RAG 출처 ref·contentHash·조각 digest·색인 identity)을 요구하고 다른 역할은 indexInput을 거절한다. 차감은 기존 검색 색인 임베딩처럼 서비스 부담 `SERVICE_PAID_V1`(계정 hold 없음, raw 사용량은 원장 보존)이고, 임베딩 역할은 분기 호출당 입력 상한 대신 실행 cap으로 막는다. 사용량 조회는 v1 key를 유지해 고정 입력을 `queryInput` 칸에 보인다. 계약은 공통 JSON `indexFill`.
 - `/revisions`(같은 입력의 FOLLOW_UP 원자 revise)와 `/checkpoint` 경로는 서버에 남지만 grid v4 Worker는 호출하지 않는다. 현재 서버 check revision/digest/outcome만 완료 권위이며 source/report 무효화·물리 파기의 사본 삭제는 그대로 유지한다.
 - 실제 Python 실행 연결 검증은 ValidationExecutionHttpPostgresIntegrationTest와 AI tests/support/validation_execution_http_client.py를 사용한다. GH310_AI_CHECKOUT/GH310_PYTHON 및 guarded loopback DB를 명시하고 provider/S3만 합성한다. 성공 모델 추가 호출0과 추출/후보0을 실제 counter/DB로 확인하며 모델 품질·운영 배포 결과로 보고하지 않는다.
 
