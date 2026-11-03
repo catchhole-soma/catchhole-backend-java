@@ -512,7 +512,8 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
     );
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @EntityGraph(attributePaths = {"work", "episode", "analysisJob", "matchedCharacter"})
+    // 같은 Job의 후보 묶음에서는 Job 상태 JSON을 행마다 fetch하지 않는다.
+    @EntityGraph(attributePaths = {"work", "episode", "matchedCharacter"})
     @Query("""
             select candidate
             from SettingCandidate candidate
@@ -540,7 +541,7 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
     );
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @EntityGraph(attributePaths = {"work", "episode", "analysisJob", "matchedCharacter", "characterComparisonBatch"})
+    @EntityGraph(attributePaths = {"work", "episode", "matchedCharacter", "characterComparisonBatch"})
     @Query("""
             select candidate
             from SettingCandidate candidate
@@ -551,7 +552,7 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
             @Param("comparisonBatchId") UUID comparisonBatchId
     );
 
-    @EntityGraph(attributePaths = {"work", "episode", "analysisJob", "analysisJob.batch", "matchedCharacter"})
+    @EntityGraph(attributePaths = {"work", "episode", "matchedCharacter"})
     @Query("""
             select candidate
             from SettingCandidate candidate

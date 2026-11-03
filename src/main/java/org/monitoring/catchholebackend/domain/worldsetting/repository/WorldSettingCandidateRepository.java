@@ -385,7 +385,8 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
             UUID workId, WorldSettingReviewStatus reviewStatus);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @EntityGraph(attributePaths = {"work", "sourceEpisode", "analysisJob"})
+    // Job은 Worker가 별도로 잠그고 읽는다. 후보마다 큰 상태 JSON을 JOIN 결과에 반복하지 않는다.
+    @EntityGraph(attributePaths = {"work", "sourceEpisode"})
     @Query("""
             select candidate
             from WorldSettingCandidate candidate
@@ -401,7 +402,7 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
     );
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @EntityGraph(attributePaths = {"sourceEpisode", "analysisJob"})
+    @EntityGraph(attributePaths = {"sourceEpisode"})
     @Query("""
             select candidate
             from WorldSettingCandidate candidate
@@ -429,7 +430,6 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @EntityGraph(attributePaths = {
             "sourceEpisode",
-            "analysisJob",
             "comparisonBatch",
             "comparisonDecision",
             "comparisonDecision.targetWorldSetting"
