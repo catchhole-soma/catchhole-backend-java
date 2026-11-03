@@ -323,6 +323,51 @@ bundle `settings[]` 행은 `{"entry_ref": "B12", "subject_ref": "S3"}`다(#349 �
    `/revisions`·`/checkpoint` 경로와 기존 FOLLOW_UP revise 규칙(영향 check 전부 원자 revise, 옛 완료는 check history에 남김)은 서버에 그대로 있으나
    grid v4 Worker는 호출하지 않는다.
 
+### 판정 근거 문장(basis_quotes)과 작가용 문장 (2026-11-02)
+
+오류 리포트 상세가 "어디를 봐야 하는지" 보여 줄 수 있도록 DECIDED 판정은 근거로 삼은 비교 쪽 문장을 정확히 인용한다(소유자 피드백, 31화 로컬 리포트).
+schema 이름(`validation_judge_open_v3`·`validation_judge_final_v3`)은 그대로이고 같은 v3 안에서 필드를 추가했다(v0043, 미배포).
+
+- 판정 답(OPEN·FINAL 모두 필수): `basis_quotes: [{ref, quote}]` 0~3개. `ref`는 `E#` 또는 `B#`, `quote`는 그 evidence 조각 또는 저장 설정 값에서
+  글자 그대로 복사한 문장·구절(schema 1~300자, 프롬프트는 200자 이하)이다. T1 문장은 넣지 않는다. 근거 문장이 없으면(저장된 설정에 이 내용이 없는 경우 등) `[]`,
+  FOLLOW_UP의 값은 무시한다(`FOLLOW_UP_DECISION_FIELDS_IGNORED`).
+- Worker 검증(`judging.normalize_basis_quotes`, 모델 순서, 최대 3개): 앞뒤 공백을 떼고 1~300 code point여야 한다.
+  - `E#`: 그 질문 bundle evidence 행의 `quote` 안 첫 위치(없고 quote에 LF, 조각에 CRLF가 있으면 LF를 CRLF로 바꿔 한 번 더). 행의 `source_ref`가 T1이면 버린다.
+    게시 값은 원 출처의 절대 위치 `{ref, source_ref: 행.source_ref, start: 행.start + index, end: start + 길이, quote: 조각의 정확한 부분 문자열}`(code point)이다.
+  - `B#`: 그 질문 bundle settings 행의 **설정 값 leaf** 중 하나의 부분 문자열이어야 한다. leaf는 `characters`면 `state.slots.*.factValue` 문자열,
+    `worldSettings`면 `state.propertiesJson` 아래 모든 문자열(객체 값·배열 항목을 재귀, 값 자체가 문자열이면 그것)이다. key·이름·별칭·다른 domain은 인용할 수 없다.
+    게시 값은 `{ref, source_ref: null, start: null, end: null, quote}`다.
+  - 알 수 없는 ref, 못 찾은 문장, 길이 초과, 같은 `(ref, quote)` 중복, 4번째 이후는 버리고 `BASIS_QUOTES_DROPPED`로 센다. 질문 실패로 만들지 않는다.
+- 게시: `ValidationDecision.basis_quotes`(이전에 게시된 결정에는 없으며 `[]`로 읽는다). E 인용은 checkpoint의 citation 수집기가 다른 span처럼
+  `citations`에 `{sourceRef, sourceHash, sourceVersion, start, end, quote}`로 보내 서버가 hash 확인한 전문을 code point로 잘라 비교한다.
+  B 인용은 원문이 아니어서 citation이 없고, 서버는 고정 기준 항목 투영(`toValidationSettings`)의 같은 leaf 규칙으로 부분 문자열인지 확인한다.
+  공통 fixture `judgeFlow.basisQuotes`(규칙·`vectors`)와 `payloadCitationPaths.basisQuotes`를 Java·Python이 같이 읽는다.
+- 작가용 문장(`app/validation/author_text.py`, fixture `judgeFlow.authorText`): Worker는 저장 전에 `reason`·`impact_reason`·`disagreements[].reason`에서
+  내부 참조를 작가 말로 바꾼다. `T1`·`TSEG#`→"이번 원고", `E#`/`R#`→"N화"(설정집은 "설정집"), `B#`→"저장된 설정", `S#`→SUBJECTS의 대상 이름(없으면 "대상")이며
+  바로 뒤 조사(은/는, 이/가, 을/를, 과/와, 으로/로)를 받침에 맞춘다. 그래도 모르는 참조(L#, Q#, 질문 밖 E/B/R/S)나 내부 용어(limited, receipt, readiness, vector,
+  baseline, target_context, keyword, evidence_refs, receipt_refs, source_ref, evidence_bundle, rag, 영수증)가 남은 문장은 버리고, 다 버려지면 판정·영향 등급별
+  고정 문장을 쓴다. 바뀐 필드마다 `AUTHOR_TEXT_SANITIZED`로 센다. 참조·용어가 없는 문장은 글자 그대로 둔다. `completion.*.reason`은 감사 기록이라 바꾸지 않으며
+  공개 상세 화면에도 쓰지 않는다. 판정 프롬프트는 같은 규칙(80자 안팎의 쉬운 한 문장, 참조·내부 용어 금지)을 먼저 요구하고 이 정제는 안전망이다.
+- 서버(이 저장소): `processor.ValidationBasisQuotes`가 leaf 규칙, `ValidationPublicationValidator`의 `basis_quotes` 경로가 E 인용의 citation·B 인용의 leaf를,
+  `ValidationDecisionValidator`가 E 인용이 그 bundle 비교 조각 안의 정확한 위치인지·B 인용이 bundle settings 행인지·최대 3개·300 code point를 확인한다.
+  다른 payload 객체에 `basis_quotes`를 숨겨도 같은 검사를 받는다. 작가 화면 표기는 `docs/validation-review-v1.md`의 "상세 화면 표기" 절이다.
+
+### 판정 작성 제목(headline)과 원인·결과 사유 (2026-11-03)
+
+31화 틀린 문장 시험(정수 후보 두 몬스터를 `9등급`으로 바꿈)에서 화면 제목이 서술자 이름 + 질문 속성(`얀델 기존 정수 후보와 몬스터 등급이 기존 기록과 달라요`)으로 조립돼
+대상이 틀리고 어색했다. 제목과 설명은 판정이 직접 쓴다(공통 fixture `execution.judgeFlow.headline`, schema 이름은 v3 그대로).
+
+- 판정 답(OPEN·FINAL 모두 필수, nullable): `headline`. CONFLICT는 `{실제로 어긋난 대상들}의 {항목}이 기존 설정과 달라요`(어긋나는 근거가 이전 회차면 `…N화와 달라요`, 설정집이면 `…설정집과 달라요`),
+  SUSPECTED_CONFLICT는 `…다를 수 있어요`, NEEDS_CONTEXT는 무엇이 분명하지 않은지(`‘그’가 누구인지 확인이 필요해요`). 40자 안팎, 참조·내부 용어 금지. NO_CONFLICT·FOLLOW_UP은 null.
+- CONFLICT·SUSPECTED_CONFLICT의 `reason`은 원인 → 결과 두 문장(120자 안팎): `기존 설정은 {대상}의 {항목}을 {기준 값}이라고 해요. 그런데 31화에서는 {이번 값}이라고 해요.`
+  모델 입력(evidence bundle이 아닌 호출 payload)에 `target_episode_no`가 더해져 `31화`처럼 쓴다(없으면 `이번 원고`). bundle 키·`input_digest`는 바뀌지 않는다.
+- Worker: FOLLOW_UP의 제목은 무시, NO_CONFLICT의 제목은 null로(`NO_CONFLICT_HEADLINE_CLEARED`), 앞뒤 공백 제거·빈 값 null, 작가용 문장 정제(위 절)를 `reason`처럼 적용하고
+  남는 글이 없거나 80 code point를 넘으면 null(`HEADLINE_DROPPED`). 제목 없는 지적은 `HEADLINE_MISSING`으로 센다. 판정 규칙 검사(근거 문장 없는 충돌 → 문제없음)와 DB·원문 불일치의
+  NEEDS_CONTEXT 전환은 null로 게시한다.
+- 서버(이 저장소, `ValidationDecisionValidator`): `headline`이 없거나 null이면 통과(이전 Worker), 값이 있으면 문자열·공백 아님·80 code point 이하, NO_CONFLICT에는 둘 수 없다
+  (`VALIDATION_RESULT_INVALID`). 공통 `vectors`를 `ValidationDecisionValidatorTest`가 그대로 돌린다. 작가 화면(목록·상세의 `headline`, 대상 귀속·블록 병합)은
+  `docs/validation-review-v1.md` "판정 작성 제목과 블록 병합" 절이다.
+
 ### 질문 하나의 INCOMPLETE (#349 결정 ③, 2026-11-02)
 
 질문 단위 오류(양식·계약 오류, 출력 절단, 잘못된 결정·FOLLOW_UP, 검색 실패, `VECTOR_NOT_READY`, `VECTOR_INDEX_PARTIAL`,
