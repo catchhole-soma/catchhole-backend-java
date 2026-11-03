@@ -586,7 +586,7 @@ grid v4·configuration v2와 같은 release로 배포하며 순서는 [EC2 배�
 ## V114: 설정집 RAG 색인
 
 `retrieval_setting_book_sources`·`retrieval_setting_book_chunks`를 추가합니다. 회차 색인(V76 `retrieval_sources`·`retrieval_chunks`)과 같은 모양이며 설정집 revision 하나가 출처 하나입니다. 분석용 `setting_book_chunks`와는 별개입니다.
-지금은 검수 접수 때 색인 채우기(AI 검수 Worker, `INDEX_EMBEDDING` 서비스 부담)만 이 표를 채웁니다. 설정집 수정·보관 시 Spring이 그 설정집의 행을 지우며, 작품·회원 파기 경로도 함께 지웁니다.
+검수 접수 때 색인 채우기(AI 검수 Worker, `INDEX_EMBEDDING` 서비스 부담)와 2026-11-03부터 AI의 5분 운영 백필(보관되지 않은 설정집의 현재 판, 운영 원장 서비스 부담)이 이 표를 채웁니다. 챗봇은 아직 이 표를 읽지 않습니다. 설정집 수정·보관 시 Spring이 그 설정집의 행을 지우며, 작품·회원 파기 경로도 함께 지웁니다.
 빈 표로 시작하므로 데이터 이관·S3·LLM 호출은 없습니다. 검수 검색 읽기 전용 계정(`catchhole_chat_reader`)의 두 표 SELECT는 AI Worker 배포의 bootstrap이 부여하므로, 이 migration을 포함한 Backend를 AI보다 먼저 배포합니다.
 범위·비용·배포는 [검수 실행 계약](validation-execution-v1.md)과 [원문 검색 준비](retrieval-index-v1.md)를 따르고, migration 계약은 `V114` 계약 테스트로 검증합니다.
 
