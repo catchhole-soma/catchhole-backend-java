@@ -1,10 +1,6 @@
 package org.monitoring.catchholebackend.domain.analysis.service;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.Comparator;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -13,11 +9,13 @@ import org.monitoring.catchholebackend.domain.analysis.dto.request.AnalysisStart
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisStartCheckResponse;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisReviewContinuation;
 import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErrorCode;
+import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisStartCheckMapper;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisReviewContinuationRepository;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.relationship.service.RelationshipHoldReviewGate;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.global.exception.AppException;
+import org.monitoring.catchholebackend.global.hash.Sha256Hasher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,6 +30,8 @@ public class AnalysisStartCheckServiceImpl implements AnalysisStartCheckService 
     private final AnalysisRunStateService runStates;
     private final AnalysisReviewContinuationRepository continuations;
     private final AnalysisJobRepository jobs;
+    private final Sha256Hasher hasher;
+    private final AnalysisStartCheckMapper mapper;
 
     @Override
     public AnalysisStartCheckResponse checkAnalysisStart(Long memberId, UUID workId, AnalysisStartCheckRequest request) {
@@ -87,11 +87,8 @@ public class AnalysisStartCheckServiceImpl implements AnalysisStartCheckService 
                 .sorted(Comparator.comparing(e -> e.analysisId() + ":" + e.observationRef()))
                 .forEach(e -> material.append("relationship:").append(e.analysisId()).append(':')
                         .append(e.observationRef()).append(':').append(e.revision()).append('\n'));
-        long characters = candidateSnapshot.ambiguous().stream()
-                .filter(e -> e.domain() == AnalysisCandidateReviewGate.Domain.CHARACTER).count();
-        long worlds = candidateSnapshot.ambiguous().size() - characters;
-        var response = new AnalysisStartCheckResponse(activeEarlier, manualSnapshot.manualRequired().size(), characters,
-                worlds, relationshipSnapshot.count(), hash(material.toString()));
+        var response = mapper.toResponse(activeEarlier, manualSnapshot.manualRequired().size(),
+                candidateSnapshot, relationshipSnapshot, hasher.hash(material.toString()));
         return new Check(sortedNumbers, candidateSnapshot, relationshipSnapshot, response);
     }
 
@@ -100,14 +97,6 @@ public class AnalysisStartCheckServiceImpl implements AnalysisStartCheckService 
                 .forEach(e -> material.append(kind).append(':').append(e.domain()).append(':').append(e.id())
                         .append(':').append(e.sourceJobId()).append(':').append(e.updatedAt())
                         .append(':').append(e.revision()).append('\n'));
-    }
-
-    private String hash(String value) {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException("SHA-256 is required", exception);
-        }
     }
 
     private record Check(List<Integer> episodeNumbers, AnalysisCandidateReviewGate.Snapshot candidates,

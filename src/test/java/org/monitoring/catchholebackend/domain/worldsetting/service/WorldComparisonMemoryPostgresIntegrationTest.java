@@ -195,7 +195,7 @@ class WorldComparisonMemoryPostgresIntegrationTest {
             Work work = Work.create(member, "GH365 synthetic work", WorkGenre.FANTASY, "No production material");
             em.persist(work);
             String source = QUOTE.repeat(CANDIDATES);
-            String sourceHash = new org.monitoring.catchholebackend.global.storage.ObjectStorageService(objectStorage).contentHash(source);
+            String sourceHash = new org.monitoring.catchholebackend.global.hash.Sha256Hasher().hash(source);
             Episode episode = Episode.create(work, null, 35, "Synthetic episode", "gh365/" + unique,
                     "synthetic-v1", sourceHash, source.length());
             em.persist(episode);

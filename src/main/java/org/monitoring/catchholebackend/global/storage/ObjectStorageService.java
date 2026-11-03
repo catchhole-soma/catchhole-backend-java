@@ -1,8 +1,5 @@
 package org.monitoring.catchholebackend.global.storage;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -11,6 +8,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.monitoring.catchholebackend.global.hash.Sha256Hasher;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -19,6 +17,7 @@ import org.springframework.util.StringUtils;
 public class ObjectStorageService {
 
     private final ObjectStorage objectStorage;
+    private final Sha256Hasher hasher;
 
     /**
      * 회차 원문을 작품/회차/저장본 UUID 기반의 고유 key로 저장한다.
@@ -29,7 +28,7 @@ public class ObjectStorageService {
         return new StoredTextObject(
                 storedEpisodeContent.key(),
                 storedEpisodeContent.versionId(),
-                sha256(content),
+                hasher.hash(content),
                 countNonWhitespaceCharacters(content)
         );
     }
@@ -72,10 +71,10 @@ public class ObjectStorageService {
         int boundary = readableKey.lastIndexOf('/');
         StoredObject stored = objectStorage.putText(readableKey.substring(0, boundary + 1)
                 + UUID.randomUUID() + "/" + readableKey.substring(boundary + 1), content);
-        return new StoredTextObject(stored.key(), stored.versionId(), sha256(content), countNonWhitespaceCharacters(content));
+        return new StoredTextObject(stored.key(), stored.versionId(), hasher.hash(content), countNonWhitespaceCharacters(content));
     }
 
-    public String contentHash(String content) { return sha256(content); }
+    public String contentHash(String content) { return hasher.hash(content); }
 
     public String getText(String key) {
         return objectStorage.getText(key);
@@ -166,20 +165,6 @@ public class ObjectStorageService {
     private String buildEpisodeContentKey(UUID workId, int episodeNo) {
         return "works/" + workId + "/episodes/" + episodeNo + "/"
                 + UUID.randomUUID() + "/" + episodeNo + ".txt";
-    }
-
-    private String sha256(String text) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(text.getBytes(StandardCharsets.UTF_8));
-            StringBuilder builder = new StringBuilder(hash.length * 2);
-            for (byte value : hash) {
-                builder.append(String.format("%02x", value));
-            }
-            return builder.toString();
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException("SHA-256 algorithm is not available.", exception);
-        }
     }
 
     private int countNonWhitespaceCharacters(String content) {
