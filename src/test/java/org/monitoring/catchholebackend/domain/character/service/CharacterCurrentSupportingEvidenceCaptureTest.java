@@ -425,7 +425,9 @@ class CharacterCurrentSupportingEvidenceCaptureTest {
     @Test @DisplayName("저장된 대표 시점의 일반 인용만 틀리면 시점 근거를 엄격히 검증하고 비교를 계속한다")
     void retainedRepresentativeTimeWithInvalidGeneralQuoteAndValidTimeEvidenceContinues() {
         retainedRepresentativeTime();
-        var frozen = owner().path("currentNarrativeTime");
+        var state = owner();
+        var frozen = json.valueToTree(new CharacterFactComparisonWorkerMapper(null)
+                .toAdvisoryCurrentContext(origin, state, character.getId(), null).currentNarrativeTime());
         assertThat(frozen.path("description").asText()).isEqualTo("회복한 날");
         assertThat(frozen.path("evidenceSpans").get(0).path("quote").asText()).isEqualTo(content);
         assertUnavailableQuote(frozen.path("supportingSource"));
@@ -437,7 +439,11 @@ class CharacterCurrentSupportingEvidenceCaptureTest {
     void retainedRepresentativeTimeWithUnverifiableTimeEvidenceKeepsDescription() {
         retainedRepresentativeTime();
         ((ObjectNode)candidate.getNarrativeTime().path("referenceTime").path("evidenceSpans").get(0)).put("quote", "위조 시점");
-        var current = owner().path("currentNarrativeTime");
+        var state = owner();
+        assertThat(org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.value(state.path("currentNarrativeTime")))
+                .isEqualTo(character.getCurrentNarrativeTime());
+        var current = json.valueToTree(new CharacterFactComparisonWorkerMapper(null)
+                .toAdvisoryCurrentContext(origin, state, character.getId(), null).currentNarrativeTime());
         assertThat(current.path("description").asText()).isEqualTo("회복한 날");
         assertThat(current.path("evidenceSpans")).isEmpty();
         assertThat(current.path("supportingSource").path("narrativeTime").isNull()).isTrue();
@@ -448,7 +454,11 @@ class CharacterCurrentSupportingEvidenceCaptureTest {
     void pendingPurgeRedactsRepresentativeTime() {
         retainedRepresentativeTime();
         ReflectionTestUtils.setField(origin, "sourceReferenceInvalidatedAt", java.time.LocalDateTime.now());
-        var current = owner().path("currentNarrativeTime");
+        var state = owner();
+        assertThat(org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.value(state.path("currentNarrativeTime")))
+                .isEqualTo(character.getCurrentNarrativeTime());
+        var current = json.valueToTree(new CharacterFactComparisonWorkerMapper(null)
+                .toAdvisoryCurrentContext(origin, state, character.getId(), null).currentNarrativeTime());
         assertThat(current.path("description").asText()).isEqualTo("회복한 날");
         assertThat(current.path("evidenceSpans")).isEmpty();
         assertThat(current.path("supportingSource").path("unavailableReason").asText()).isEqualTo("SOURCE_EVIDENCE_PURGED");
@@ -566,6 +576,66 @@ class CharacterCurrentSupportingEvidenceCaptureTest {
         var slot = owner().path("slots").path(key);
         assertThat(slot.path("factValue").asText()).isEqualTo("정상");
         assertThat(slot.path("supportingSources").get(0).path("evidenceSpans")).isEmpty();
+        org.mockito.Mockito.verifyNoInteractions(storage);
+    }
+
+    @Test @DisplayName("옛 시점 인용을 AI에서 숨겨도 원래 기준값을 보존하여 승인된 새 시점을 반영한다")
+    void uncertifiedCurrentTimeKeepsExpectedValueThroughPromotion() {
+        ObjectNode point = json.createObjectNode().put("description", "장마 첫날");
+        point.putArray("evidenceSpans").addObject().put("quote", content)
+                .put("startOffset", 0).put("endOffset", content.codePointCount(0, content.length()))
+                .put("sourceChunkId", candidate.getSourceChunkId().toString());
+        candidate.recordNarrativeTime(json.createObjectNode().putNull("factTime").set("referenceTime", point));
+        var original = point.deepCopy().put("sourceCandidateId", candidate.getId().toString());
+        character.updateCurrentNarrativeTime(original, true);
+        long version = character.getSnapshotVersion();
+        when(candidates.findByIdAndWorkId(candidate.getId(), work.getId())).thenReturn(java.util.Optional.of(candidate));
+        when(storedEvidence.find(candidate)).thenReturn(org.monitoring.catchholebackend.domain.character.repository.StoredCharacterEvidenceRepository.Evidence.unavailable());
+
+        var frozen = owner();
+        var current = frozen.path("currentNarrativeTime");
+        assertThat(org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.value(current)).isEqualTo(original);
+        String frozenHash = new AnalysisStateJournal().hash(frozen);
+        var payload = new CharacterFactComparisonWorkerMapper(null).toAdvisoryCurrentContext(origin, frozen, character.getId(), null);
+        var modelTime = json.valueToTree(payload.currentNarrativeTime());
+        assertThat(modelTime.path("description").asText()).isEqualTo("장마 첫날");
+        assertThat(modelTime.path("evidenceSpans")).isEmpty();
+        assertThat(modelTime.toString()).doesNotContain(content);
+        assertThat(new AnalysisStateJournal().hash(frozen)).isEqualTo(frozenHash);
+        assertThat(character.getCurrentNarrativeTime()).isEqualTo(original);
+
+        var next = SettingCandidate.create(work, episode, UUID.randomUUID(), origin, SettingEntityType.CHARACTER,
+                "한서린", "profile.손감각", "정상", SettingValueType.STRING, candidate.getValueJson(),
+                candidate.getEvidenceSpans(), BigDecimal.ONE, json.createObjectNode());
+        ReflectionTestUtils.setField(next, "id", UUID.randomUUID());
+        ReflectionTestUtils.setField(next, "matchedCharacterId", character.getId());
+        ReflectionTestUtils.setField(next, "suggestedOperation", org.monitoring.catchholebackend.domain.character.type.CharacterFactOperation.HISTORY_ONLY);
+        ReflectionTestUtils.setField(next, "temporalScope", org.monitoring.catchholebackend.domain.character.type.CharacterFactTemporalScope.PRESENT);
+        next.recordNarrativeTime(json.createObjectNode().putNull("factTime").set("referenceTime", point.deepCopy().put("description", "장마 둘째 날")));
+        var verified = resolver.captureNarrativeTime(resolver.begin(work), next, next.getNarrativeTime());
+        next.recordNarrativeTimeSelection(org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.selection(next, true, current, verified));
+        next.confirm();
+        // 실제 기준값이 달라진 경우의 충돌 검사는 그대로 유지한다.
+        var changed = original.deepCopy().put("description", "다른 관측 시점");
+        assertThat(org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.selected(next, changed)).isNull();
+        var changedEvidence = original.deepCopy();
+        ((ObjectNode) changedEvidence.path("evidenceSpans").get(0)).put("quote", "다른 근거");
+        assertThat(org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.selected(next, changedEvidence)).isNull();
+
+        var confirmation = mock(CharacterAnalysisConfirmation.class);
+        var finalizer = mock(SettingCandidatePromotionServiceImpl.class, org.mockito.Mockito.CALLS_REAL_METHODS);
+        ReflectionTestUtils.setField(finalizer, "analysisConfirmation", confirmation);
+        ReflectionTestUtils.setField(finalizer, "settingCandidateRepository", candidates);
+        ReflectionTestUtils.setField(finalizer, "workCharacterRepository", characters);
+        ReflectionTestUtils.setField(finalizer, "validationEvents", mock(org.springframework.context.ApplicationEventPublisher.class));
+        when(candidates.findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(origin.getId())).thenReturn(List.of(next));
+        when(characters.findByIdAndWorkIdForUpdate(character.getId(), work.getId())).thenReturn(java.util.Optional.of(character));
+        when(confirmation.resolvedCharacterId(next)).thenReturn(character.getId());
+
+        finalizer.finalizeNarrativeTimes(origin);
+
+        assertThat(character.getCurrentNarrativeTime().path("description").asText()).isEqualTo("장마 둘째 날");
+        assertThat(character.getSnapshotVersion()).isEqualTo(version + 1);
         org.mockito.Mockito.verifyNoInteractions(storage);
     }
 
