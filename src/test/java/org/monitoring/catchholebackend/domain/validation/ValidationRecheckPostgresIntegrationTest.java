@@ -146,7 +146,7 @@ class ValidationRecheckPostgresIntegrationTest {
         var f=fixture();var old=start(f);episodes.replaceEpisodeFile(f.member(),f.work(),f.target(),file("B 원고"));
         tx.executeWithoutResult(s->{works.getOwnedWorkForUpdate(f.work(),f.member());em.find(Episode.class,f.target()).updateContentStorage(f.request().expectedContentS3Key(),f.request().expectedContentS3Version(),f.request().expectedContentHash());});
         assertThat(jdbc.queryForObject("select content_revision from episodes where id=?",Long.class,f.target())).isEqualTo(2);
-        assertThatThrownBy(()->data.readValidationData(f.member(),f.work(),old.reportId(),new ValidationDataRequest(old.baselineHash(),f.request().expectedContentHash(),"INPUT",0,20,null,null,null,null,null)))
+        assertThatThrownBy(()->data.readValidationData(f.member(),f.work(),old.reportId(),new ValidationDataRequest(old.baselineHash(),f.request().expectedContentHash(),"INPUT",0,20,null,null,null,null,null,null)))
                 .isInstanceOf(AppException.class);purged(old.reportId());noExtraction();
     }
     @ParameterizedTest @ValueSource(booleans={false,true})

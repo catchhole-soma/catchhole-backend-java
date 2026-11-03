@@ -575,3 +575,25 @@ Python의 기존 writer와 호환되며 컬럼을 직접 채우거나 과거 mig
 빈 PostgreSQL의 전체 Flyway + JPA validate 및 V111→V112 이관은 `StoredCharacterEvidencePostgresIntegrationTest`로 검증합니다.
 이 migration을 유지한 코드 롤백은 스키마상 가능하지만 구 Java의 S3 재조회 동작도 돌아오므로 장애 수정이 유지된다고 보장하지 않습니다.
 [흐름과 검증 범위](stored-character-evidence.md)를 참고합니다.
+
+## V113: 검수 역할 cap의 실행 단위
+
+`validation_jobs.run_start_generation`(NOT NULL, 기본 1)과 `1 <= run_start_generation <= generation` 제약을 추가합니다.
+검수 역할 cap(PLANNER·JUDGE·TYPO 등)은 작가가 [다시 시도]로 시작한 실행 하나 기준으로 셉니다. 공개 retry만 새 generation으로 옮기고, Worker lease 회수는 같은 실행을 이어 가므로 바꾸지 않습니다.
+기존 Job은 1로 시작해 지금까지의 사용량을 모두 같은 실행으로 셉니다(배포 전 동작과 같음). 데이터 이관·S3·LLM 호출은 없습니다.
+grid v4·configuration v2와 같은 release로 배포하며 순서는 [EC2 배포](../deploy/EC2_DEPLOYMENT.md)의 "검수 grid v4·configuration v2 배포"와 [검수 실행 계약](validation-execution-v1.md)을 따릅니다. migration 계약은 `V113` 계약 테스트로 검증합니다.
+
+## V114: 설정집 RAG 색인
+
+`retrieval_setting_book_sources`·`retrieval_setting_book_chunks`를 추가합니다. 회차 색인(V76 `retrieval_sources`·`retrieval_chunks`)과 같은 모양이며 설정집 revision 하나가 출처 하나입니다. 분석용 `setting_book_chunks`와는 별개입니다.
+지금은 검수 접수 때 색인 채우기(AI 검수 Worker, `INDEX_EMBEDDING` 서비스 부담)만 이 표를 채웁니다. 설정집 수정·보관 시 Spring이 그 설정집의 행을 지우며, 작품·회원 파기 경로도 함께 지웁니다.
+빈 표로 시작하므로 데이터 이관·S3·LLM 호출은 없습니다. 검수 검색 읽기 전용 계정(`catchhole_chat_reader`)의 두 표 SELECT는 AI Worker 배포의 bootstrap이 부여하므로, 이 migration을 포함한 Backend를 AI보다 먼저 배포합니다.
+범위·비용·배포는 [검수 실행 계약](validation-execution-v1.md)과 [원문 검색 준비](retrieval-index-v1.md)를 따르고, migration 계약은 `V114` 계약 테스트로 검증합니다.
+
+## V115~V117: 다음 회차의 검토와 보류 종료
+
+V115는 캐릭터·세계관 후보의 `closed_at`·`closure_request_id`와 `CLOSED` 검토 상태 제약을 추가합니다. V116은 관계 HOLD별 `relationship_hold_closures`, V117은 동의와 새 실행을 연결하는 `analysis_review_continuations`를 만듭니다. 기존 후보의 값·인용·AI 판단·진단과 관계 결과를 이관하거나 변경하지 않으며, 새 감사 표는 빈 상태로 시작합니다.
+
+먼저 main에 반영된 V113·V114는 그대로 유지합니다. 이 기능의 파일은 공유 환경에 배포되지 않아 충돌하던 번호만 V115~V117로 옮겼으며 SQL 본문은 바꾸지 않았습니다. 빈 PostgreSQL에서 전체 Flyway 적용과 JPA validate를 실행하는 후보·관계 통합 테스트로 기존 검수 스키마와 함께 검증합니다.
+
+Backend를 먼저 적용한 뒤 Front를 배포합니다. `CLOSED` 저장 후에는 이를 모르는 이전 Backend enum으로 단순 롤백하지 않습니다. 이미 확정된 설정과 근거 보존, 원문 파기 정책은 그대로 유지하며 [시작 확인과 명시적 종료 계약](analysis-review-continuation.md)을 따릅니다.

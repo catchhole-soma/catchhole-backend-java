@@ -23,8 +23,15 @@ public class ValidationDataMapper {
                 .put("reportId", report.getId().toString()).put("baselineRevision", report.getBaselineRevision())
                 .put("reportRevision", report.getRevision()).put("reportVersion", report.getVersion()).put("reportMode", report.getMode().name())
                 .put("baselineHash", report.getBaselineHash()).put("targetHash", report.getSourceContentHash())
-                .put("clueVersion", 1).put("projectionVersion", 1).put("manifestHash", journal.hash(report.getBaselineSeed().path("sources"))).put("status", "READY");
+                .put("projectionVersion", PROJECTION_VERSION).put("manifestHash", journal.hash(report.getBaselineSeed().path("sources"))).put("status", "READY");
     }
+    /**
+     * 2(#349 grid v4): SUBJECTS·SETTINGS 조회가 있고 modelClues·clueVersion이 없으며 판정 설정은 현재값만 준다.
+     * claim과 data 응답이 같은 값을 내며 이전 Worker(1)와 새 Worker(2)는 서로를 거절한다(함께 배포).
+     */
+    public static final int PROJECTION_VERSION = 2;
+    /** 판정이 읽는 현재값 domain. worldHistory(세계관 변경 이력) 행은 SETTINGS로 내보내지 않는다. */
+    public static final Set<String> CURRENT_DOMAINS = Set.of("characters", "worldSettings");
 
     public LinkedHashMap<String, ObjectNode> toSourceReferences(ValidationReport report) {
         var result = new LinkedHashMap<String, ObjectNode>();
@@ -83,8 +90,26 @@ public class ValidationDataMapper {
             for(String name:List.of("episodeNo","revisionNo","referenceTimeKind","referenceEpisodeNo"))if(source.getValue().has(name))row.set(name,source.getValue().path(name).deepCopy());
         }return result;
     }
-    public List<String> toValidationNames(JsonNode entries) {
-        var names=new ArrayList<String>();for(var row:entries) {var state=row.path("state");var name=state.hasNonNull("name")?state.path("name"):state.path("subjectName");if(name.isTextual())names.add(name.asText());for(var alias:state.path("aliases"))if(alias.isTextual())names.add(alias.asText());}return names;
+    /**
+     * SUBJECTS(#349 grid v4): 주체마다 한 행, S 번호 순. 첫 항목의 domain·name과 그 주체 모든 항목 aliases의 순서 있는 합집합이다
+     * (AI projection.subject_catalogue와 같은 규칙, 공통 fixture subjectCatalogueVector).
+     */
+    public ArrayNode toValidationSubjectCatalogue(JsonNode entries,Map<String,? extends JsonNode> sources) {
+        var subjects=new LinkedHashMap<String,ObjectNode>();
+        for(var row:toValidationSettings(entries,sources).values()) {
+            var subject=subjects.computeIfAbsent(row.path("subject_ref").asText(),ref->{var created=JsonNodeFactory.instance.objectNode().put("subject_ref",ref).put("domain",row.path("domain").asText());
+                created.set("name",row.path("name").deepCopy());created.putArray("aliases");return created;});
+            var aliases=(ArrayNode)subject.path("aliases");
+            for(var alias:row.path("aliases")) {boolean seen=false;for(var known:aliases)if(known.equals(alias))seen=true;if(!seen)aliases.add(alias.deepCopy());}
+        }
+        var result=JsonNodeFactory.instance.arrayNode();
+        subjects.values().stream().sorted(Comparator.comparingInt(row->Integer.parseInt(row.path("subject_ref").asText().substring(1)))).forEach(result::add);
+        return result;
+    }
+    /** SETTINGS(#349 grid v4): 요청 주체의 현재값 domain(characters·worldSettings) 행만 B 번호 순으로 준다. 행 모양은 toValidationSettings와 같다. */
+    public List<JsonNode> toValidationCurrentSettings(JsonNode entries,Map<String,? extends JsonNode> sources,Collection<String> subjectRefs) {
+        var wanted=new HashSet<>(subjectRefs);
+        return toValidationSettings(entries,sources).values().stream().filter(row->wanted.contains(row.path("subject_ref").asText())&&CURRENT_DOMAINS.contains(row.path("domain").asText())).toList();
     }
     private static String first(JsonNode node,String... names) {for(String name:names)if(node.path(name).isTextual()&&!node.path(name).asText().isEmpty())return node.path(name).asText();return null;}
 }

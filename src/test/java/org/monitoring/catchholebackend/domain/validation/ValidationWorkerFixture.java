@@ -27,25 +27,30 @@ abstract class ValidationWorkerFixture extends ValidationRecheckFixture {
         return new LinkedHashMap<>(Map.of("scope",scope(job),"idempotencyKey",stage+":"+ref,"branch",branch,"stage",stage,"ref",ref,"payload",payload,"citations",List.of()));
     }
     void source() { when(storage.getText(anyString())).thenAnswer(c-> c.getArgument(0).equals(target.getContentS3Key())?"처음 합성 원고":"합성 앞 원고"); }
-    Map<String,Object> batch(String ref,List<?> questions) {return Map.of("questions",questions,"segments",List.of(Map.of("segment_ref",ref,"status",questions.isEmpty()?"NO_CHECK":"PLANNED","reason","합성 완료")),"rules",List.of());}
+    /** grid v4 PLANNER payload: questions and the one segment row only (no rules, clue_checks or lookup_intents). */
+    Map<String,Object> batch(String ref,List<?> questions) {return Map.of("questions",questions,"segments",List.of(Map.of("segment_ref",ref,"status",questions.isEmpty()?"NO_CHECK":"PLANNED","reason","합성 완료")));}
     JsonNode savePlan(JsonNode job,String stage,String ref,Object body) throws Exception {return internal(path(job,"/plans"),job,publication(job,"SETTING",stage,ref,body),200);}
+    /** #349 grid v4: a short synthetic target is one segment whose only required stage is its PLANNER. */
     void prePlan(JsonNode job,List<?> questions) throws Exception {
         savePlan(job,"PLANNER","TSEG1",batch("TSEG1",questions));
-        // GH349 grid v2: 합성 원고에 고정 주체 이름이 없고 해소한 지칭도 없으므로 COVERAGE 필수 규칙은 비어 있다.
-        savePlan(job,"SUBJECT_RESOLUTION","TSEG1",Map.of("mentions",List.of()));savePlan(job,"COVERAGE","TSEG1",batch("TSEG1",List.of()));
     }
     Map<String,Object> unit(JsonNode job,String branch,String ref,String outcome,Object body) {
         return new LinkedHashMap<>(Map.of("scope",scope(job),"idempotencyKey","unit-"+branch+"-"+ref,"branch",branch,"ref",ref,"outcome",outcome,"payload",body,"citations",List.of()));
     }
+    /** #349 ③: a question-level failure ends one question; the payload names its spans and safe codes only. */
+    Map<String,Object> incompletePayload(List<?> spans) {
+        var payload=new LinkedHashMap<String,Object>();payload.put("action","INCOMPLETE");payload.put("outcome","INCOMPLETE");payload.put("failure_code","MODEL_CONTRACT_INVALID");
+        payload.put("failure_cause","MODEL_CONTRACT_JSON_INVALID");payload.put("failed_call",1);payload.put("target_spans",spans);return payload;
+    }
     Object typoEmpty() {return Map.of("segments",List.of(Map.of("segment_ref","TSEG1","status","NO_CHECK","reason","오탈자 없음")),"suggestions",List.of());}
     Map<String,Object> draft(String ref,List<?> spans) {
-        var d=new LinkedHashMap<String,Object>();d.put("local_ref",ref);d.put("target_spans",spans);d.put("subject_refs",List.of());d.put("subject_mentions",List.of("합성 신규 내용"));d.put("property_or_rule","age");d.put("time_context","현재");d.put("conditions",List.of());d.put("assertion_mode","NARRATION");d.put("check_intent","고정 기준과 대조");d.put("lookup_intents",List.of());d.put("reason","합성 계획");return d;
+        var d=new LinkedHashMap<String,Object>();d.put("local_ref",ref);d.put("target_spans",spans);d.put("subject_refs",List.of());d.put("subject_mentions",List.of("합성 신규 내용"));d.put("property_or_rule","age");d.put("time_context","현재");d.put("conditions",List.of());d.put("assertion_mode","NARRATION");d.put("check_intent","고정 기준과 대조");d.put("reason","합성 계획");return d;
     }
     Map<String,Object> lookup(String ref,String kind,String operation) {
         var i=new LinkedHashMap<String,Object>();i.put("ref",ref);i.put("kind",kind);i.put("operation",operation);i.put("purpose","고정 자료 확인");i.put("query",null);i.put("source_ref",null);i.put("start",null);i.put("end",null);i.put("evidence_refs",List.of());return i;
     }
     Map<String,Object> evidenceBundle(Object draft) {
-        var b=new LinkedHashMap<String,Object>();b.put("question_ref","Q1");b.put("check_revision",1);b.put("question",draft);b.put("target_context",List.of(Map.of("start",0,"text","처음 합성 원고")));b.put("settings",List.of());b.put("evidence",List.of());b.put("question_refs",List.of("Q1"));b.put("additional_target_context",List.of());b.put("source_catalogue",List.of(Map.of("source_ref","R1","source_kind","EPISODE","episodeNo",100)));
+        var b=new LinkedHashMap<String,Object>();b.put("question_ref","Q1");b.put("check_revision",1);b.put("question",draft);b.put("target_context",List.of(Map.of("start",0,"text","처음 합성 원고")));b.put("settings",List.of());b.put("evidence",List.of());b.put("additional_target_context",List.of());b.put("source_catalogue",List.of(Map.of("source_ref","R1","source_kind","EPISODE","episodeNo",100)));
         b.put("receipts",List.of(Map.of("ref","L1","intent",lookup("Q1-BASELINE","COMPARISON_CONTEXT","BASELINE"),"status","SUCCEEDED","evidence_refs",List.of(),"limited",false),Map.of("ref","L2","intent",lookup("Q1-TARGET_CONTEXT","COMPARISON_CONTEXT","TARGET_CONTEXT"),"status","SUCCEEDED","evidence_refs",List.of("T1"),"limited",false)));b.put("input_digest","0".repeat(64));return b;
     }
 }

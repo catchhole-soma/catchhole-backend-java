@@ -26,9 +26,13 @@ import org.springframework.stereotype.Component;
  * 현재 캐릭터·세계관 값을 조회하지 않는다. 캐릭터 설정 표시명만 기존 schema 표시명 규칙(CharacterSettingDisplayNameResolver)을 쓴다.
  *
  * <ul>
- *   <li>관련 기준 항목: 질문 subject_refs의 모든 항목과 BASELINE 조회 의무의 evidence_refs. 판정 저장 때 ValidationDecisionValidator가
- *       evidence_bundle.settings와 정확히 같기를 요구하는 집합이다.</li>
- *   <li>대표 대상: subject_refs의 첫 참조(없으면 BASELINE 조회 항목)의 항목 중 정정 가능한 domain(characters·worldSettings)을 먼저, 그다음 기준 순서.</li>
+ *   <li>관련 기준 항목: 질문 subject_refs의 모든 항목과 BASELINE 조회 의무의 evidence_refs. grid v4(#349 개편)의 판정은 현재값 domain(characters·worldSettings)만
+ *       evidence_bundle.settings로 받고 BASELINE 의무는 언제나 비어 있다. 이 계산은 worldHistory 항목도 후보로 두지만 아래 대표 대상·{@link #basis}는
+ *       정정 가능한 domain을 먼저 고르므로 결과가 같다.</li>
+ *   <li>대표 대상(2026-11-03 판정 작성 제목): 판정 근거 문장(basis_quotes) 중 저장 설정값 인용(B 참조)이 있으면 그 첫 인용이 가리키는 고정 기준 항목
+ *       (정정 가능한 domain일 때). 판정이 실제로 어긋난다고 옮긴 값의 대상이므로 서술자나 장면에 이름만 나온 대상보다 우선한다. 없으면(근거 문장 없음·
+ *       원문 인용만·이전 Worker) 이전 규칙: subject_refs의 첫 참조(없으면 BASELINE 조회 항목)의 항목 중 정정 가능한 domain(characters·worldSettings)을 먼저,
+ *       그다음 기준 순서. 저장된 finding의 대상은 판정 저장 때 한 번 기록한 값이며 이 규칙이 바뀌어도 다시 계산하지 않는다.</li>
  *   <li>설정: 질문의 property_or_rule이 대표 대상의 고정 slot/path 하나와 정확히(NFC·소문자·공백 무시) 맞을 때만. 캐릭터는 slot key·factKey·표시명,
  *       세계관은 설정명·"범위/설정명"과 비교한다. 0개 또는 2개 이상이면 추정하지 않고 null이다.</li>
  * </ul>
@@ -65,10 +69,10 @@ public class ValidationFindingTargets {
         return null;
     }
 
-    /** 판정 저장 시점에 finding에 기록할 대상·설정. */
-    public Target describe(ValidationReport report, JsonNode checkState) {
+    /** 판정 저장 시점에 finding에 기록할 대상·설정. payload는 저장할 판정(basis_quotes로 대표 대상을 정한다). */
+    public Target describe(ValidationReport report, JsonNode checkState, JsonNode payload) {
         var entries = entries(report.getBaselineEntries());
-        var primary = checkState == null ? Optional.<Entry>empty() : primary(entries, checkState);
+        var primary = checkState == null ? Optional.<Entry>empty() : primary(entries, checkState, payload);
         if (primary.isEmpty()) return Target.NONE;
         var entry = primary.get();
         String property = text(checkState.path("draft"), "property_or_rule");
@@ -82,7 +86,7 @@ public class ValidationFindingTargets {
     public List<Basis> basis(ValidationReport report, JsonNode checkState, ValidationFinding finding) {
         var entries = entries(report.getBaselineEntries());
         if (entries.isEmpty() || checkState == null) return List.of();
-        var primary = primary(entries, checkState).orElse(null);
+        var primary = primary(entries, checkState, finding.getPayload()).orElse(null);
         var result = new ArrayList<Basis>();
         for (var entry : related(entries, checkState)) {
             UUID target = targetId(entry);
@@ -123,7 +127,9 @@ public class ValidationFindingTargets {
         var refs = baselineRefs(state);
         return entries.stream().filter(e -> subjects.contains(e.subjectRef()) || refs.contains(e.ref())).toList();
     }
-    private static Optional<Entry> primary(List<Entry> entries, JsonNode state) {
+    private static Optional<Entry> primary(List<Entry> entries, JsonNode state, JsonNode payload) {
+        var quoted = quotedEntry(entries, payload);
+        if (quoted.isPresent()) return quoted;
         for (var subject : state.path("draft").path("subject_refs")) {
             if (!subject.isTextual()) continue;
             var found = preferred(entries.stream().filter(e -> subject.asText().equals(e.subjectRef())).toList());
@@ -131,6 +137,17 @@ public class ValidationFindingTargets {
         }
         var refs = baselineRefs(state);
         return preferred(entries.stream().filter(e -> refs.contains(e.ref())).toList());
+    }
+    /** 판정 근거 문장 중 고정 기준에 있고 정정 가능한 항목을 가리키는 첫 저장 설정값 인용(B 참조)의 항목. */
+    private static Optional<Entry> quotedEntry(List<Entry> entries, JsonNode payload) {
+        if (payload == null || !payload.path("basis_quotes").isArray()) return Optional.empty();
+        for (var quote : payload.path("basis_quotes")) {
+            String ref = quote.path("ref").asText("");
+            if (!ValidationBasisQuotes.ENTRY_REF.matcher(ref).matches()) continue;
+            var found = entries.stream().filter(e -> e.ref().equals(ref) && e.correctable()).findFirst();
+            if (found.isPresent()) return found;
+        }
+        return Optional.empty();
     }
     private static Optional<Entry> preferred(List<Entry> candidates) {
         return candidates.stream().min(Comparator.comparing((Entry e) -> !e.correctable()).thenComparingInt(Entry::index));

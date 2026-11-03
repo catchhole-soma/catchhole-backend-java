@@ -107,6 +107,10 @@ public class ValidationBaselineService {
                     .put("contentHash", revision.getContentHash()).put("contentS3Key", revision.getContentS3Key())
                     .put("contentS3Version", revision.getContentS3Version()).put("referenceTimeKind", revision.getReferenceTimeKind().name())
                     .put("referenceEpisodeNo", revision.getReferenceEpisodeNo()).put("sourcePreparationStatus", "NOT_PREPARED");
+            // 접수 때 색인 채우기(2026-11-02): 접수 시점에 그 설정집의 현재 판이고 보관되지 않은 revision만 RAG 범위다(과거 판은 출처 확인용).
+            var book = revision.getSettingBook();
+            manifest.put("currentRevision", book.getArchivedAt() == null && book.getCurrentSettingBookRevision() != null
+                    && revision.getId().equals(book.getCurrentSettingBookRevision().getId()));
             sources.save(ValidationBaselineSource.create(report, null, revision, manifest));
         }
         report.captureSeed(seed, journal.hash(seed), journal.hash(confirmed));

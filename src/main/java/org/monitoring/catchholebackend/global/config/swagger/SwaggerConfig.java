@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Set;
 import org.monitoring.catchholebackend.global.config.security.SecurityConstant;
 import org.springdoc.core.customizers.OpenApiCustomizer;
+import org.springdoc.core.utils.SpringDocUtils;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -20,6 +21,12 @@ public class SwaggerConfig {
     private static final String BEARER_SECURITY_SCHEME_NAME = "bearerAuth";
     private static final String INTERNAL_API_KEY_SECURITY_SCHEME_NAME = "internalApiKey";
     private static final String JSON_NODE_SCHEMA_REF = "#/components/schemas/JsonNode";
+
+    static {
+        // Worker 실패 진단(failureDiagnostics 등)의 Jackson 3 JsonNode는 springdoc이 getter 묶음(bean)으로 읽어
+        // 기존 Jackson 2 JsonNode(자유 JSON, 생성 SDK의 unknown)와 같은 이름의 schema를 덮었다. 두 타입 모두 자유 JSON이므로 같은 schema로 문서화한다.
+        SpringDocUtils.getConfig().replaceWithClass(tools.jackson.databind.JsonNode.class, com.fasterxml.jackson.databind.JsonNode.class);
+    }
 
     @Bean
     public OpenAPI openAPI() {
@@ -51,12 +58,6 @@ public class SwaggerConfig {
     @Bean
     public OpenApiCustomizer nullableJsonSchemaCustomizer() {
         return openApi -> {
-            // Jackson 2/3의 동일한 JsonNode 이름이 함께 등록돼도 Java getter 목록을 JSON 계약으로 노출하지 않는다.
-            // 자유 JSON은 object뿐 아니라 배열·문자열·숫자·boolean·null을 모두 받을 수 있다.
-            if (openApi.getComponents() != null && openApi.getComponents().getSchemas() != null
-                    && openApi.getComponents().getSchemas().containsKey("JsonNode")) {
-                openApi.getComponents().addSchemas("JsonNode", new JsonSchema());
-            }
             replaceWithNullableJsonUnion(openApi, "SettingCandidateResponse", "valueJson");
             replaceWithNullableJsonUnion(openApi, "SettingCandidateResponse", "proposedValueJson");
             replaceWithNullableJsonUnion(openApi, "SettingCandidateResponse", "evidenceSpans");

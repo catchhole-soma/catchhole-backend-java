@@ -15,6 +15,11 @@ public interface ValidationReviewService {
         return getValidationFindings(memberId,workId,reportId,branch,judgment,outcome,null,null,page,size);
     }
     ValidationFindingDetailResponse getValidationFinding(Long memberId,UUID workId,UUID reportId,UUID findingId);
+    /**
+     * 오류 리포트 문맥 블록(2026-11-03): 항목이 인용한 고정 출처의 줄 단위 창. anchor [anchorStart,anchorEnd)가 걸친 줄과 위 before줄·아래 after줄(각 0~30, 공백 줄 제외, 합계 3,000자 이하)을 돌려준다.
+     * 작품 소유자만 읽고 아무것도 쓰지 않는다.
+     */
+    ValidationSourceContextResponse getValidationFindingSourceContext(Long memberId,UUID workId,UUID reportId,UUID findingId,String sourceRef,int anchorStart,int anchorEnd,int before,int after);
     ValidationFindingSummaryResponse saveValidationJudgment(Long memberId,UUID workId,UUID reportId,UUID findingId,ValidationJudgmentRequest request);
     ValidationReviewSummaryResponse getValidationReview(Long memberId,UUID workId,UUID reportId);
     /** GH312 S4: 회차의 모든 report 요약을 최신 revision부터. 인용·근거·판정 payload는 반환하지 않는다. */

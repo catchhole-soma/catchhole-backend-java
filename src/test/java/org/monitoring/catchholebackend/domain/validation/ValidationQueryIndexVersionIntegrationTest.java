@@ -22,7 +22,7 @@ class ValidationQueryIndexVersionIntegrationTest extends ValidationRecheckFixtur
     @Autowired ValidationWorkerService workers;
     @Test void snapshotUsesExistingExplicitIndexVersionOverride() throws Exception {
         var roles=new EnumMap<ValidationRole,ValidationExecutionProperties.RoleBudget>(properties.roles());
-        roles.put(ValidationRole.QUERY_EMBEDDING,new ValidationExecutionProperties.RoleBudget(1,1000));
+        roles.put(ValidationRole.QUERY_EMBEDDING,new ValidationExecutionProperties.RoleBudget(1,1000,null,null,null));
         when(properties.roles()).thenReturn(roles);when(properties.queryEmbeddingModel()).thenReturn("text-embedding-3-small");
         start();var claim=workers.claimValidationJob(new Claim(1,"synthetic-index-version",Set.of("VALIDATION_EXECUTION_V1")));
         assertThat(json.valueToTree(claim).at("/models/QUERY_EMBEDDING/version").asText()).isEqualTo("synthetic-existing-index-v7");
