@@ -24,7 +24,6 @@ public class ValidationUsageServiceImpl implements ValidationUsageService {
     private final AiTokenUsageRepository usages;
     private final AiTokenAccountRepository accounts;
     private final AiTokenService accountService;
-    private final org.monitoring.catchholebackend.domain.validation.repository.ValidationExecutionRepository results;
 
     @Transactional public Map<String,Object> reserveValidationUsage(UUID id,UUID lease,Reserve command) {
         var job=access.running(id,lease,command.scope());
@@ -85,68 +84,13 @@ public class ValidationUsageServiceImpl implements ValidationUsageService {
             account(job).release(u.getReservedCharge());u.markValidationUnknown(reason);
         }
     }
-    public void ensureValidationRetryCapacity(ValidationJob job) {
-        var needed=java.util.EnumSet.noneOf(ValidationRole.class);var stages=results.stages(job.getReport().getId());
-        if(job.getRequiredGrid()==null||!job.getRequiredGrid().has("SETTING")) {
-            needed.add(ValidationRole.PLANNER);needed.add(ValidationRole.COVERAGE);
-            if(!job.getReport().getBaselineEntries().isEmpty())needed.add(ValidationRole.RELATED_SELECTION);
-        }
-        if(job.getRequiredGrid()==null||!job.getRequiredGrid().has("TYPO"))needed.add(ValidationRole.TYPO);
-        if(job.getRequiredGrid()!=null)for(var branch:ValidationBranch.values())for(var row:job.getRequiredGrid().path(branch.name()).path("units"))
-            if(stages.stream().noneMatch(s->s.getBranch()==branch&&s.isSuccessful()&&s.getStage().name().equals(row.path("stage").asText())&&s.getRef().equals(row.path("ref").asText()))) {
-                switch(row.path("stage").asText()) {
-                    case "PLANNER" -> needed.add(ValidationRole.PLANNER);
-                    // GH349 SUBJECT_RESOLUTION은 기존 RELATED_SELECTION 역할의 모델·예산을 쓴다. RELATED_SELECTION 단위는 배포 전 v1 grid에만 남는다.
-                    case "SUBJECT_RESOLUTION","RELATED_SELECTION" -> needed.add(ValidationRole.RELATED_SELECTION);
-                    case "COVERAGE","BOOK_COVERAGE" -> needed.add(ValidationRole.COVERAGE);
-                    case "TYPO_SEGMENT" -> needed.add(ValidationRole.TYPO);
-                    default -> { }
-                }
-            }
-        if(results.checks(job.getReport().getId()).stream().anyMatch(c->!c.completed()))needed.add(ValidationRole.JUDGE);
-        if(requiresNewQueryEmbedding(job))needed.add(ValidationRole.QUERY_EMBEDDING);
-        for(var role:needed) {
-            var calls=billableCalls(job,role);var cap=job.getConfiguration().path("budgets").path("roles").path(role.name());
-            if(calls.size()>=cap.path("maxCalls").asInt()||allocated(calls)>=cap.path("maxReservedTokens").asLong())throw error(VALIDATION_EXECUTION_LIMIT_EXCEEDED);
-        }
-    }
-    private boolean requiresNewQueryEmbedding(ValidationJob job) {
-        int sources=0;for(var row:job.getReport().getBaselineSeed().path("sources"))if("EPISODE".equals(row.path("sourceKind").asText()))sources++;
-        if(sources==0)return false;
-        var saved=results.checkpoint(job.getReport().getId(),ValidationBranch.SETTING).map(c->c.getPayload()).orElse(null);
-        var calls=usages.findAllByValidationJobId(job.getId());
-        for(var check:results.checks(job.getReport().getId()))if(!check.completed())for(var obligation:check.getState().path("lookup_obligations")) {
-            if(!"VECTOR".equals(obligation.path("operation").asText()))continue;
-            boolean reusable=false;
-            if(saved!=null&&saved.path("checkpointVersion").asInt()==1&&job.getInputDigest().equals(saved.path("inputDigest").asText())) {
-                var runtime=saved.path("runtime");
-                var owned=new HashSet<String>();for(var ref:runtime.path("own_receipt_refs").path(check.getLocalRef()))owned.add(ref.asText());
-                for(var receipt:runtime.path("receipts"))if(owned.contains(receipt.path("ref").asText())&&reusableVector(job,obligation,receipt,calls,sources))reusable=true;
-            }
-            if(!reusable)return true;
-        }
-        return false;
-    }
-    private boolean reusableVector(ValidationJob job,com.fasterxml.jackson.databind.JsonNode obligation,com.fasterxml.jackson.databind.JsonNode receipt,List<AiTokenUsage> calls,int sources) {
-        var ready=receipt.path("readiness");var proof=ready.path("query_embedding");var model=job.getConfiguration().path("models").path("QUERY_EMBEDDING");
-        if(!"SUCCEEDED".equals(receipt.path("status").asText())||receipt.hasNonNull("failure_code")||!receipt.path("intent").equals(obligation)
-                ||!"READY".equals(ready.path("vector_status").asText())||ready.path("source_count").asInt(-1)!=sources||ready.path("vector_ready_sources").asInt(-1)!=sources)return false;
-        for(var limitation:ready.path("limitations"))if("VECTOR_INDEX_PARTIAL".equals(limitation.asText()))return false;
-        if(proof.path("contractVersion").asInt()!=1||!job.getInputDigest().equals(proof.path("inputDigest").asText())||!job.getManifestHash().equals(proof.path("manifestHash").asText())
-                ||!model.path("model").asText().equals(proof.path("indexModel").asText())||!model.path("version").asText().equals(proof.path("indexVersion").asText())
-                ||model.path("dimensions").asInt()!=proof.path("indexDimensions").asInt()||!queryHash(obligation.path("query").asText()).equals(proof.path("queryHash").asText()))return false;
-        UUID request;try {request=UUID.fromString(proof.path("requestId").asText());}catch(IllegalArgumentException ex){return false;}
-        var original=calls.stream().filter(u->u.getRequestId().equals(request)&&u.getPurpose()==AiTokenPurpose.VALIDATION_QUERY_EMBEDDING&&u.getStatus()==AiTokenUsageStatus.SETTLED&&u.getOutcome()==AiTokenUsageOutcome.SUCCESS).findFirst().orElse(null);
-        if(original==null||original.getValidationCallInput()==null)return false;
-        var identity=((com.fasterxml.jackson.databind.node.ObjectNode)proof).deepCopy();identity.remove("requestId");
-        return original.getValidationCallInput().equals(identity);
-    }
-    private String queryHash(String query) {
-        try{return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(query.getBytes(java.nio.charset.StandardCharsets.UTF_8)));}
-        catch(java.security.NoSuchAlgorithmException exception){throw new IllegalStateException("SHA-256 unavailable");}
-    }
+    /**
+     * Role caps are per run (#349 grid v4): only usage rows of this run's generations (validationGeneration >= runStartGeneration) count,
+     * so an author retry starts fresh while automatic lease recovery keeps counting the same run. RELEASED rows never count.
+     */
     private List<AiTokenUsage> billableCalls(ValidationJob job,ValidationRole role) {
-        return usages.findAllByValidationJobId(job.getId()).stream().filter(u->u.getPurpose()==role.purpose()&&u.getStatus()!=AiTokenUsageStatus.RELEASED).toList();
+        return usages.findAllByValidationJobId(job.getId()).stream().filter(u->u.getPurpose()==role.purpose()&&u.getStatus()!=AiTokenUsageStatus.RELEASED
+                &&u.getValidationGeneration()!=null&&u.getValidationGeneration()>=job.getRunStartGeneration()).toList();
     }
     private long allocated(List<AiTokenUsage> calls) {
         long total=0;for(var u:calls)total=Math.addExact(total,Math.max(u.getReservedTokens(),u.getStatus()==AiTokenUsageStatus.SETTLED?Math.addExact(u.getInputTokens(),u.getOutputTokens()):0));return total;

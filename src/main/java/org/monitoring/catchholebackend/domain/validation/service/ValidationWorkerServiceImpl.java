@@ -108,7 +108,8 @@ public class ValidationWorkerServiceImpl implements ValidationWorkerService {
             // 버리고 새 grid로 다시 실행한다. report version은 아래 retry 전이에서 한 번 올린다.
             var stored=j.getRequiredGrid()==null?null:j.getRequiredGrid().get("SETTING");
             if(stored!=null&&!ValidationPublicationValidator.currentSettingGrid(stored)) {results.discardSettingBranch(r.getId());j.discardSettingGrid();em.flush();}
-            usage.ensureValidationRetryCapacity(j);usage.releaseReservedValidationUsage(j,AiTokenUsageOutcome.USAGE_UNAVAILABLE);j.retry();r.advanceVersion();
+            // 역할별 cap은 실행 한 번 기준이라(run_start_generation) 새 실행은 언제나 처음부터 센다. 이전 실행의 소진으로 retry를 막지 않는다.
+            usage.releaseReservedValidationUsage(j,AiTokenUsageOutcome.USAGE_UNAVAILABLE);j.retry();r.advanceVersion();
         }
         var response=staging(r);var key=ValidationRequestKey.create(owner,c.idempotencyKey(),r,"RETRY",hash);key.recordRetryResponse(mapper.toTree(response));keys.save(key);em.flush();return response;
     }
