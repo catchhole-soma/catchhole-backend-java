@@ -66,11 +66,13 @@ class ValidationExecutionProdExampleTest {
         // configuration v2: 퇴역 역할(RELATED_SELECTION·COVERAGE)은 없고 생성 역할마다 출력 상한·모델·추론 강도를 둔다.
         // 모델은 31화 비교 실험 결과(계획 Terra medium, 판정 Luna high, 오탈자 Terra low).
         assertThat(properties.roles()).containsOnlyKeys(ValidationRole.PLANNER, ValidationRole.JUDGE, ValidationRole.TYPO,
-                ValidationRole.QUERY_EMBEDDING);
+                ValidationRole.QUERY_EMBEDDING, ValidationRole.INDEX_EMBEDDING);
         assertThat(properties.roles().get(ValidationRole.PLANNER)).isEqualTo(new RoleBudget(10, 800_000, 50_000, "gpt-6.1-terra", "medium"));
         assertThat(properties.roles().get(ValidationRole.JUDGE)).isEqualTo(new RoleBudget(200, 10_000_000, 20_000, "gpt-6-luna", "high"));
         assertThat(properties.roles().get(ValidationRole.TYPO)).isEqualTo(new RoleBudget(20, 640_000, 12_000, "gpt-6.1-terra", "low"));
         assertThat(properties.roles().get(ValidationRole.QUERY_EMBEDDING)).isEqualTo(new RoleBudget(250, 400_000, null, null, null));
+        // 접수 때 색인 채우기(2026-11-02): 서비스 부담 임베딩. 32조각 묶음 예약(UTF-8 byte 상한)으로 약 1,000회차 작품까지 채운다.
+        assertThat(properties.roles().get(ValidationRole.INDEX_EMBEDDING)).isEqualTo(new RoleBudget(400, 40_000_000, null, null, null));
         assertThat(properties.queryEmbeddingModel()).isEqualTo("text-embedding-3-small");
     }
 
@@ -119,11 +121,29 @@ class ValidationExecutionProdExampleTest {
     void queryEmbeddingRoleIsOptionalButNeedsItsModel() throws IOException {
         var withoutEmbedding = flattenedExample();
         assertThat(withoutEmbedding.keySet().removeIf(key -> key.startsWith("validation.execution.roles.QUERY_EMBEDDING.")
+                || key.startsWith("validation.execution.roles.INDEX_EMBEDDING.")
                 || key.equals("validation.execution.query-embedding-model"))).isTrue();
         withoutEmbedding.put("validation.execution.enabled", true);
         var bound = bind(withoutEmbedding);
-        assertThat(bound.roles()).doesNotContainKey(ValidationRole.QUERY_EMBEDDING);
+        assertThat(bound.roles()).doesNotContainKeys(ValidationRole.QUERY_EMBEDDING, ValidationRole.INDEX_EMBEDDING);
         assertThat(bound.queryEmbeddingModel()).isNull();
+
+        // 접수 때 색인 채우기는 선택이지만 검색(QUERY_EMBEDDING) 없이 색인만 채우는 설정은 활성 기동을 거절한다.
+        var withoutIndexFill = flattenedExample();
+        assertThat(withoutIndexFill.keySet().removeIf(key -> key.startsWith("validation.execution.roles.INDEX_EMBEDDING."))).isTrue();
+        withoutIndexFill.put("validation.execution.enabled", true);
+        assertThat(bind(withoutIndexFill).roles()).containsKey(ValidationRole.QUERY_EMBEDDING).doesNotContainKey(ValidationRole.INDEX_EMBEDDING);
+        var indexWithoutQuery = flattenedExample();
+        assertThat(indexWithoutQuery.keySet().removeIf(key -> key.startsWith("validation.execution.roles.QUERY_EMBEDDING.")
+                || key.equals("validation.execution.query-embedding-model"))).isTrue();
+        indexWithoutQuery.put("validation.execution.enabled", true);
+        assertThatThrownBy(() -> bind(indexWithoutQuery)).isInstanceOf(BindException.class)
+                .rootCause().isInstanceOf(IllegalArgumentException.class).hasMessage("검수 색인 채우기에는 검색 임베딩(QUERY_EMBEDDING) 예산이 필요합니다.");
+        var indexWithModel = flattenedExample();
+        indexWithModel.put("validation.execution.roles.INDEX_EMBEDDING.model", "text-embedding-3-small");
+        indexWithModel.put("validation.execution.enabled", true);
+        assertThatThrownBy(() -> bind(indexWithModel)).isInstanceOf(BindException.class)
+                .rootCause().isInstanceOf(IllegalArgumentException.class).hasMessage("검수 임베딩 역할에는 출력 상한·모델·추론 강도를 두지 않습니다.");
 
         var roleWithoutModel = flattenedExample();
         assertThat(roleWithoutModel.remove("validation.execution.query-embedding-model")).isEqualTo("text-embedding-3-small");

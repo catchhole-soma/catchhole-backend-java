@@ -41,7 +41,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /** Destructive fixture cleanup is guarded to a new disposable loopback DB, never .env/shared DB. */
-@SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT,properties={"spring.config.import=","spring.docker.compose.enabled=false","internal.api-key=gh310-synthetic-internal","validation.execution.roles.QUERY_EMBEDDING.max-calls=1","validation.execution.roles.QUERY_EMBEDDING.max-reserved-tokens=1000","validation.execution.query-embedding-model=text-embedding-3-small"}) @ActiveProfiles("test") @DirtiesContext
+@SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT,properties={"spring.config.import=","spring.docker.compose.enabled=false","internal.api-key=gh310-synthetic-internal","validation.execution.roles.QUERY_EMBEDDING.max-calls=1","validation.execution.roles.QUERY_EMBEDDING.max-reserved-tokens=1000","validation.execution.roles.INDEX_EMBEDDING.max-calls=10","validation.execution.roles.INDEX_EMBEDDING.max-reserved-tokens=100000","validation.execution.query-embedding-model=text-embedding-3-small"}) @ActiveProfiles("test") @DirtiesContext
 @TestPropertySource(locations="classpath:validation-execution-fixture.properties")
 @EnabledIfEnvironmentVariable(named="GH310_EXECUTION_POSTGRES_JDBC_URL",matches="jdbc:postgresql://127\\.0\\.0\\.1:[0-9]+/gh310_execution_test")
 @DisplayName("격리 PostgreSQL·실제 Spring HTTP·Python 검수 Worker")
@@ -120,7 +120,11 @@ class ValidationExecutionHttpPostgresIntegrationTest {
         var builder=new ProcessBuilder(python,checkout+"/tests/support/validation_execution_http_client.py","--base-url","http://127.0.0.1:"+port,"--mode",mode);
         if(mode.startsWith("vector")) {
             var arguments=new ArrayList<>(builder.command());arguments.add("--readonly-url");
-            arguments.add("postgresql+psycopg://gh310:gh310-disposable-only@127.0.0.1:"+System.getenv("GH310_EXECUTION_POSTGRES_JDBC_URL").split(":")[3].split("/")[0]+"/gh310_execution_test");builder.command(arguments);
+            String url="postgresql+psycopg://gh310:gh310-disposable-only@127.0.0.1:"+System.getenv("GH310_EXECUTION_POSTGRES_JDBC_URL").split(":")[3].split("/")[0]+"/gh310_execution_test";
+            arguments.add(url);
+            // 접수 때 색인 채우기(2026-11-02): 같은 일회용 DB에 쓰기 연결을 주면 Worker가 빈 색인을 채운다.
+            if(mode.startsWith("vector-fill")) {arguments.add("--index-url");arguments.add(url);}
+            builder.command(arguments);
         }
         builder.directory(new java.io.File(checkout));builder.environment().put("PYTHONPATH",checkout);builder.redirectErrorStream(true);
         return builder;
@@ -219,6 +223,55 @@ class ValidationExecutionHttpPostgresIntegrationTest {
         var f=fixture();var response=python("vector-inspect");
         assertThat(response.at("/result/status").asText()).as(response.toString()).isEqualTo("PARTIAL");assertThat(response.at("/calls/QUERY_EMBEDDING").asInt()).isZero();
         var p=json.valueToTree(progress(f));assertThat(p.path("incompleteChecks").asInt()).isEqualTo(1);assertThat(p.path("checks").path(0).path("failureCode").asText()).isEqualTo("VECTOR_NOT_READY");noExtraction();
+    }
+    int count(String sql,Object... args) {return jdbc.queryForObject(sql,Integer.class,args);}
+    void filledIndex(Fixture f) {
+        assertThat(count("select count(*) from retrieval_chunks c join retrieval_sources s on s.episode_id=c.episode_id where s.work_id=? and c.status='READY'",f.work())).isEqualTo(1);
+        assertThat(count("select count(*) from retrieval_setting_book_chunks c join retrieval_setting_book_sources s on s.revision_id=c.revision_id where s.work_id=? and c.status='READY'",f.work())).isEqualTo(1);
+    }
+    @Test @DisplayName("접수 때 빈 색인(앞 회차·현재 설정집)을 채운 뒤 의미 검색이 설정집 조각도 근거로 돌려주고 서버가 설정집 원문으로 인용을 검증한다")
+    void actualWorkerFillsAnEmptyIndexAtIntakeAndCitesTheSettingBook() throws Exception {
+        var f=fixture(null,List.of("첫 합성 설정집"));
+        assertThat(count("select count(*) from retrieval_chunks c join retrieval_sources s on s.episode_id=c.episode_id where s.work_id=?",f.work())).isZero();
+        var manifest=tx.execute(s->em.find(org.monitoring.catchholebackend.domain.validation.entity.ValidationReport.class,f.report()).getBaselineSeed().path("sources"));
+        var book=java.util.stream.StreamSupport.stream(manifest.spliterator(),false).filter(row->"SETTING_BOOK".equals(row.path("sourceKind").asText())).findFirst().orElseThrow();
+        assertThat(book.path("currentRevision").asBoolean()).isTrue();
+        var response=python("vector-fill-inspect");
+        assertThat(response.at("/result/status").asText()).as(response.toString()).isEqualTo("COMPLETED");
+        assertThat(response.at("/calls/INDEX_EMBEDDING").asInt()).isEqualTo(2);assertThat(response.at("/calls/QUERY_EMBEDDING").asInt()).isEqualTo(1);
+        assertThat(response.at("/calls/JUDGE").asInt()).isEqualTo(2);filledIndex(f);
+        // R1=앞 회차, R2=설정집 현재 판. 설정집 조각 인용은 서버가 hash 확인한 설정집 전문을 code point로 잘라 검증해 저장한다.
+        assertThat(count("select count(*) from validation_evidence where report_id=? and source_ref='R1'",f.report())).isPositive();
+        assertThat(count("select count(*) from validation_evidence where report_id=? and source_ref='R2' and quote='첫 합성 설정집'",f.report())).isPositive();
+        assertThat(count("select count(*) from ai_token_usages where purpose='VALIDATION_INDEX_EMBEDDING' and status='SETTLED' and charge_policy_version='SERVICE_PAID_V1' and charged_tokens=0 and reserved_charge=0",new Object[0])).isEqualTo(2);
+        assertThat(count("select count(*) from ai_token_usages where purpose='VALIDATION_INDEX_EMBEDDING' and validation_call_input->>'sourceRef' in ('R1','R2')",new Object[0])).isEqualTo(2);
+        assertThat(jdbc.queryForObject("select reserved_tokens from ai_token_accounts where member_id=?",java.math.BigDecimal.class,f.member())).isEqualByComparingTo("0");
+        releaseOnly(f);
+    }
+    @Test @DisplayName("색인 채우기의 provider 실패는 실행을 멈추지 않고 검색이 필요한 질문만 VECTOR_INDEX_FILL_FAILED로 남기며 작가 재시도가 빈 곳만 채운다")
+    void actualWorkerKeepsJudgingAfterAFailedFillAndRetryFillsOnlyTheGaps() throws Exception {
+        var f=fixture(null,List.of("첫 합성 설정집"));var first=python("vector-fill-fail");
+        assertThat(first.at("/result/status").asText()).as(first.toString()).isEqualTo("PARTIAL");
+        assertThat(first.at("/calls/QUERY_EMBEDDING").asInt()).isZero();
+        var p=json.valueToTree(progress(f));assertThat(p.path("incompleteChecks").asInt()).isEqualTo(1);
+        assertThat(p.path("checks").path(0).path("failureCode").asText()).isEqualTo("VECTOR_INDEX_FILL_FAILED");
+        assertThat(p.path("checks").path(0).path("failureCause").asText()).isEqualTo("INDEX_FILL_PROVIDER_FAILED");
+        assertThat(count("select count(*) from retrieval_chunks c join retrieval_sources s on s.episode_id=c.episode_id where s.work_id=? and c.status='READY'",f.work())).isZero();
+        retry(f,"retry-after-fill-failure");var resumed=python("vector-fill-inspect");
+        assertThat(resumed.at("/result/status").asText()).as(resumed.toString()).isEqualTo("COMPLETED");
+        assertThat(resumed.at("/calls/INDEX_EMBEDDING").asInt()).isEqualTo(2);assertThat(resumed.at("/calls/PLANNER").asInt()).isZero();
+        filledIndex(f);assertThat(progress(f).get("incompleteChecks")).isEqualTo(0L);releaseOnly(f);
+    }
+    @Test @DisplayName("색인을 채우고 검색 결정을 저장한 직후 crash·lease회수는 이미 READY인 조각을 다시 임베딩하지 않는다")
+    void actualWorkerNeverReembedsAFilledIndexOnReclaim() throws Exception {
+        var f=fixture(null,List.of("첫 합성 설정집"));var first=python("vector-fill-crash");
+        assertThat(first.at("/result/crashed").asBoolean()).isTrue();assertThat(first.at("/calls/INDEX_EMBEDDING").asInt()).isEqualTo(2);
+        filledIndex(f);var before=jdbc.queryForList("select id,embedded_at from retrieval_chunks c join retrieval_sources s on s.episode_id=c.episode_id where s.work_id=?",f.work());
+        reclaim(f);var resumed=python("vector-fill-inspect");
+        assertThat(resumed.at("/result/status").asText()).as(resumed.toString()).isEqualTo("COMPLETED");
+        assertThat(resumed.at("/calls/INDEX_EMBEDDING").asInt()).isZero();assertThat(resumed.at("/calls/QUERY_EMBEDDING").asInt()).isZero();
+        assertThat(jdbc.queryForList("select id,embedded_at from retrieval_chunks c join retrieval_sources s on s.episode_id=c.episode_id where s.work_id=?",f.work())).isEqualTo(before);
+        releaseOnly(f);
     }
     @Test @DisplayName("대상 문맥 추가 읽기로 결정한 판정 저장 직후 crash는 게시된 질문을 다시 판정하지 않는다")
     void actualWorkerKeepsPublishedDecisionsAfterAFollowUpCrash() throws Exception {

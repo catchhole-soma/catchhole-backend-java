@@ -22,6 +22,18 @@ class ValidationExecutionContractTest {
         Map<String,Class<?>> requests=Map.ofEntries(Map.entry("claim",Claim.class),Map.entry("heartbeat",Lease.class),Map.entry("plan",Publish.class),Map.entry("mergedPlan",Publish.class),Map.entry("settingUnit",Unit.class),Map.entry("typoUnit",Unit.class),Map.entry("revisions",Revise.class),Map.entry("checkpoint",Checkpoint.class),Map.entry("complete",Complete.class),Map.entry("retry",Retry.class),Map.entry("reserve",Reserve.class),Map.entry("settle",Usage.class),Map.entry("unknown",Usage.class),Map.entry("release",Usage.class));
         for(var entry:requests.entrySet()) {var input=f.path("requests").path(entry.getKey());assertThat(input.isObject()).as(entry.getKey()).isTrue();Object command=json.treeToValue(input,entry.getValue());assertThat(journal.canonicalJson(json.valueToTree(command))).as(entry.getKey()).isEqualTo(journal.canonicalJson(input));}
     }
+    @Test @DisplayName("접수 때 색인 채우기 예약 예시는 IndexInput과 정확히 왕복하고 조각 digest 벡터가 맞다") void indexFillReservationRoundTrips() throws Exception {
+        var fill=fixture().path("indexFill");var reservation=fill.path("reservation");
+        assertThat(fill.path("role").asText()).isEqualTo(ValidationRole.INDEX_EMBEDDING.name());assertThat(fill.path("purpose").asText()).isEqualTo(ValidationRole.INDEX_EMBEDDING.purpose().name());
+        assertThat(fill.path("chargePolicy").asText()).isEqualTo(org.monitoring.catchholebackend.domain.aitoken.type.AiTokenChargePolicy.servicePaid().version());
+        var command=json.treeToValue(reservation,Reserve.class);assertThat(command.role()).isEqualTo(ValidationRole.INDEX_EMBEDDING);assertThat(command.queryInput()).isNull();
+        assertThat(journal.canonicalJson(json.valueToTree(command))).isEqualTo(journal.canonicalJson(reservation));
+        var declared=new ArrayList<String>();for(var component:IndexInput.class.getRecordComponents())declared.add(component.getName());
+        var fields=new ArrayList<String>();reservation.path("indexInput").fieldNames().forEachRemaining(fields::add);assertThat(fields).isEqualTo(declared);
+        var vector=fill.path("chunkDigestVector");var hashes=new ArrayList<String>();for(var hash:vector.path("chunkHashes"))hashes.add(hash.asText());
+        var digest=java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(String.join("\n",hashes).getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        assertThat(digest).isEqualTo(vector.path("sha256").asText()).isEqualTo(command.indexInput().chunkDigest());
+    }
     @Test @DisplayName("서버 hash와 Python bundle hash의 계산 규칙을 구분한다") void canonicalDigestsHaveKnownVectors() throws Exception {
         var f=fixture();for(var v:f.path("serverDigestVectors")) {assertThat(journal.canonicalJson(v.path("input"))).isEqualTo(v.path("canonicalJson").asText());assertThat(journal.hash(v.path("input"))).isEqualTo(v.path("sha256").asText());}
         var worker=f.path("workerBundleDigestVector");assertThat(journal.hash(worker.path("input"))).isNotEqualTo(worker.path("sha256").asText());
@@ -130,8 +142,10 @@ class ValidationExecutionContractTest {
             var cap=expected.path("budgets").path("roles").path(role.name());var model=expected.path("models").path(role.name());
             roles.put(role,new org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.RoleBudget(cap.path("maxCalls").asInt(),cap.path("maxReservedTokens").asLong(),cap.path("outputTokens").asInt(),model.path("model").asText(),model.path("reasoningEffort").asText()));
         }
-        var embedding=expected.path("budgets").path("roles").path("QUERY_EMBEDDING");
-        roles.put(ValidationRole.QUERY_EMBEDDING,new org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.RoleBudget(embedding.path("maxCalls").asInt(),embedding.path("maxReservedTokens").asLong(),null,null,null));
+        for(var role:List.of(ValidationRole.QUERY_EMBEDDING,ValidationRole.INDEX_EMBEDDING)) {
+            var embedding=expected.path("budgets").path("roles").path(role.name());
+            roles.put(role,new org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.RoleBudget(embedding.path("maxCalls").asInt(),embedding.path("maxReservedTokens").asLong(),null,null,null));
+        }
         var limits=new HashMap<String,org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.Limits>();
         for(String branch:List.of("setting","typo")) {var b=expected.path("budgets").path(branch);
             limits.put(branch,new org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.Limits(b.path("modelCalls").asInt(),b.path("lookups").asInt(),b.path("seconds").asDouble(),b.path("inputTokens").asInt(),b.path("segmentChars").asInt(),b.path("contextChars").asInt(),b.path("searchLimit").asInt()));}

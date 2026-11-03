@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 @TestPropertySource(locations="classpath:validation-execution-fixture.properties")
 @DisplayName("검수 전용 API와 불변 입력·독립 분기·원장")
 class ValidationWorkerIntegrationTest extends ValidationWorkerFixture {
+    @org.springframework.beans.factory.annotation.Autowired org.monitoring.catchholebackend.domain.upload.service.SettingBookService settingBooks;
     @Test @DisplayName("실제 전용 Job과 서버 소유 scope를 선점하고 추출은 만들지 않는다") void claimCreatesDedicatedOwnedJobAndNoExtraction() throws Exception {
         var report=start();var job=claim();
         assertThat(job.path("jobId").isTextual()).isTrue();assertThat(job.path("scope").path("reportId")).isEqualTo(report.path("reportId"));
@@ -317,6 +318,74 @@ class ValidationWorkerIntegrationTest extends ValidationWorkerFixture {
         var body=new LinkedHashMap<String,Object>(Map.of("scope",scope(job),"requestId",request,"role","QUERY_EMBEDDING","model","text-embedding-3-small","reservedTokens",30,"queryInput",proof));
         internal(path(job,"/usage/reserve"),job,body,200);proof.put("queryHash","b".repeat(64));
         internal(path(job,"/usage/reserve"),job,body,409);noExtraction();
+    }
+    @Test @DisplayName("색인 채우기 예약은 이 실행의 고정 RAG 출처(앞 회차·현재 판 설정집) 하나에 묶이고 서비스 부담으로 작가 계정을 잡지 않는다")
+    void indexFillReservationIsBoundToAFrozenRagSourceAndServicePaid() throws Exception {
+        var roles=new java.util.EnumMap<org.monitoring.catchholebackend.domain.validation.type.ValidationRole,org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.RoleBudget>(executionProperties.roles());
+        roles.put(org.monitoring.catchholebackend.domain.validation.type.ValidationRole.QUERY_EMBEDDING,new org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.RoleBudget(1,100,null,null,null));
+        roles.put(org.monitoring.catchholebackend.domain.validation.type.ValidationRole.INDEX_EMBEDDING,new org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.RoleBudget(3,20000,null,null,null));
+        when(executionProperties.roles()).thenReturn(roles);when(executionProperties.queryEmbeddingModel()).thenReturn("text-embedding-3-small");
+        var book=org.monitoring.catchholebackend.domain.upload.entity.UploadFile.create(em.find(org.monitoring.catchholebackend.domain.upload.entity.UploadBatch.class,batchId),org.monitoring.catchholebackend.domain.upload.type.UploadFileRole.SETTING_BOOK,"book.txt","text/plain","s3://synthetic/book",30);em.persist(book);
+        org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision current=null;
+        for(int no=1;no<=2;no++) {
+            var revision=org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision.create(book,no,new org.monitoring.catchholebackend.global.storage.StoredTextObject("synthetic/book-"+no,"v1",String.valueOf(no).repeat(64),3),org.monitoring.catchholebackend.domain.upload.type.SettingBookReferenceTimeKind.WORK_START,null);
+            em.persist(revision);current=revision;
+        }
+        book.linkCurrentRevision(current);em.flush();
+        var report=start();var job=claim();
+        assertThat(job.path("models").path("INDEX_EMBEDDING").path("model").asText()).isEqualTo("text-embedding-3-small");
+        assertThat(job.path("budgets").path("roles").path("INDEX_EMBEDDING").path("maxCalls").asInt()).isEqualTo(3);
+        // Manifest order: R1 = the prior episode, then the setting-book revisions; only the current one is a RAG source.
+        var refs=new LinkedHashMap<String,JsonNode>();int index=1;for(var source:stored(report).getBaselineSeed().path("sources"))refs.put("R"+index++,source);
+        String episodeRef=null,currentRef=null,oldRef=null;
+        for(var entry:refs.entrySet()) {
+            var source=entry.getValue();
+            if("EPISODE".equals(source.path("sourceKind").asText()))episodeRef=entry.getKey();
+            else if(source.path("currentRevision").asBoolean())currentRef=entry.getKey();else oldRef=entry.getKey();
+        }
+        assertThat(episodeRef).isNotNull();assertThat(currentRef).isNotNull();assertThat(oldRef).isNotNull();
+        java.util.function.BiFunction<String,String,Map<String,Object>> input=(ref,hash)->{
+            var value=new LinkedHashMap<String,Object>();value.put("contractVersion",1);value.put("inputDigest",job.at("/scope/inputDigest").asText());value.put("manifestHash",job.path("manifestHash").asText());
+            value.put("sourceRef",ref);value.put("sourceHash",hash);value.put("chunkCount",2);value.put("chunkDigest","e".repeat(64));value.put("indexModel","text-embedding-3-small");value.put("indexVersion","v1");value.put("indexDimensions",1536);return value;};
+        java.util.function.BiFunction<Object,Long,Map<String,Object>> reserve=(index_,tokens)->{
+            var value=new LinkedHashMap<String,Object>();value.put("scope",scope(job));value.put("requestId",UUID.randomUUID());value.put("role","INDEX_EMBEDDING");value.put("model","text-embedding-3-small");value.put("reservedTokens",tokens);
+            if(index_!=null)value.put("indexInput",index_);return value;};
+        String episodeHash=refs.get(episodeRef).path("contentHash").asText(),currentHash=refs.get(currentRef).path("contentHash").asText();
+        long accountBefore=((Number)em.createNativeQuery("select count(*) from ai_token_accounts where member_id=? and reserved_tokens>0").setParameter(1,member.getId()).getSingleResult()).longValue();
+        // An embedding role is bounded by its run caps, not by the branch's per-call input cap (1,000 in this fixture).
+        var episode=reserve.apply(input.apply(episodeRef,episodeHash),5000L);var saved=internal(path(job,"/usage/reserve"),job,episode,200);
+        assertThat(saved.path("role").asText()).isEqualTo("INDEX_EMBEDDING");assertThat(saved.path("queryInput").path("sourceRef").asText()).isEqualTo(episodeRef);
+        internal(path(job,"/usage/reserve"),job,reserve.apply(input.apply(currentRef,currentHash),100L),200);
+        internal(path(job,"/usage/reserve"),job,reserve.apply(input.apply(oldRef,refs.get(oldRef).path("contentHash").asText()),100L),400);
+        internal(path(job,"/usage/reserve"),job,reserve.apply(input.apply(episodeRef,"f".repeat(64)),100L),400);
+        internal(path(job,"/usage/reserve"),job,reserve.apply(input.apply("R99",episodeHash),100L),400);
+        internal(path(job,"/usage/reserve"),job,reserve.apply(null,100L),400);
+        var query=new LinkedHashMap<>(reserve.apply(input.apply(episodeRef,episodeHash),100L));query.put("role","QUERY_EMBEDDING");
+        internal(path(job,"/usage/reserve"),job,query,400);
+        // A replay must carry the identical source identity.
+        var replay=new LinkedHashMap<>(episode);replay.put("indexInput",input.apply(currentRef,currentHash));internal(path(job,"/usage/reserve"),job,replay,409);
+        var row=(Object[])em.createNativeQuery("select charge_policy_version,reserved_charge from ai_token_usages where request_id=?").setParameter(1,episode.get("requestId")).getSingleResult();
+        assertThat(row[0]).isEqualTo("SERVICE_PAID_V1");assertThat((java.math.BigDecimal)row[1]).isEqualByComparingTo("0");
+        internal(path(job,"/usage/"+episode.get("requestId")),job,Map.of("scope",scope(job),"kind","SETTLE","inputTokens",1200,"cachedInputTokens",0,"outputTokens",0,"outcome","SUCCESS"),200);
+        var settled=(Object[])em.createNativeQuery("select status,charged_tokens,input_tokens from ai_token_usages where request_id=?").setParameter(1,episode.get("requestId")).getSingleResult();
+        assertThat(settled[0]).isEqualTo("SETTLED");assertThat((java.math.BigDecimal)settled[1]).isEqualByComparingTo("0");assertThat(((Number)settled[2]).longValue()).isEqualTo(1200);
+        assertThat(((Number)em.createNativeQuery("select count(*) from ai_token_accounts where member_id=? and reserved_tokens>0").setParameter(1,member.getId()).getSingleResult()).longValue()).isEqualTo(accountBefore);
+        // Run cap: the third call fits, a fourth does not (maxCalls 3; a rejected reservation is no call).
+        internal(path(job,"/usage/reserve"),job,reserve.apply(input.apply(episodeRef,episodeHash),100L),200);
+        assertThat(internal(path(job,"/usage/reserve"),job,reserve.apply(input.apply(episodeRef,episodeHash),100L),409).path("code").asText()).isEqualTo("VALIDATION_EXECUTION_LIMIT_EXCEEDED");
+        noExtraction();
+    }
+    @Test @DisplayName("설정집 수정·보관은 그 설정집의 RAG 색인을 같은 트랜잭션에서 지운다")
+    void settingBookChangeDeletesItsRetrievalIndex() {
+        var book=org.monitoring.catchholebackend.domain.upload.entity.UploadFile.create(em.find(org.monitoring.catchholebackend.domain.upload.entity.UploadBatch.class,batchId),org.monitoring.catchholebackend.domain.upload.type.UploadFileRole.SETTING_BOOK,"book.txt","text/plain","s3://synthetic/book",30);em.persist(book);
+        var revision=org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision.create(book,1,new org.monitoring.catchholebackend.global.storage.StoredTextObject("synthetic/book-1","v1","1".repeat(64),3),org.monitoring.catchholebackend.domain.upload.type.SettingBookReferenceTimeKind.WORK_START,null);em.persist(revision);book.linkCurrentRevision(revision);em.flush();
+        em.createNativeQuery("insert into retrieval_setting_book_sources(revision_id,setting_book_id,work_id,source_key,source_version,source_hash,chunk_policy,chunk_count,prepared_at) values (?,?,?,'synthetic/book-1','v1',?,'cl100k-800-100-boundary-v1',1,CURRENT_TIMESTAMP)")
+                .setParameter(1,revision.getId()).setParameter(2,book.getId()).setParameter(3,work.getId()).setParameter(4,"1".repeat(64)).executeUpdate();
+        em.createNativeQuery("insert into retrieval_setting_book_chunks(id,revision_id,chunk_index,chunk_text,start_offset,end_offset,chunk_hash,token_count,status,attempt_count) values (?,?,0,'설정',0,2,?,1,'MISSING',0)")
+                .setParameter(1,UUID.randomUUID()).setParameter(2,revision.getId()).setParameter(3,"2".repeat(64)).executeUpdate();
+        settingBooks.deleteSettingBook(member.getId(),work.getId(),book.getId());em.flush();
+        assertThat(((Number)em.createNativeQuery("select count(*) from retrieval_setting_book_chunks").getSingleResult()).longValue()).isZero();
+        assertThat(((Number)em.createNativeQuery("select count(*) from retrieval_setting_book_sources").getSingleResult()).longValue()).isZero();
     }
 
 }
