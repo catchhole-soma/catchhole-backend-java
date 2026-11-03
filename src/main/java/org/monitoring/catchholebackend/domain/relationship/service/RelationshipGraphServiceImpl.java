@@ -52,6 +52,7 @@ import org.monitoring.catchholebackend.domain.relationship.entity.RelationshipGr
 import org.monitoring.catchholebackend.domain.relationship.mapper.RelationshipGraphMapper;
 import org.monitoring.catchholebackend.domain.relationship.processor.RelationshipGraphRules;
 import org.monitoring.catchholebackend.domain.relationship.repository.RelationshipGraphAnalysisRepository;
+import org.monitoring.catchholebackend.domain.relationship.repository.RelationshipHoldClosureRepository;
 import org.monitoring.catchholebackend.domain.relationship.repository.RelationshipGraphEdgeRepository;
 import org.monitoring.catchholebackend.domain.relationship.repository.RelationshipGraphEventRepository;
 import org.monitoring.catchholebackend.domain.relationship.repository.RelationshipGraphNodeRepository;
@@ -83,6 +84,7 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 public class RelationshipGraphServiceImpl implements RelationshipGraphService {
     private final RelationshipGraphAnalysisRepository analyses;
+    private final RelationshipHoldClosureRepository holdClosures;
     private final RelationshipGraphNodeRepository nodes;
     private final RelationshipGraphEdgeRepository edges;
     private final RelationshipGraphEventRepository events;
@@ -1324,6 +1326,8 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
     private Set<String> consumedHolds(
             Map<Integer, RelationshipGraphAnalysis> all, int cutoff, Set<UUID> valid) {
         Set<String> result = new HashSet<>();
+        all.values().stream().findFirst().ifPresent(analysis ->
+                result.addAll(holdClosures.findClosedKeysByWorkId(analysis.getWorkId())));
         for (var analysis : all.values())
             if (analysis.getEpisodeNo() <= cutoff && valid.contains(analysis.getId())) {
                 for (var decision : mapper.decisions(analysis))

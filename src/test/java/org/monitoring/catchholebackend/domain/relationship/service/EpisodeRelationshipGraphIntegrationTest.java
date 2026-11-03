@@ -51,6 +51,7 @@ import org.monitoring.catchholebackend.domain.relationship.repository.Relationsh
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.monitoring.catchholebackend.global.exception.AppException;
+import org.monitoring.catchholebackend.global.hash.Sha256Hasher;
 import org.monitoring.catchholebackend.global.storage.ObjectStorageService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -70,6 +71,8 @@ import java.util.UUID;
 @DisplayName("회차별 관계 확정과 재시도는 원문·사용자 정정 경계를 보존한다")
 class EpisodeRelationshipGraphIntegrationTest {
     @Autowired RelationshipGraphService service;
+    @Autowired RelationshipHoldReviewGate holdGate;
+    @Autowired org.monitoring.catchholebackend.domain.relationship.repository.RelationshipHoldClosureRepository holdClosures;
     @Autowired EntityManager em;
     @Autowired TransactionTemplate tx;
     @Autowired AnalysisJobRepository jobs;
@@ -78,6 +81,7 @@ class EpisodeRelationshipGraphIntegrationTest {
     @Autowired EpisodePurgeDataRepository purge;
     @MockitoBean AnalysisJobLeaseService leases;
     @MockitoBean ObjectStorageService storage;
+    @Autowired Sha256Hasher hasher;
     @MockitoSpyBean AnalysisRunStateService runState;
     private Long owner, other;
     private UUID workId;
@@ -86,7 +90,8 @@ class EpisodeRelationshipGraphIntegrationTest {
 
     @BeforeEach
     void setup() {
-        when(storage.contentHash(anyString())).thenCallRealMethod();
+        when(storage.contentHash(anyString()))
+                .thenAnswer(invocation -> hasher.hash(invocation.getArgument(0)));
         when(storage.getText(anyString()))
                 .thenAnswer(
                         invocation -> {
@@ -1371,4 +1376,159 @@ class EpisodeRelationshipGraphIntegrationTest {
         assertThat(analyses.findById(first).orElseThrow().getContext()).isNull();
         assertThat(service.getRelationshipGraph(owner, workId, null).edges()).isEmpty();
     }
+
+    private Decision hold() {
+        return new Decision(List.of("O1"), Operation.HOLD, null, null, null, null, null, null, null,
+                null, TemporalScope.UNKNOWN, "관계를 확정할 근거가 부족하다");
+    }
+
+    private void succeed(UUID id) {
+        tx.executeWithoutResult(t -> jobs.findById(id).orElseThrow().succeed(null, 0, 0));
+    }
+
+    @Test
+    @DisplayName("명시적으로 종료한 관계 보류는 원래 판단과 근거를 보존하고 이후 문맥과 부분 표시에서 제외한다")
+    void closedHoldPreservesEvidenceAndLeavesFutureContext() {
+        UUID first = job(1);
+        Context initial = prepare(first);
+        apply(first, initial, hold());
+        succeed(first);
+        var original = analyses.findById(first).orElseThrow();
+        var originalContext = original.getContext().deepCopy();
+        var originalDecisions = original.getDecisions().deepCopy();
+        var originalHash = original.getCompletionHash();
+        assertThat(service.getRelationshipGraph(owner, workId, null).partial()).isTrue();
+        assertThat(holdGate.snapshot(workId, 1).count()).isZero();
+        var snapshot = holdGate.snapshot(workId, 2);
+        assertThat(snapshot.count()).isEqualTo(1);
+        UUID requestId = UUID.randomUUID();
+        tx.executeWithoutResult(t -> holdGate.closeHolds(snapshot, requestId));
+        tx.executeWithoutResult(t -> holdGate.closeHolds(snapshot, requestId));
+        assertThat(holdGate.snapshot(workId, 2).count()).isZero();
+        assertThat(holdClosures.findClosedKeysByWorkId(workId)).containsExactly(first + ":O1");
+        var retained = analyses.findById(first).orElseThrow();
+        assertThat(retained.getContext()).isEqualTo(originalContext);
+        assertThat(retained.getDecisions()).isEqualTo(originalDecisions);
+        assertThat(retained.getCompletionHash()).isEqualTo(originalHash);
+        assertThat(retained.getStatus()).isEqualTo(AnalysisStatus.APPLIED);
+        assertThat(service.getRelationshipGraph(owner, workId, null).partial()).isFalse();
+        UUID second = job(2);
+        Context later = prepare(second);
+        assertThat(later.heldObservations()).isEmpty();
+        apply(second, later, hold());
+        succeed(second);
+        assertThat(holdGate.snapshot(workId, 3).entries()).singleElement()
+                .extracting(RelationshipHoldReviewGate.Entry::analysisId).isEqualTo(second);
+    }
+
+    @Test
+    @DisplayName("보류 종료는 이미 동결한 후행 문맥을 다시 쓰지 않는다")
+    void closureDoesNotRewriteFrozenHeldContext() {
+        UUID first = job(1);
+        apply(first, prepare(first), hold());
+        succeed(first);
+        UUID second = job(2);
+        Context frozen = prepare(second);
+        assertThat(frozen.heldObservations()).hasSize(1);
+        var snapshot = holdGate.snapshot(workId, 2);
+        tx.executeWithoutResult(t -> holdGate.closeHolds(snapshot, UUID.randomUUID()));
+        assertThat(service.getRelationshipAnalysis(second, lease).orElseThrow().heldObservations())
+                .isEqualTo(frozen.heldObservations());
+        assertThat(analyses.findById(second).orElseThrow().getContext().path("heldObservations")).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("진행 중 또는 실패한 원 작업과 오래된 출처의 보류는 종료 후보로 세지 않는다")
+    void holdGateRequiresSuccessfulCurrentSource() {
+        UUID first = job(1);
+        apply(first, prepare(first), hold());
+        assertThat(holdGate.snapshot(workId, 2).count()).isZero();
+        tx.executeWithoutResult(t -> jobs.findById(first).orElseThrow().fail("synthetic failure"));
+        assertThat(holdGate.snapshot(workId, 2).count()).isZero();
+        succeed(first);
+        assertThat(holdGate.snapshot(workId, 2).count()).isEqualTo(1);
+        tx.executeWithoutResult(t -> em.createQuery("update AnalysisJob j set j.sourceReferenceInvalidatedAt = :now where j.id = :id")
+                .setParameter("now", java.time.LocalDateTime.now()).setParameter("id", first).executeUpdate());
+        assertThat(holdGate.snapshot(workId, 2).count()).isZero();
+    }
+
+    @Test
+    @DisplayName("같은 회차의 새 관계 분석이 있으면 대체된 과거 보류를 종료 대상으로 다시 읽지 않는다")
+    void supersededSameEpisodeHoldsDoNotReappearInGate() {
+        UUID first = job(1);
+        apply(first, prepare(first), hold());
+        succeed(first);
+        assertThat(holdGate.snapshot(workId, 2).count()).isEqualTo(1);
+        UUID replacement = job(1);
+        assertThat(holdGate.snapshot(workId, 2).count()).isZero();
+        assertThat(analyses.findById(first).orElseThrow().getDecisions()).isNotNull();
+        assertThat(analyses.findById(replacement).orElseThrow().getStatus()).isEqualTo(AnalysisStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("정상 보류를 종료해도 기술적 비교 실패와 불완전 회차 표시는 보존한다")
+    void closingNormalHoldsDoesNotHideTechnicalFailures() {
+        UUID first = job(1);
+        apply(first, prepare(first), hold());
+        succeed(first);
+        UUID second = job(2);
+        tx.executeWithoutResult(t -> jobs.findById(second).orElseThrow().enableRelationshipPartialResults());
+        Context context = prepare(second);
+        service.completeRelationshipAnalysis(second, lease, new Complete(1, context.contextToken(), List.of(),
+                List.of(new org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.GroupFailure(
+                        List.of("O1"), "RELATIONSHIP_ENDPOINTS_UNGROUNDED"))));
+        tx.executeWithoutResult(t -> service.finalizeRelationshipAnalysis(jobs.findById(second).orElseThrow()));
+        succeed(second);
+        var failures = analyses.findById(second).orElseThrow().getFailures().deepCopy();
+        var snapshot = holdGate.snapshot(workId, 3);
+        assertThat(snapshot.entries()).singleElement().extracting(RelationshipHoldReviewGate.Entry::analysisId).isEqualTo(first);
+        tx.executeWithoutResult(t -> holdGate.closeHolds(snapshot, UUID.randomUUID()));
+        assertThat(analyses.findById(second).orElseThrow().getFailures()).isEqualTo(failures);
+        Graph graph = service.getRelationshipGraph(owner, workId, null);
+        assertThat(graph.partial()).isTrue();
+        assertThat(graph.updateIncomplete()).isTrue();
+        assertThat(graph.incompleteEpisodeNos()).containsExactly(2);
+    }
+
+    @Test
+    @DisplayName("앞 회차의 상태 무효화는 뒤 회차 보류 경고를 숨기지 않지만 실제 원문 무효화 경계는 유지한다")
+    void ordinaryInvalidationDoesNotHideLaterHoldButUnavailableSourceDoes() {
+        UUID first = job(1);
+        apply(first, prepare(first), hold());
+        succeed(first);
+        UUID second = job(2);
+        apply(second, prepare(second), hold());
+        succeed(second);
+        assertThat(holdGate.snapshot(workId, 3).count()).isEqualTo(2);
+
+        tx.executeWithoutResult(t -> analyses.findById(first).orElseThrow().invalidate());
+        assertThat(holdGate.snapshot(workId, 3).entries()).singleElement()
+                .extracting(RelationshipHoldReviewGate.Entry::analysisId).isEqualTo(second);
+
+        tx.executeWithoutResult(t -> em.createQuery("update AnalysisJob j set j.sourceReferenceInvalidatedAt = :now where j.id = :id")
+                .setParameter("now", java.time.LocalDateTime.now()).setParameter("id", first).executeUpdate());
+        assertThat(holdGate.snapshot(workId, 3).count()).isZero();
+    }
+
+    @Test
+    @DisplayName("별도 백필의 미공개 세대 보류는 공개 전 종료 대상으로 노출하지 않는다")
+    void unpublishedBackfillHoldsWaitForPublishedGeneration() {
+        UUID first = job(1);
+        apply(first, prepare(first), hold());
+        succeed(first);
+        tx.executeWithoutResult(t -> {
+            jobs.findById(first).orElseThrow().configureRelationship(1, true);
+            em.createQuery("update RelationshipGraphAnalysis a set a.generation = 1 where a.id = :id")
+                    .setParameter("id", first).executeUpdate();
+            em.persist(org.monitoring.catchholebackend.domain.relationship.entity.RelationshipBackfillWork
+                    .create(workId, "relationship-backfill-20261030-v1"));
+        });
+        assertThat(holdGate.snapshot(workId, 2).count()).isZero();
+        tx.executeWithoutResult(t -> em.find(
+                org.monitoring.catchholebackend.domain.relationship.entity.RelationshipBackfillWork.class, workId).publish());
+        assertThat(holdGate.snapshot(workId, 2).entries()).singleElement()
+                .extracting(RelationshipHoldReviewGate.Entry::analysisId).isEqualTo(first);
+    }
+
+
 }

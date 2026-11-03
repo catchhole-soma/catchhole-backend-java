@@ -344,6 +344,12 @@ public class WorldSettingCandidate extends BaseEntity {
     @Column(name = "review_status", nullable = false, length = 30)
     private WorldSettingReviewStatus reviewStatus;
 
+    @Column(name = "closed_at")
+    private LocalDateTime closedAt;
+
+    @Column(name = "closure_request_id")
+    private UUID closureRequestId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "final_operation", length = 30)
     private WorldSettingOperation finalOperation;
@@ -1098,7 +1104,7 @@ public class WorldSettingCandidate extends BaseEntity {
             }
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
         }
-        if (reviewStatus == WorldSettingReviewStatus.DISMISSED) {
+        if (reviewStatus == WorldSettingReviewStatus.DISMISSED || reviewStatus == WorldSettingReviewStatus.CLOSED) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
         }
         if (comparisonStatus != WorldSettingComparisonStatus.COMPLETED && !hasManualReviewDecision()) {
@@ -1129,7 +1135,7 @@ public class WorldSettingCandidate extends BaseEntity {
         if (reviewStatus == WorldSettingReviewStatus.DISMISSED) {
             return false;
         }
-        if (reviewStatus == WorldSettingReviewStatus.CONFIRMED) {
+        if (reviewStatus == WorldSettingReviewStatus.CONFIRMED || reviewStatus == WorldSettingReviewStatus.CLOSED) {
             throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
         }
         if (comparisonStatus == WorldSettingComparisonStatus.PROCESSING) {
@@ -1148,6 +1154,21 @@ public class WorldSettingCandidate extends BaseEntity {
         appliedWorldSettingVersion = null;
         automaticReviewHoldReason = null;
         reviewStatus = WorldSettingReviewStatus.DISMISSED;
+        return true;
+    }
+
+    /** 다음 분석 전 명시적으로 종료한다. 반려·비교 결과·근거는 변경하지 않는다. */
+    public boolean closeForContinuation(UUID requestId) {
+        Objects.requireNonNull(requestId);
+        if (reviewStatus == WorldSettingReviewStatus.CLOSED && requestId.equals(closureRequestId)) return false;
+        if (!isPendingReview() || comparisonStatus == WorldSettingComparisonStatus.PENDING
+                || comparisonStatus == WorldSettingComparisonStatus.PROCESSING || comparisonStatus == WorldSettingComparisonStatus.FAILED
+                || comparisonStatus == WorldSettingComparisonStatus.RECOMPARISON_REQUIRED) {
+            throw new AppException(WorldSettingErrorCode.WORLD_SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
+        }
+        reviewStatus = WorldSettingReviewStatus.CLOSED;
+        closedAt = LocalDateTime.now();
+        closureRequestId = requestId;
         return true;
     }
 

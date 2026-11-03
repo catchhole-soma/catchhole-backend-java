@@ -77,6 +77,7 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
 
     private final AnalysisRunStateService analysisRunStateService;
     private final AnalysisGuideService analysisGuideService;
+    private final AnalysisStartCheckService analysisStartCheckService;
 
     private final AnalysisJobRepository analysisJobRepository;
     private final AnalysisBatchSummaryRepository analysisBatchSummaryRepository;
@@ -170,6 +171,12 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_JOB_STATUS_CONFLICT);
         }
 
+        UUID metricsRequestId = UUID.randomUUID();
+        // 검수 release는 이미 시작한 검수의 후속 단계이며, 실패 재시도도 별도 재개 경로를 유지한다.
+        if (publicRequest && request.jobType() == AnalysisJobType.SETTING_EXTRACTION) {
+            analysisStartCheckService.applyAnalysisStartDecision(memberId, workId,
+                    targetEpisodes.stream().map(Episode::getEpisodeNo).toList(), request, metricsRequestId);
+        }
         deleteSupersededPendingCandidates(
                 work.getId(),
                 batch.getId(),
@@ -177,7 +184,6 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                 targetEpisodes
         );
         aiTokenService.ensureAnalysisCanStart(memberId);
-        UUID metricsRequestId = UUID.randomUUID();
         LocalDateTime metricsRequestedAt = LocalDateTime.now();
         List<AnalysisJob> analysisJobs = targetEpisodes.stream()
                 .sorted(Comparator.comparing(Episode::getEpisodeNo))

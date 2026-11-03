@@ -18,6 +18,17 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> {
+    @Query("""
+            select count(job.id) from AnalysisJob job join job.episode episode
+            where job.work.id = :workId and episode.episodeNo < :beforeEpisodeNo
+              and episode.status <> org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.ARCHIVED
+              and job.sourceReferenceInvalidatedAt is null
+              and job.jobType = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION
+              and job.status in (org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING,
+                                 org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING)
+            """)
+    long countActiveEarlierExtractions(@Param("workId") UUID workId, @Param("beforeEpisodeNo") int beforeEpisodeNo);
+
     @Query("select job.work.id from AnalysisJob job where job.id = :id")
     Optional<UUID> findWorkIdById(@Param("id") UUID id);
 

@@ -199,6 +199,12 @@ public class SettingCandidate extends BaseEntity {
     @Column(name = "review_status", nullable = false, length = 30)
     private SettingCandidateReviewStatus reviewStatus;
 
+    @Column(name = "closed_at")
+    private LocalDateTime closedAt;
+
+    @Column(name = "closure_request_id")
+    private UUID closureRequestId;
+
     // AI Worker 원본 응답 보관용입니다. 서비스 로직은 가능하면 valueJson/evidenceSpans를 사용합니다.
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "raw_ai_result_json", columnDefinition = "jsonb")
@@ -1114,6 +1120,21 @@ public class SettingCandidate extends BaseEntity {
             throw new IllegalArgumentException("decisionHash must be a lowercase SHA-256 value.");
         }
         this.confirmedGroupDecisionHash = normalized;
+    }
+
+    /** 다음 분석 전 명시적으로 종료한다. 반려·비교 결과·근거는 변경하지 않는다. */
+    public boolean closeForContinuation(UUID requestId) {
+        Objects.requireNonNull(requestId);
+        if (reviewStatus == SettingCandidateReviewStatus.CLOSED && requestId.equals(closureRequestId)) return false;
+        if (!isPendingReview() || comparisonStatus == CharacterFactComparisonStatus.PENDING
+                || comparisonStatus == CharacterFactComparisonStatus.PROCESSING || comparisonStatus == CharacterFactComparisonStatus.FAILED
+                || comparisonStatus == CharacterFactComparisonStatus.RECOMPARISON_REQUIRED) {
+            throw new AppException(CharacterErrorCode.SETTING_CANDIDATE_REVIEW_STATUS_CONFLICT);
+        }
+        reviewStatus = SettingCandidateReviewStatus.CLOSED;
+        closedAt = LocalDateTime.now();
+        closureRequestId = requestId;
+        return true;
     }
 
     public boolean isPendingReview() {

@@ -369,10 +369,11 @@ class CharacterFactControllerIntegrationTest {
         String firstQuote = "아리아는 물약을 꺼냈다.", secondQuote = "체력이 회복되었다.";
         String source = firstQuote + "\n" + secondQuote;
         secondEpisode.updateContentStorage(secondEpisode.getContentS3Key(), secondEpisode.getContentS3Version(),
-                new ObjectStorageService(objectStorage).contentHash(source));
+                new ObjectStorageService(objectStorage, new org.monitoring.catchholebackend.global.hash.Sha256Hasher()).contentHash(source));
         episodeRepository.saveAndFlush(secondEpisode);
         AnalysisJob sourceJob = AnalysisJob.create(work, null, secondEpisode, AnalysisJobType.SETTING_EXTRACTION);
-        ReflectionTestUtils.setField(sourceJob, "sourceContentHash", new ObjectStorageService(objectStorage).contentHash(source));
+        ReflectionTestUtils.setField(sourceJob, "sourceContentHash", new ObjectStorageService(objectStorage,
+                new org.monitoring.catchholebackend.global.hash.Sha256Hasher()).contentHash(source));
         sourceJob = analysisJobRepository.saveAndFlush(sourceJob);
         org.mockito.Mockito.when(objectStorage.getText(sourceJob.getSourceContentS3Key())).thenReturn(source);
         SettingCandidate candidate = settingCandidateRepository.save(SettingCandidate.create(

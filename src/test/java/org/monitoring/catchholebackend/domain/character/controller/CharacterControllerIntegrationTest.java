@@ -2994,12 +2994,12 @@ class CharacterControllerIntegrationTest {
         int secondStartOffset = analysisSource.indexOf(secondQuote);
         int secondEndOffset = secondStartOffset + secondQuote.length();
         firstEpisode.updateContentStorage(analysisSourceKey, null,
-                new org.monitoring.catchholebackend.global.storage.ObjectStorageService(objectStorage).contentHash(analysisSource));
+                new org.monitoring.catchholebackend.global.hash.Sha256Hasher().hash(analysisSource));
         episodeRepository.saveAndFlush(firstEpisode);
         AnalysisJob sourceJob = AnalysisJob.create(work, null, firstEpisode, AnalysisJobType.SETTING_EXTRACTION);
         ReflectionTestUtils.setField(sourceJob, "sourceContentS3Key", analysisSourceKey);
         ReflectionTestUtils.setField(sourceJob, "sourceContentHash",
-                new org.monitoring.catchholebackend.global.storage.ObjectStorageService(objectStorage).contentHash(analysisSource));
+                new org.monitoring.catchholebackend.global.hash.Sha256Hasher().hash(analysisSource));
         sourceJob = analysisJobRepository.saveAndFlush(sourceJob);
         SettingCandidate candidate = SettingCandidate.create(
                 work,

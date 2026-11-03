@@ -335,7 +335,7 @@ class CharacterPreparationPostgresPerformanceIntegrationTest {
 
     private Fixture fixture(int candidateCount, boolean largeInput, boolean existingIdentity) {
         org.mockito.Mockito.when(objectStorage.getText(org.mockito.ArgumentMatchers.anyString())).thenReturn(QUOTE);
-        String sourceHash = new org.monitoring.catchholebackend.global.storage.ObjectStorageService(objectStorage).contentHash(QUOTE);
+        String sourceHash = new org.monitoring.catchholebackend.global.hash.Sha256Hasher().hash(QUOTE);
         return tx().execute(status -> {
             String unique = UUID.randomUUID().toString();
             Member member = Member.register("gh294-" + unique + "@example.invalid", "test-only", null, "합성 작가");
