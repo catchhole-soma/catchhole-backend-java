@@ -18,6 +18,8 @@ import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErro
 import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateChange;
 import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceRepository;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceView;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus;
 import org.monitoring.catchholebackend.global.exception.AppException;
@@ -36,6 +38,7 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
     private final List<AnalysisStateSource> stateSources;
     private final ApplicationEventPublisher eventPublisher;
     private final AnalysisPendingReferenceSource pendingReferenceSource;
+    private final AnalysisJobSourceRepository jobSourceRepository;
 
     @Override
     @Transactional
@@ -60,7 +63,8 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
             if (captured == null || !captured.isObject()) {
                 throw conflict();
             }
-            base.set(source.domain(), captured.deepCopy());
+            // 조립 중에는 읽기만 한다. initializeOrderedRun이 저장 경계에서 복사한다.
+            base.set(source.domain(), captured);
         }
         if (!domains.containsAll(List.of("characters", "worldSettings"))) {
             // 한 도메인의 확정 설정을 빈 상태로 오인해 실행을 시작하지 않는다.
@@ -91,9 +95,7 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
     public JsonNode getInputState(AnalysisJob job) {
         requireOrdered(job);
         if (job.isAutomaticReview()) {
-            automaticPredecessors(job);
-            if (job.getAutomaticInputState() == null || !job.getAutomaticInputState().isObject()) throw conflict();
-            return job.getAutomaticInputState().deepCopy();
+            return automaticInputForRead(job).deepCopy();
         }
         List<AnalysisJob> chain = analysisJobRepository
                 .findAllByAnalysisRunIdAndRunGenerationOrderByRunSequenceAsc(
@@ -141,13 +143,15 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
 
     @Override
     public JsonNode getProjectedState(AnalysisJob job) {
-        JsonNode input = getInputState(job);
+        JsonNode input = inputStateForValidation(job);
         if (job.getInputStateHash() == null || !journal.hash(input).equals(job.getInputStateHash())
                 || job.getJournalStatus() == AnalysisJournalStatus.INVALIDATED
                 || job.getJournalStatus() == AnalysisJournalStatus.INCOMPLETE) {
             throw conflict();
         }
-        return job.getStateJournal() == null ? input : apply(input, readChanges(requireEnvelope(job)));
+        // 수동 입력은 이미 재생한 독립 값이다. 빌린 자동 입력만 반환 경계에서 복사한다.
+        if (job.getStateJournal() == null) return job.isAutomaticReview() ? input.deepCopy() : input;
+        return apply(input, readChanges(requireEnvelope(job)));
     }
 
     @Override
@@ -280,7 +284,8 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
                 JsonNode captured = source.capture(job.getWork());
                 if (!List.of("characters", "worldSettings", "references").contains(source.domain())
                         || !domains.add(source.domain()) || captured == null || !captured.isObject()) throw conflict();
-                input.set(source.domain(), captured.deepCopy());
+                // 참고 영역만 뒤에서 병합한다. 나머지는 captureAutomaticInput에서 한 번 복사한다.
+                input.set(source.domain(), "references".equals(source.domain()) ? captured.deepCopy() : captured);
             }
             if (!domains.containsAll(List.of("characters", "worldSettings"))) throw conflict();
             if (!job.isSettingBookSource()) {
@@ -294,7 +299,7 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
             }
             job.captureAutomaticInput(input);
         }
-        String hash = journal.hash(getInputState(job));
+        String hash = journal.hash(inputStateForValidation(job));
         if (job.getInputStateHash() != null && !hash.equals(job.getInputStateHash())) {
             throw conflict();
         }
@@ -312,7 +317,7 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
         if (!job.isOrderedProvisional()) return;
         if (job.getJournalStatus() != AnalysisJournalStatus.PENDING || !job.hasCurrentSourceVersion()
                 || job.getInputStateHash() == null
-                || !job.getInputStateHash().equals(journal.hash(getInputState(job)))) {
+                || !job.getInputStateHash().equals(journal.hash(inputStateForValidation(job)))) {
             throw conflict();
         }
     }
@@ -329,7 +334,7 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
             automaticPredecessors(job);
             return;
         }
-        JsonNode input = getInputState(job);
+        JsonNode input = inputStateForValidation(job);
         if (job.getInputStateHash() == null) {
             if (job.getStateJournal() != null) {
                 throw conflict();
@@ -372,7 +377,7 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
             }
         }
         List<AnalysisStateChange> merged = List.copyOf(current.values());
-        apply(getInputState(job), merged);
+        apply(inputStateForValidation(job), merged);
         record.set("changes", journal.toJson(merged));
         upgradeStorageVersion(record, merged);
         job.replacePendingJournal(record);
@@ -491,28 +496,39 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
         }
     }
 
-    private List<AnalysisJob> automaticPredecessors(AnalysisJob job) {
-        List<AnalysisJob> chain = analysisJobRepository.findAllByAnalysisRunIdAndRunGenerationOrderByRunSequenceAsc(
+    /** 검증·hash 계산 안에서만 빌린다. 반환하거나 수정할 상태는 기존 방어 복사 경계를 따른다. */
+    private JsonNode inputStateForValidation(AnalysisJob job) {
+        return job.isAutomaticReview() ? automaticInputForRead(job) : getInputState(job);
+    }
+
+    private JsonNode automaticInputForRead(AnalysisJob job) {
+        requireOrdered(job);
+        automaticPredecessors(job);
+        JsonNode input = job.getAutomaticInputState();
+        if (input == null || !input.isObject()) throw conflict();
+        return input;
+    }
+
+    private void automaticPredecessors(AnalysisJob job) {
+        List<AnalysisJobSourceView> chain = jobSourceRepository.findRunMembers(
                 job.getAnalysisRunId(), job.getRunGeneration());
-        List<AnalysisJob> predecessors = new ArrayList<>();
         UUID previousId = null;
         int sequence = 0;
         int previousEpisode = -1;
-        for (AnalysisJob member : chain) {
-            if (!member.isAutomaticReview() || !Objects.equals(member.getWork().getId(), job.getWork().getId())
+        for (AnalysisJobSourceView member : chain) {
+            if (!member.isAutomaticReview() || !Objects.equals(member.getWorkId(), job.getWork().getId())
                     || !Objects.equals(member.getRunSequence(), sequence)
                     || !Objects.equals(member.getPredecessorJobId(), previousId)
                     || !member.hasCurrentSourceVersion() || member.getSourceKind() != job.getSourceKind()
                     || member.isSettingBookSource() && (chain.size() != 1 || sequence != 0)
                     || !member.isSettingBookSource() && member.getSourceEpisodeNo() <= previousEpisode) throw conflict();
-            if (member.getId().equals(job.getId())) return List.copyOf(predecessors);
+            if (member.getId().equals(job.getId())) return;
             if (sequence >= job.getRunSequence()) throw conflict();
             if (member.getStatus() != AnalysisJobStatus.SUCCEEDED
                     || member.getJournalStatus() != AnalysisJournalStatus.SEALED
                     || member.getAutomaticAppliedAt() == null) {
                 throw new AppException(AnalysisJobErrorCode.ANALYSIS_RUN_PREDECESSOR_INCOMPLETE);
             }
-            predecessors.add(member);
             previousId = member.getId();
             if (!member.isSettingBookSource()) previousEpisode = member.getSourceEpisodeNo();
             sequence++;

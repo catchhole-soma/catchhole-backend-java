@@ -154,6 +154,8 @@ class AutomaticAnalysisIntegrationTest {
         // H2 has no PostgreSQL receipt trigger; model that boundary, tested separately on PostgreSQL.
         var verified = org.monitoring.catchholebackend.support.StoredCharacterEvidenceTestSupport.verified(SOURCE);
         org.mockito.Mockito.when(storedEvidence.find(org.mockito.ArgumentMatchers.any())).thenAnswer(call -> verified.find(call.getArgument(0)));
+        org.mockito.Mockito.when(storedEvidence.find(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(call -> verified.find(call.getArgument(0), call.getArgument(1)));
 
         org.mockito.Mockito.when(storage.getText(org.mockito.ArgumentMatchers.startsWith("automatic-test/"))).thenReturn(SOURCE);
         org.mockito.Mockito.when(storage.contentHash(org.mockito.ArgumentMatchers.anyString()))

@@ -386,6 +386,14 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
 
     List<WorldSettingCandidate> findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(UUID analysisJobId);
 
+    @Query("""
+            select candidate from WorldSettingCandidate candidate
+            where candidate.analysisJob.id in :analysisJobIds
+              and candidate.reviewStatus = org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus.PENDING_REVIEW
+            order by candidate.createdAt asc, candidate.id asc
+            """)
+    List<WorldSettingCandidate> findPendingReferencesByAnalysisJobIds(@Param("analysisJobIds") Collection<UUID> analysisJobIds);
+
     List<WorldSettingCandidate> findAllByWorkIdAndReviewStatusOrderByCreatedAtDesc(
             UUID workId, WorldSettingReviewStatus reviewStatus);
 

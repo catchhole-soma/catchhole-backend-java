@@ -244,6 +244,44 @@ class EpisodeRelationshipGraphIntegrationTest {
         });
     }
 
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"unchanged", "job-source-key", "job-source-version", "job-source-null"})
+    @DisplayName("관계도 원문 메타데이터 검증은 큰 Job을 로딩하지 않고 기존 가용성 판단을 유지한다")
+    void graphChecksSourceMetadataWithoutHydratingAnalysisJobs(String mutation) {
+        UUID id = job(1, true);
+        Context prepared = prepare(id);
+        apply(id, prepared, action(prepared, Operation.ADD, Kind.COMPANIONSHIP, "함께 이동한다"));
+        if (!mutation.equals("unchanged")) {
+            tx.executeWithoutResult(t -> {
+                // 출처 열은 updatable=false이므로 실제 DB 불일치 fixture를 직접 만든다.
+                String update = switch (mutation) {
+                    case "job-source-key" -> "source_content_s3_key='source/old'";
+                    case "job-source-version" -> "source_content_s3_version='old-version'";
+                    case "job-source-null" -> "source_content_s3_version=null";
+                    default -> throw new AssertionError(mutation);
+                };
+                assertThat(em.createNativeQuery("update analysis_jobs set " + update + " where id=:id")
+                        .setParameter("id", id).executeUpdate()).isEqualTo(1);
+            });
+        }
+        var statistics = em.getEntityManagerFactory().unwrap(org.hibernate.SessionFactory.class).getStatistics();
+        boolean previouslyEnabled = statistics.isStatisticsEnabled();
+        statistics.setStatisticsEnabled(true);
+        statistics.clear();
+        try {
+            if (mutation.equals("unchanged")) {
+                assertThat(service.getRelationshipGraph(owner, workId, 1).edges()).hasSize(1);
+            } else {
+                assertThatThrownBy(() -> service.getRelationshipGraph(owner, workId, 1))
+                        .isInstanceOfSatisfying(AppException.class, failure -> assertThat(failure.getResultCode())
+                                .isEqualTo(org.monitoring.catchholebackend.domain.relationship.exception.RelationshipGraphErrorCode.RELATIONSHIP_GRAPH_NOT_FOUND));
+            }
+            assertThat(statistics.getEntityStatistics(AnalysisJob.class.getName()).getLoadCount()).isZero();
+        } finally {
+            statistics.setStatisticsEnabled(previouslyEnabled);
+        }
+    }
+
     @Test
     @DisplayName("원문 추출 실패의 계약을 보존하고 실패 뒤 첫 관계도 완료 구간으로 오인하지 않는다")
     void failedExtractionRetainsFrozenCapabilityAndDoesNotVerifyLaterFirstEdge() {

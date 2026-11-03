@@ -207,8 +207,12 @@ class FrozenCurrentCaptureFailureIntegrationTest extends SettingBookAnalysisInte
     }
 
     private void invalidCurrentSource() throws Exception {
-        var candidate=currentQuote(true);
-        ReflectionTestUtils.setField(candidate.getAnalysisJob(), "sourceContentHash", "invalid");
+        var candidate = currentQuote(true);
+        var origin = candidate.getAnalysisJob();
+        // 원문 manifest는 updatable=false다. 메모리만 바꾸지 않고 조회 대상 DB에도 손상을 재현한다.
+        em.flush();
+        sql.update("UPDATE analysis_jobs SET source_content_hash=? WHERE id=?", "invalid", origin.getId());
+        em.refresh(origin);
     }
 
     private SettingCandidate currentQuote(boolean technicalFailure) throws Exception {

@@ -9,6 +9,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -17,6 +19,8 @@ import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateChange;
 import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceRepository;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceView;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
@@ -25,14 +29,16 @@ import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.projection.SpelAwareProxyProjectionFactory;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @DisplayName("요청 안에서 재사용하는 분석 상태의 이력·변경·검증 보존")
 class PreparedAnalysisStateTest {
     private final AnalysisJobRepository jobs = mock(AnalysisJobRepository.class);
+    private final AnalysisJobSourceRepository jobSources = mock(AnalysisJobSourceRepository.class);
     private final AnalysisStateJournal journal = spy(new AnalysisStateJournal());
     private final AnalysisRunStateServiceImpl service = new AnalysisRunStateServiceImpl(jobs, journal, List.of(),
-            mock(ApplicationEventPublisher.class), mock(AnalysisPendingReferenceSource.class));
+            mock(ApplicationEventPublisher.class), mock(AnalysisPendingReferenceSource.class), jobSources);
     private AnalysisJob job;
     private Episode episode;
 
@@ -59,7 +65,7 @@ class PreparedAnalysisStateTest {
                 .put("episodeNo", 25).put("jobId", job.getId().toString()).put("inputStateHash", job.getInputStateHash());
         envelope.putArray("changes");
         job.replacePendingJournal(envelope);
-        when(jobs.findAllByAnalysisRunIdAndRunGenerationOrderByRunSequenceAsc(any(), any())).thenReturn(List.of(job));
+        when(jobSources.findRunMembers(any(), any())).thenAnswer(ignored -> List.of(sourceView(job)));
     }
 
     @Test
@@ -82,7 +88,8 @@ class PreparedAnalysisStateTest {
         assertThat(job.getStateJournal().path("changes")).hasSize(2);
         assertThat(prepared.projectedState()).isEqualTo(new AnalysisStateJournal().apply(input, List.of(identity, property)));
         assertThat(job.getAutomaticInputState()).isEqualTo(input);
-        verify(jobs, times(1)).findAllByAnalysisRunIdAndRunGenerationOrderByRunSequenceAsc(any(), any());
+        verify(jobSources, times(1)).findRunMembers(any(), any());
+        verifyNoInteractions(jobs);
         verify(journal, times(3)).apply(any(), any()); // 최초 replay 1회 + 실제 변경 2회, 535회 읽기는 재사용
 
     }
@@ -95,10 +102,10 @@ class PreparedAnalysisStateTest {
                 com.fasterxml.jackson.databind.node.TextNode.valueOf("사용자 반려"));
         service.appendValidatedChanges(job, job.getInputStateHash(), List.of(added));
         assertThat(prepared.projectedState().at("/references/rejected").asText()).isEqualTo("사용자 반려");
-        clearInvocations(jobs);
+        clearInvocations(jobSources);
         var nextRequest = service.prepareState(job);
         assertThat(nextRequest.projectedState()).isEqualTo(prepared.projectedState());
-        verify(jobs).findAllByAnalysisRunIdAndRunGenerationOrderByRunSequenceAsc(any(), any());
+        verify(jobSources).findRunMembers(any(), any());
     }
 
     @Test
@@ -136,6 +143,68 @@ class PreparedAnalysisStateTest {
     void rejectsMismatchingFrozenInput() {
         ReflectionTestUtils.setField(job, "inputStateHash", "a".repeat(64));
         assertThatThrownBy(() -> service.prepareState(job)).isInstanceOf(AppException.class);
+    }
+
+    @Test
+    @DisplayName("검증의 중간 복사를 줄여도 외부 반환 상태는 저장 입력·이력과 분리된다")
+    void keepsPublicInputAndProjectionDetachedFromStoredEvidence() {
+        JsonNode original = job.getAutomaticInputState().deepCopy();
+        JsonNode record = job.getStateJournal().deepCopy();
+        ((ObjectNode) service.getInputState(job).at("/characters/hero/historyFacts/0")).put("quote", "외부 변경");
+        ((ObjectNode) service.getProjectedState(job).at("/characters/hero/historyFacts/0")).put("quote", "다른 변경");
+        service.assertValidInput(job);
+        assertThat(job.getAutomaticInputState()).isEqualTo(original);
+        assertThat(job.getStateJournal()).isEqualTo(record);
+
+        ReflectionTestUtils.setField(job, "stateJournal", null);
+        ((ObjectNode) service.getProjectedState(job).at("/characters/hero/historyFacts/0")).put("quote", "빈 journal 변경");
+        assertThat(job.getAutomaticInputState()).isEqualTo(original);
+        ((ObjectNode) job.getAutomaticInputState().at("/characters/hero/historyFacts/0")).put("quote", "저장 입력 변조");
+        assertThatThrownBy(() -> service.assertValidInput(job)).isInstanceOf(AppException.class);
+    }
+
+    @Test
+    @DisplayName("도메인 상태를 조립한 뒤 한 번 복사해도 원본·기준 상태·고정 입력이 서로 분리된다")
+    void freezesCapturedSourcesAtPersistenceBoundary() {
+        var nodes = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance;
+        ObjectNode characters = nodes.objectNode();
+        characters.putObject("hero").putArray("historyFacts").addObject().put("quote", "보존 근거");
+        ObjectNode worlds = nodes.objectNode();
+        worlds.putObject("town").put("value", "보존 세계관");
+        ObjectNode references = nodes.objectNode();
+        references.putObject("existing").put("quote", "기존 참고");
+        var capturedSources = List.of(source("characters", characters), source("worldSettings", worlds),
+                source("references", references));
+        var pending = mock(AnalysisPendingReferenceSource.class);
+        ObjectNode advisory = nodes.objectNode();
+        advisory.putObject("pending").put("quote", "미확정 근거");
+        when(pending.capture(any())).thenReturn(advisory);
+        var capturingService = new AnalysisRunStateServiceImpl(jobs, journal, capturedSources,
+                mock(ApplicationEventPublisher.class), pending, jobSources);
+        AnalysisJob target = AnalysisJob.create(job.getWork(), null, episode, AnalysisJobType.SETTING_EXTRACTION);
+        ReflectionTestUtils.setField(target, "id", UUID.randomUUID());
+        target.configureReviewMode(AnalysisReviewMode.AUTOMATIC);
+        when(jobSources.findRunMembers(any(), any())).thenAnswer(ignored -> List.of(sourceView(target)));
+
+        capturingService.initializeRun(List.of(target));
+        assertThat(capturingService.prepareInput(target)).isTrue();
+        assertThat(references.has("pending")).isFalse();
+        ((ObjectNode) characters.at("/hero/historyFacts/0")).put("quote", "원본 변경");
+        ((ObjectNode) worlds.path("town")).put("value", "원본 변경");
+        ((ObjectNode) advisory.path("pending")).put("quote", "참고 변경");
+        assertThat(target.getRunBaseState().at("/characters/hero/historyFacts/0/quote").asText()).isEqualTo("보존 근거");
+        assertThat(target.getAutomaticInputState().at("/characters/hero/historyFacts/0/quote").asText()).isEqualTo("보존 근거");
+        assertThat(target.getAutomaticInputState().at("/worldSettings/town/value").asText()).isEqualTo("보존 세계관");
+        assertThat(target.getAutomaticInputState().at("/references/pending/quote").asText()).isEqualTo("미확정 근거");
+        assertThat(target.getRunBaseState().at("/references/pending").isMissingNode()).isTrue();
+        capturingService.assertValidInput(target);
+    }
+
+    private AnalysisStateSource source(String domain, ObjectNode captured) {
+        return new AnalysisStateSource() {
+            @Override public String domain() { return domain; }
+            @Override public JsonNode capture(Work work) { return captured; }
+        };
     }
 
     @Test
@@ -247,5 +316,32 @@ class PreparedAnalysisStateTest {
 
     private AnalysisStateChange change(String id, List<String> path, JsonNode value) {
         return new AnalysisStateChange(id, path, value, false, "IDENTITY", List.of(UUID.randomUUID()));
+    }
+
+    private AnalysisJobSourceView sourceView(AnalysisJob source) {
+        Map<String, Object> values = new LinkedHashMap<>();
+        values.put("id", source.getId());
+        values.put("workId", source.getWork().getId());
+        values.put("analysisMode", source.getAnalysisMode());
+        values.put("reviewMode", source.getReviewMode());
+        values.put("status", source.getStatus());
+        values.put("journalStatus", source.getJournalStatus());
+        values.put("automaticAppliedAt", source.getAutomaticAppliedAt());
+        values.put("analysisRunId", source.getAnalysisRunId());
+        values.put("runGeneration", source.getRunGeneration());
+        values.put("runSequence", source.getRunSequence());
+        values.put("predecessorJobId", source.getPredecessorJobId());
+        values.put("sourceKind", source.getSourceKind());
+        values.put("sourceEpisodeNo", source.getSourceEpisodeNo());
+        values.put("sourceContentHash", source.getSourceContentHash());
+        values.put("sourceContentS3Key", source.getSourceContentS3Key());
+        values.put("sourceContentS3Version", source.getSourceContentS3Version());
+        values.put("episodeId", source.getEpisode().getId());
+        values.put("episodeNo", source.getEpisode().getEpisodeNo());
+        values.put("episodeStatus", source.getEpisode().getStatus());
+        values.put("episodeContentHash", source.getEpisode().getContentHash());
+        values.put("episodeContentS3Key", source.getEpisode().getContentS3Key());
+        values.put("episodeContentS3Version", source.getEpisode().getContentS3Version());
+        return new SpelAwareProxyProjectionFactory().createProjection(AnalysisJobSourceView.class, values);
     }
 }

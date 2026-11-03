@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobClaimRepository;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceRepository;
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenAccountRepository;
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenExtensionRequestRepository;
 import org.monitoring.catchholebackend.domain.aitoken.repository.AiTokenGrantRepository;
@@ -18,6 +19,7 @@ import org.monitoring.catchholebackend.domain.character.repository.CharacterTime
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
+import org.monitoring.catchholebackend.domain.episode.repository.EpisodeAnalysisSummaryRepository;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodePurgeDataRepository;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeSourcePurgeRequestRepository;
 import org.monitoring.catchholebackend.domain.feedback.repository.FeedbackRepository;
@@ -117,6 +119,9 @@ class CatchHoleBackendApplicationTests {
     private EpisodeRepository episodeRepository;
 
     @MockitoBean
+    private EpisodeAnalysisSummaryRepository episodeAnalysisSummaryRepository;
+
+    @MockitoBean
     private org.monitoring.catchholebackend.domain.validation.repository.ValidationReportRepository validationReportRepository;
 
     @MockitoBean
@@ -175,6 +180,9 @@ class CatchHoleBackendApplicationTests {
 
     @MockitoBean
     private AnalysisJobRepository analysisJobRepository;
+
+    @MockitoBean
+    private AnalysisJobSourceRepository analysisJobSourceRepository;
 
     @MockitoBean
     private org.monitoring.catchholebackend.domain.analysis.repository.CandidateReviewMetadataRepository candidateReviewMetadataRepository;

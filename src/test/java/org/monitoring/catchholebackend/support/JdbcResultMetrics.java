@@ -107,7 +107,8 @@ public final class JdbcResultMetrics implements BeanPostProcessor {
             double executeMillis, String failure) {
         public boolean candidateQuery() { return sql.toLowerCase(Locale.ROOT).contains(" from world_setting_candidates "); }
         public boolean selectsJobJson() {
-            return selectedColumns.contains("automatic_input_state") || selectedColumns.contains("state_journal");
+            return selectedColumns.contains("automatic_input_state") || selectedColumns.contains("run_base_state")
+                    || selectedColumns.contains("state_journal");
         }
     }
 }

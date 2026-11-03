@@ -18,6 +18,19 @@ public class StoredCharacterEvidenceRepository {
 
     public Evidence find(SettingCandidate candidate) {
         if (candidate.getId() == null || candidate.getAnalysisJob() == null) return Evidence.unavailable();
+        return find(candidate, candidate.getAnalysisJob()::getSourceContentHash,
+                candidate.getAnalysisJob()::getSourceContentS3Key, candidate.getAnalysisJob()::getSourceContentS3Version);
+    }
+
+    public Evidence find(SettingCandidate candidate,
+            org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceView source) {
+        if (candidate.getId() == null || candidate.getAnalysisJob() == null || source == null) return Evidence.unavailable();
+        if (!Objects.equals(candidate.getAnalysisJob().getId(), source.getId())) return Evidence.unavailable();
+        return find(candidate, source::getSourceContentHash, source::getSourceContentS3Key, source::getSourceContentS3Version);
+    }
+
+    private Evidence find(SettingCandidate candidate, java.util.function.Supplier<String> expectedHash,
+            java.util.function.Supplier<String> expectedKey, java.util.function.Supplier<String> expectedVersion) {
         var rows = jdbc.query("""
                 select c.stored_evidence_validation as receipt,
                        j.source_content_hash, j.source_content_s3_key, j.source_content_s3_version,
@@ -38,9 +51,9 @@ public class StoredCharacterEvidenceRepository {
                     || !Objects.equals(receipt.path("sourceHash").asText(null), rs.getString("source_content_hash"))
                     || !Objects.equals(receipt.path("sourceKey").asText(null), rs.getString("source_content_s3_key"))
                     || !Objects.equals(receipt.path("sourceVersion").asText(null), rs.getString("source_content_s3_version"))
-                    || !Objects.equals(candidate.getAnalysisJob().getSourceContentHash(), rs.getString("source_content_hash"))
-                    || !Objects.equals(candidate.getAnalysisJob().getSourceContentS3Key(), rs.getString("source_content_s3_key"))
-                    || !Objects.equals(candidate.getAnalysisJob().getSourceContentS3Version(), rs.getString("source_content_s3_version"))) {
+                    || !Objects.equals(expectedHash.get(), rs.getString("source_content_hash"))
+                    || !Objects.equals(expectedKey.get(), rs.getString("source_content_s3_key"))
+                    || !Objects.equals(expectedVersion.get(), rs.getString("source_content_s3_version"))) {
                 return Evidence.unavailable();
             }
             return new Evidence(false, true, receipt.path("evidenceSpans"),

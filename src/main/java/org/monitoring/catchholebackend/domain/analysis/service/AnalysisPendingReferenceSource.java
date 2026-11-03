@@ -9,7 +9,8 @@ import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
-import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceRepository;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceView;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus;
@@ -18,7 +19,6 @@ import org.monitoring.catchholebackend.domain.character.type.CharacterFactCompar
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
-import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonReviewReason;
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
@@ -33,13 +33,13 @@ import org.springframework.stereotype.Component;
 public class AnalysisPendingReferenceSource {
     private final SettingCandidateRepository characterCandidates;
     private final WorldSettingCandidateRepository worldCandidates;
-    private final AnalysisJobRepository jobs;
+    private final AnalysisJobSourceRepository jobs;
 
     private final org.monitoring.catchholebackend.domain.character.repository.CharacterSettingSchemaRepository schemas;
     private final org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaResolver schemaResolver;
 
     public AnalysisPendingReferenceSource(SettingCandidateRepository characters,
-            WorldSettingCandidateRepository worlds, AnalysisJobRepository jobs) {
+            WorldSettingCandidateRepository worlds, AnalysisJobSourceRepository jobs) {
         this(characters, worlds, jobs, null, new org.monitoring.catchholebackend.domain.character.processor.SettingCandidateSchemaResolver());
     }
 
@@ -47,41 +47,51 @@ public class AnalysisPendingReferenceSource {
         ObjectNode references = JsonNodeFactory.instance.objectNode();
         var activeSchemas = schemas == null ? java.util.List.<org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema>of()
                 : schemas.findAllActiveForWork(current.getWork().getId());
-        Set<UUID> seenBooks=new HashSet<>();
-        for (AnalysisJob earlier : jobs.findAllByWorkIdAndSourceKindAndJobTypeOrderByCreatedAtDescIdDesc(current.getWork().getId(),
-                org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.SETTING_BOOK, AnalysisJobType.SETTING_EXTRACTION)) {
-            UUID bookId=earlier.getSourceSettingBook().getId();
+        var selected = new java.util.LinkedHashMap<AnalysisJobSourceView, Boolean>();
+        Set<UUID> seenBooks = new HashSet<>();
+        for (AnalysisJobSourceView earlier : jobs.findSettingBookExtractionJobs(current.getWork().getId())) {
+            UUID bookId = earlier.getSourceSettingBookId();
             // A newer attempt replaces pending references even when it analyzes the same revision.
             if (!seenBooks.add(bookId) || current.isSettingBookSource() && bookId.equals(current.getSourceSettingBook().getId())
-                    || !hasCurrentSource(earlier) || !earlier.isCompletedOrderedAnalysis()) continue;
-            captureCharacters(references,earlier,true,activeSchemas);
-            captureWorlds(references,earlier,true);
+                    || !earlier.hasCurrentReferenceSource() || !earlier.isCompletedOrderedAnalysis()) continue;
+            selected.put(earlier, true);
         }
-        if (current.getSourceEpisodeNo() == null || current.getSourceEpisodeNo() < 1) return references;
-        Set<UUID> seenEpisodes = new HashSet<>();
-        // 최신 분석이 무효/실패했을 때 오래된 분석으로 돌아가 참고하지 않는다.
-        for (AnalysisJob earlier : jobs.findEarlierExtractionJobsForReferences(
-                current.getWork().getId(), current.getSourceEpisodeNo())) {
-            Episode episode = earlier.getEpisode();
-            if (episode == null || !Objects.equals(earlier.getWork().getId(), current.getWork().getId())
-                    || earlier.getJobType() != AnalysisJobType.SETTING_EXTRACTION
-                    || episode.getEpisodeNo() < 1 || episode.getEpisodeNo() >= current.getSourceEpisodeNo()
-                    || !seenEpisodes.add(episode.getId()) || !hasCurrentSource(earlier)
-                    || earlier.getStatus() != AnalysisJobStatus.SUCCEEDED) continue;
-            boolean validAnalysis = !earlier.isOrderedProvisional()
-                    || earlier.getJournalStatus() == AnalysisJournalStatus.SEALED;
-            boolean editedAnalysis = earlier.isOrderedProvisional()
-                    && earlier.getJournalStatus() == AnalysisJournalStatus.INVALIDATED;
-            if (!validAnalysis && !editedAnalysis) continue;
-            captureCharacters(references, earlier, validAnalysis, activeSchemas);
-            captureWorlds(references, earlier, validAnalysis);
+        if (current.getSourceEpisodeNo() != null && current.getSourceEpisodeNo() >= 1) {
+            Set<UUID> seenEpisodes = new HashSet<>();
+            // 최신 분석이 무효/실패했을 때 오래된 분석으로 돌아가 참고하지 않는다.
+            for (AnalysisJobSourceView earlier : jobs.findEarlierExtractionJobsForReferences(
+                    current.getWork().getId(), current.getSourceEpisodeNo())) {
+                if (earlier.getEpisodeId() == null || !Objects.equals(earlier.getWorkId(), current.getWork().getId())
+                        || earlier.getJobType() != AnalysisJobType.SETTING_EXTRACTION
+                        || earlier.getEpisodeNo() < 1 || earlier.getEpisodeNo() >= current.getSourceEpisodeNo()
+                        || !seenEpisodes.add(earlier.getEpisodeId()) || !earlier.hasCurrentReferenceSource()
+                        || earlier.getStatus() != AnalysisJobStatus.SUCCEEDED) continue;
+                boolean validAnalysis = !earlier.isOrderedProvisional()
+                        || earlier.getJournalStatus() == AnalysisJournalStatus.SEALED;
+                boolean editedAnalysis = earlier.isOrderedProvisional()
+                        && earlier.getJournalStatus() == AnalysisJournalStatus.INVALIDATED;
+                if (validAnalysis || editedAnalysis) selected.put(earlier, validAnalysis);
+            }
         }
+        if (selected.isEmpty()) return references;
+        var ids = selected.keySet().stream().map(AnalysisJobSourceView::getId).toList();
+        var charactersByJob = characterCandidates.findPendingReferencesByAnalysisJobIds(ids).stream()
+                .collect(java.util.stream.Collectors.groupingBy(candidate -> candidate.getAnalysisJob().getId()));
+        var worldsByJob = worldCandidates.findPendingReferencesByAnalysisJobIds(ids).stream()
+                .collect(java.util.stream.Collectors.groupingBy(candidate -> candidate.getAnalysisJob().getId()));
+        selected.forEach((earlier, valid) -> {
+            captureCharacters(references, earlier, valid, activeSchemas,
+                    charactersByJob.getOrDefault(earlier.getId(), java.util.List.of()));
+            captureWorlds(references, earlier, valid,
+                    worldsByJob.getOrDefault(earlier.getId(), java.util.List.of()));
+        });
         return references;
     }
 
-    private void captureCharacters(ObjectNode references, AnalysisJob earlier, boolean validAnalysis,
-            java.util.List<org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema> activeSchemas) {
-        for (var candidate : characterCandidates.findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(earlier.getId())) {
+    private void captureCharacters(ObjectNode references, AnalysisJobSourceView earlier, boolean validAnalysis,
+            java.util.List<org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema> activeSchemas,
+            java.util.List<org.monitoring.catchholebackend.domain.character.entity.SettingCandidate> candidates) {
+        for (var candidate : candidates) {
             if (candidate.getReviewStatus() != SettingCandidateReviewStatus.PENDING_REVIEW
                     || !validAnalysis && !candidate.isUserModified()
                     || !sameSource(earlier, candidate.getWork().getId(), candidate.getEpisode(),candidate.getSourceSettingBook(),candidate.getSourceSettingBookRevision())
@@ -140,8 +150,9 @@ public class AnalysisPendingReferenceSource {
         }
     }
 
-    private void captureWorlds(ObjectNode references, AnalysisJob earlier, boolean validAnalysis) {
-        for (var candidate : worldCandidates.findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(earlier.getId())) {
+    private void captureWorlds(ObjectNode references, AnalysisJobSourceView earlier, boolean validAnalysis,
+            java.util.List<org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate> candidates) {
+        for (var candidate : candidates) {
             boolean edited = candidate.getFinalOperation() != null;
             if (candidate.getReviewStatus() != WorldSettingReviewStatus.PENDING_REVIEW
                     || candidate.getFinalOperation() == WorldSettingOperation.EXCLUDE
@@ -207,28 +218,15 @@ public class AnalysisPendingReferenceSource {
         }
     }
 
-    private boolean hasCurrentSource(AnalysisJob job) {
-        if (job.isSettingBookSource()) return job.hasCurrentSourceVersion();
-        Episode episode = job.getEpisode();
-        // CONFIRMED_ONLY도 명시적으로 검사한다. 그 모드의 hasCurrentSourceVersion은 항상 true다.
-        return episode.getStatus() != EpisodeStatus.ARCHIVED
-                && job.getSourceContentHash() != null && !job.getSourceContentHash().isBlank()
-                && job.getSourceContentS3Key() != null && !job.getSourceContentS3Key().isBlank()
-                && Objects.equals(job.getSourceEpisodeNo(), episode.getEpisodeNo())
-                && Objects.equals(job.getSourceContentHash(), episode.getContentHash())
-                && Objects.equals(job.getSourceContentS3Key(), episode.getContentS3Key())
-                && Objects.equals(job.getSourceContentS3Version(), episode.getContentS3Version());
-    }
-
-    private boolean sameSource(AnalysisJob job, UUID workId, Episode episode,
+    private boolean sameSource(AnalysisJobSourceView job, UUID workId, Episode episode,
             org.monitoring.catchholebackend.domain.upload.entity.UploadFile book,
             org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision revision) {
-        if (!Objects.equals(job.getWork().getId(),workId)) return false;
+        if (!Objects.equals(job.getWorkId(),workId)) return false;
         if (job.isSettingBookSource()) return episode == null && book != null && revision != null
-                && book.getId().equals(job.getSourceSettingBook().getId())
-                && revision.getId().equals(job.getSourceSettingBookRevision().getId());
+                && book.getId().equals(job.getSourceSettingBookId())
+                && revision.getId().equals(job.getSourceSettingBookRevisionId());
         return episode != null
-                && Objects.equals(job.getEpisode().getId(), episode.getId());
+                && Objects.equals(job.getEpisodeId(), episode.getId());
     }
 
     private boolean hasEvidence(JsonNode evidence) {
@@ -241,7 +239,7 @@ public class AnalysisPendingReferenceSource {
 
     private boolean hasText(String value) { return value != null && !value.isBlank(); }
 
-    private ObjectNode reference(String domain, String subject, AnalysisJob source, String setting, String value,
+    private ObjectNode reference(String domain, String subject, AnalysisJobSourceView source, String setting, String value,
             JsonNode evidence, boolean edited) {
         ObjectNode reference = JsonNodeFactory.instance.objectNode();
         reference.put("domain", domain);

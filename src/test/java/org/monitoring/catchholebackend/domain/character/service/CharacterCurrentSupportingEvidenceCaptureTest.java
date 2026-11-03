@@ -53,6 +53,7 @@ class CharacterCurrentSupportingEvidenceCaptureTest {
     private final org.springframework.jdbc.core.JdbcTemplate jdbc = mock(org.springframework.jdbc.core.JdbcTemplate.class);
     private CharacterAnalysisStateSource capture;
     private CharacterCurrentSupportingEvidenceResolver resolver;
+    private org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceRepository sourceJobs;
     private org.monitoring.catchholebackend.domain.character.repository.StoredCharacterEvidenceRepository storedEvidence;
     private Work work;
     private WorkCharacter character;
@@ -95,7 +96,8 @@ class CharacterCurrentSupportingEvidenceCaptureTest {
         when(storage.contentHash(content)).thenReturn("a".repeat(64));
         currentFacts(List.of(fact));
         storedEvidence = org.monitoring.catchholebackend.support.StoredCharacterEvidenceTestSupport.verified(content);
-        resolver = new CharacterCurrentSupportingEvidenceResolver(storedEvidence);
+        sourceJobs = org.monitoring.catchholebackend.support.AnalysisJobSourceViewTestSupport.repositoryFor(origin);
+        resolver = new CharacterCurrentSupportingEvidenceResolver(storedEvidence, sourceJobs);
         capture = new CharacterAnalysisStateSource(characters,sources,new CharacterSnapshotAccessor(),
                 new CharacterAnalysisStateMapper(),candidates,factRepository,resolver);
     }
@@ -541,6 +543,7 @@ class CharacterCurrentSupportingEvidenceCaptureTest {
         ReflectionTestUtils.setField(revision, "id", UUID.randomUUID());
         var job = AnalysisJob.createSettingBook(work, book, revision);
         ReflectionTestUtils.setField(job, "id", UUID.randomUUID());
+        when(sourceJobs.findSourceById(job.getId())).thenAnswer(call -> java.util.Optional.of(org.monitoring.catchholebackend.support.AnalysisJobSourceViewTestSupport.view(job)));
         var raw = json.createObjectNode();
         var proof = raw.putObject("setting_book_identity_proof").put("parentTargetRef", "K1");
         proof.putArray("members").addObject().put("targetRef", "K1").set("profileEvidence", span);
@@ -690,6 +693,7 @@ class CharacterCurrentSupportingEvidenceCaptureTest {
         book.linkCurrentRevision(revision);
         var bookJob = AnalysisJob.createSettingBook(work, book, revision);
         ReflectionTestUtils.setField(bookJob, "id", UUID.randomUUID());
+        when(sourceJobs.findSourceById(bookJob.getId())).thenAnswer(call -> java.util.Optional.of(org.monitoring.catchholebackend.support.AnalysisJobSourceViewTestSupport.view(bookJob)));
         ReflectionTestUtils.setField(candidate, "analysisJob", bookJob);
         ReflectionTestUtils.setField(candidate, "episode", null);
         ReflectionTestUtils.setField(fact, "extractedByJob", bookJob);

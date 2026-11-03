@@ -996,6 +996,14 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - 캐릭터의 새 이력은 `AnalysisStateChange.ValueMode.APPEND_HISTORY`로 `characters/<ref>/historyFacts`에 추가된 항목만 기록한다. 이전 전체 배열 REPLACE와 새 추가 연산은 원래 순서로 재생하며 같은 event의 충돌·멱등, 보류 기여 복원과 원문 파기를 보존한다. 이력/근거를 잘라내거나 최신 값으로 대체하지 않는다.
 - DB journal은 새 추가 연산을 저장할 때만 envelope v2로 승격하고 v1/v2를 읽는다. Worker `analysisContext.formatVersion=1`은 별도 계약으로 유지한다. v1 안의 추가 연산과 알 수 없는 모드는 거절한다. 구 Java로 코드만 롤백하면 v2 재생이 거절되므로 배포/복구 때 저장 버전 호환을 확인한다. 규약과 한계는 `docs/analysis-comparison-memory.md`, 측정은 `docs/load-tests/gh365-comparison-memory.md`를 따른다.
 
+### 누적 회차 조회와 입력 복사 경계 (#374)
+
+- 다음 자동 회차의 선행 순서·원문 결속 검사, 과거 미확정·사용자 반려 참고와 확정 근거의 출처 조립은 `AnalysisJobSourceRepository`의 scalar view를 사용한다. 메타데이터만 필요한 경로에서 Job 엔티티의 입력·기준 상태·journal JSON을 초기화하지 않는다. 최신 시도 선정과 원문 파기·소유권·상태·반려 fingerprint 검증은 유지한다.
+- 미확정 참고 후보는 선택된 과거 Job의 `PENDING_REVIEW`만 DB에서 읽는다. 확정 설정의 사실·인용·이력은 기존대로 모두 읽고, 개수 제한·요약·저장 데이터 삭제로 메모리를 줄이지 않는다. 요청 내 출처 캐시는 요청 밖에 공유하지 않는다.
+- 회차 목록의 최신 분석 상태는 큰 Job JSON을 제외한 `EpisodeAnalysisSummaryRepository` projection으로 읽는다. 최신 생성 시각의 동률은 기존과 같이 특정 UUID 우선순위를 새로 부여하지 않는다.
+- `AnalysisStateJournal.hash`는 기존 canonical UTF-8를 버퍼로 SHA-256에 전달한다. 객체 key 정렬, 배열·유니코드, 숫자 표현과 v1/v2 hash 계약은 바꾸지 않는다. 자동 입력의 내부 읽기 검증은 저장 노드를 수정하지 않고, 저장·공개 반환·PreparedState의 방어 복사는 유지한다.
+- 범위와 보존 계약은 `docs/analysis-history-memory.md`, 같은 768MiB 조건의 합성 전후 검증은 `docs/load-tests/gh374-analysis-history-memory.md`에 기록한다. 운영의 정확한 동시 부하 재현이나 OOM 완전 제거로 확대 해석하지 않는다.
+
 ### 캐릭터 비교 근거 수명 (#363)
 
 - V112는 `setting_candidates.stored_evidence_validation`을 DB가 파생하는 검증 기록으로 관리한다. 후보 저장/근거 변경 시 같은 출처의 DB 청크로 인용·Unicode 위치·시점·설정집 부모 프로필 근거를 검증하고, 입력 JSON 및 Job의 key/version/hash와 결속한다. 상태만 바뀌는 저장은 재청킹 후에도 기존 검증을 보존한다. 애플리케이션은 이 컬럼을 직접 쓰지 않는다.
@@ -1019,8 +1027,9 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - API 응답 규약을 바꾸면 MockMvc 테스트도 함께 갱신한다.
 - DB 설정이 필요한 통합 테스트는 `test` profile의 H2 인메모리 DB를 기본으로 사용한다.
 - 기본 H2 DB 이름은 `${random.uuid}`로 Spring Context마다 분리하고 `src/test/java/.../support/TestClassContextCustomizerFactory`를 test 전용 `META-INF/spring.factories`에 등록해 Context 캐시도 테스트 클래스별로 분리한다. 서로 다른 클래스가 같은 DB의 schema를 생성·삭제하거나 커밋된 fixture를 공유하지 않게 하기 위함이다. 같은 클래스의 메서드 간에는 기존 트랜잭션 rollback 또는 명시적인 fixture 정리를 유지하며 PostgreSQL 테스트의 명시적인 DB override는 보존한다.
-- Gradle 테스트 JVM heap은 1GiB, Spring TestContext 캐시는 8개로 제한한다. 전체 테스트에서 여러 JPA Context를 보관하다 CI heap이 고갈되는 것을 막기 위한 테스트 전용 설정이며 운영 JVM 설정을 바꾸지 않는다.
+- 기본 테스트 JVM의 최대 heap은 2GiB, Spring Context cache는 1개이며 25개 테스트 클래스마다 JVM을 교체한다. 한 클래스에서 수십 번 JPA Context를 재생성하는 회귀 검증의 초기화 여유를 두고, 재사용 불가능한 이전 Context와 긴 suite의 테스트 전용 누적 메모리를 회수하기 위한 설정이다. 같은 클래스 내 메서드 재사용·동시성 검증은 유지한다. 클래스 병렬 실행이나 Context 계층을 도입할 때는 활성 Context가 퇴출되지 않도록 한도를 재검토한다. 성능 비교의 768MiB 전용 JVM 설정과 운영 JVM 설정은 별도로 유지한다.
 - `main` 대상 PR은 `.github/workflows/ci.yml`에서 전체 테스트와 `bootJar`를 실행하고 실패 보고서를 7일간 보관한다. 배포 전에 실패를 확인하기 위한 검증 전용 workflow이며 이미지 발행·운영 배포는 실행하지 않는다. `main` push의 기존 이미지 발행 테스트도 유지한다.
+- PR의 Java CI job은 최대 45분, 전체 테스트·빌드 step은 최대 40분으로 제한한다. 클래스별 Context 격리와 JVM 교체를 포함한 전체 회귀가 기존 20분 제한에 취소된 사례를 반영하며, step 제한 뒤 실패 보고서를 올릴 시간을 남긴다. 테스트 대상과 운영 설정은 바꾸지 않는다.
 - GH304 실제 연결 검증은 `ComparisonEvidenceHttpPostgresIntegrationTest`에서 전용 Testcontainers EPISODE·Spring HTTP·합성 저장소를 사용한다. `GH304_AI_CHECKOUT`은 AI checkout, `GH304_PYTHON`은 별도 기존 venv의 Python 경로다. 이 두 값을 지정하면 실제 Python 실패 보고와 localhost 가짜 Discord, 변경 전 DTO 수신을 함께 실행한다. 외부 provider/webhook과 실제 원고는 사용하지 않는다. Java 시간 payload export의 기존 빈 디렉터리 `BATCH_TIME_FIX_OUTPUT`을 Python에도 전달해 네 계약 검증을 실행한다.
 - 이메일·휴대폰 인증의 TTL, Lua rate limit 경계, 이전 코드 폐기, 오입력 잠금과 동시 토큰 소비는 `redis:7.4.10-alpine3.21` Testcontainers 통합 테스트로 검증한다.
 

@@ -19,6 +19,7 @@ public class WorldSettingAnalysisStateSource implements AnalysisStateSource {
     private final WorldSettingRepository repository;
     private final WorldSettingAnalysisStateMapper mapper;
     private final WorldSettingCandidateRepository candidateRepository;
+    private final org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceRepository sourceJobs;
 
     @Override
     public String domain() {
@@ -28,13 +29,17 @@ public class WorldSettingAnalysisStateSource implements AnalysisStateSource {
     @Override
     public JsonNode capture(Work work) {
         ObjectNode result = JsonNodeFactory.instance.objectNode();
+        var sources = sourceJobs.findExtractionSourcesForWork(work.getId()).stream().collect(
+                java.util.stream.Collectors.toMap(org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceView::getId,
+                        java.util.function.Function.identity()));
         repository.findAllByWorkIdOrderByIdAsc(work.getId()).forEach(setting -> {
             ObjectNode state = mapper.toState(setting);
             var candidates = candidateRepository
                     .findAllByTargetWorldSettingIdAndReviewStatusOrderByReviewedAtDescCreatedAtDescIdDesc(
                             setting.getId(), WorldSettingReviewStatus.CONFIRMED).stream()
                     .filter(candidate -> !candidate.isHistoryOnly()).toList();
-            mapper.addConfirmedProvenance(state, candidates);
+            mapper.addConfirmedProvenance(state, candidates, job -> job == null ? null : sources.computeIfAbsent(job.getId(),
+                    id -> sourceJobs.findSourceById(id).orElseThrow(() -> new IllegalStateException("세계관 근거의 분석 출처가 없습니다."))));
             Integer latestSourceEpisodeNo = candidates.stream()
                     .map(candidate -> candidate.getSourceEpisode())
                     .filter(java.util.Objects::nonNull)

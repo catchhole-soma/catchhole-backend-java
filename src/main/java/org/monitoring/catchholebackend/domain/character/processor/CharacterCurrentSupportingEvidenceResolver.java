@@ -13,6 +13,8 @@ import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceView;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceRepository;
 import org.monitoring.catchholebackend.domain.analysis.processor.GeneralEvidenceProjection;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
@@ -27,7 +29,19 @@ import org.springframework.stereotype.Component;
 public class CharacterCurrentSupportingEvidenceResolver {
     private final org.monitoring.catchholebackend.domain.character.repository.StoredCharacterEvidenceRepository storedEvidence;
 
-    public Capture begin(Work work) { return new Capture(work.getId()); }
+    private final AnalysisJobSourceRepository sourceJobs;
+
+    public Capture begin(Work work) {
+        Capture capture = new Capture(work.getId());
+        sourceJobs.findExtractionSourcesForWork(work.getId()).forEach(source -> capture.sources.put(source.getId(), source));
+        return capture;
+    }
+
+    /** The proxy identifier is safe to read without hydrating its large Job JSON columns. */
+    public AnalysisJobSourceView source(Capture capture, AnalysisJob job) {
+        if (job == null) return null;
+        return capture.sources.computeIfAbsent(job.getId(), id -> sourceJobs.findSourceById(id).orElseThrow(this::invalid));
+    }
 
     public ArrayNode captureSlot(Capture capture, WorkCharacter owner, CharacterSnapshotSlot slot,
             List<CharacterFact> facts) {
@@ -76,7 +90,7 @@ public class CharacterCurrentSupportingEvidenceResolver {
         ObjectNode origin = captureRetainedCandidate(capture, discovery);
         result.addAll((ArrayNode) origin.path("evidenceSpans"));
         if (discovery.isReviewedAutomatically() && discovery.getAnalysisJob() != null
-                && discovery.getAnalysisJob().isSettingBookSource() && discovery.getRawAiResultJson() != null) {
+                && source(capture, discovery.getAnalysisJob()).isSettingBookSource() && discovery.getRawAiResultJson() != null) {
             JsonNode proof = discovery.getRawAiResultJson().path("setting_book_identity_proof");
             for (JsonNode member : proof.path("members")) {
                 JsonNode span = member.path("profileEvidence");
@@ -95,14 +109,14 @@ public class CharacterCurrentSupportingEvidenceResolver {
     }
 
     private ObjectNode captureCandidate(Capture capture, SettingCandidate candidate, JsonNode evidence) {
-        AnalysisJob job = candidate.getAnalysisJob();
+        AnalysisJobSourceView job = source(capture, candidate.getAnalysisJob());
         if (job == null) return unavailable(candidate.getId(), null, "LEGACY_NO_MANIFEST", candidate.hasUserEditedContent());
-        if (!same(job.getWork().getId(), capture.workId) || !same(candidate.getWork().getId(), capture.workId)
+        if (!same(job.getWorkId(), capture.workId) || !same(candidate.getWork().getId(), capture.workId)
                 || job.getId() == null || job.getJobType() != AnalysisJobType.SETTING_EXTRACTION) throw invalid();
         boolean noManifest = job.getSourceContentHash() == null && job.getSourceContentS3Key() == null;
         if (noManifest) return unavailable(candidate.getId(), job.getId(), "LEGACY_NO_MANIFEST", candidate.hasUserEditedContent());
         if (job.getSourceContentHash() == null || !job.getSourceContentHash().matches("[0-9a-f]{64}")
-                || job.getSourceContentS3Key() == null || job.getSourceContentS3Key().isBlank()) throw new InvalidEvidenceException("CURRENT_EVIDENCE_MANIFEST_INVALID", job);
+                || job.getSourceContentS3Key() == null || job.getSourceContentS3Key().isBlank()) throw new InvalidEvidenceException("CURRENT_EVIDENCE_MANIFEST_INVALID", job.getId(), job.getEpisodeId(), job.getSourceEpisodeNo());
         var retained = evidence(capture, candidate);
         if (retained.invalidated()) {
             ObjectNode row = unavailable(candidate.getId(), job.getId(), "SOURCE_EVIDENCE_PURGED", candidate.hasUserEditedContent());
@@ -136,9 +150,9 @@ public class CharacterCurrentSupportingEvidenceResolver {
             if (time.path(field).isObject() && time.path(field).path("evidenceSpans").isArray()
                     && time.path(field).path("evidenceSpans").isEmpty()) return JsonNodeFactory.instance.nullNode();
         }
-        AnalysisJob job = candidate.getAnalysisJob();
+        AnalysisJobSourceView job = source(capture, candidate.getAnalysisJob());
         if (job == null || !same(candidate.getWork().getId(), capture.workId)
-                || !same(job.getWork().getId(), capture.workId) || !time.isObject() || time.size() != 2
+                || !same(job.getWorkId(), capture.workId) || !time.isObject() || time.size() != 2
                 || !time.has("factTime") || !time.has("referenceTime")) throw invalid();
         // An explicit unknown pair contains nothing to validate and must never dereference its old source.
         if (time.get("factTime").isNull() && time.get("referenceTime").isNull()) return time.deepCopy();
@@ -172,36 +186,35 @@ public class CharacterCurrentSupportingEvidenceResolver {
     }
 
     private org.monitoring.catchholebackend.domain.character.repository.StoredCharacterEvidenceRepository.Evidence evidence(Capture capture, SettingCandidate candidate) {
-        return capture.evidence.computeIfAbsent(candidate, storedEvidence::find);
+        return capture.evidence.computeIfAbsent(candidate, row -> storedEvidence.find(row, source(capture, row.getAnalysisJob())));
     }
 
-    private ObjectNode source(AnalysisJob job) {
+    private ObjectNode source(AnalysisJobSourceView job) {
         ObjectNode node = JsonNodeFactory.instance.objectNode().put("sourceKind", job.getSourceKind().name());
         node.putNull("episodeId").putNull("episodeNo").putNull("settingBookId").putNull("revisionId")
                 .putNull("revisionNo").put("contentHash", job.getSourceContentHash())
                 .putNull("referenceTimeKind").putNull("referenceEpisodeNo");
         if (job.isSettingBookSource()) {
-            var book = job.getSourceSettingBook();
-            var revision = job.getSourceSettingBookRevision();
-            if (book == null || revision == null || book.getBatch() == null
-                    || !same(book.getBatch().getWork().getId(), job.getWork().getId())
-                    || !same(revision.getSettingBook().getId(), book.getId())
-                    || !Objects.equals(revision.getContentHash(), job.getSourceContentHash())
-                    || !Objects.equals(revision.getContentS3Key(), job.getSourceContentS3Key())
-                    || !Objects.equals(revision.getContentS3Version(), job.getSourceContentS3Version())) throw invalid();
-            node.put("settingBookId", book.getId().toString()).put("revisionId", revision.getId().toString())
-                    .put("revisionNo", revision.getRevisionNo()).put("referenceTimeKind", revision.getReferenceTimeKind().name())
-                    .put("referenceEpisodeNo", revision.getReferenceEpisodeNo());
+            if (job.getSourceSettingBookId() == null || job.getSourceSettingBookRevisionId() == null
+                    || !same(job.getSourceSettingBookWorkId(), job.getWorkId())
+                    || !same(job.getRevisionSettingBookId(), job.getSourceSettingBookId())
+                    || !Objects.equals(job.getRevisionContentHash(), job.getSourceContentHash())
+                    || !Objects.equals(job.getRevisionContentS3Key(), job.getSourceContentS3Key())
+                    || !Objects.equals(job.getRevisionContentS3Version(), job.getSourceContentS3Version())) throw invalid();
+            node.put("settingBookId", job.getSourceSettingBookId().toString())
+                    .put("revisionId", job.getSourceSettingBookRevisionId().toString())
+                    .put("revisionNo", job.getSourceSettingBookRevisionNo())
+                    .put("referenceTimeKind", job.getSourceReferenceTimeKind().name())
+                    .put("referenceEpisodeNo", job.getSourceReferenceEpisodeNo());
         } else {
-            var episode = job.getEpisode();
-            if (episode == null || !same(episode.getWork().getId(), job.getWork().getId())
+            if (job.getEpisodeId() == null || !same(job.getEpisodeWorkId(), job.getWorkId())
                     || job.getSourceEpisodeNo() == null || job.getSourceEpisodeNo() < 1) throw invalid();
-            node.put("episodeId", episode.getId().toString()).put("episodeNo", job.getSourceEpisodeNo());
+            node.put("episodeId", job.getEpisodeId().toString()).put("episodeNo", job.getSourceEpisodeNo());
         }
         return node;
     }
 
-    private void storageBinding(ObjectNode row, AnalysisJob job) {
+    private void storageBinding(ObjectNode row, AnalysisJobSourceView job) {
         row.putObject("storageBinding").put("key", job.getSourceContentS3Key()).put("versionId", job.getSourceContentS3Version());
     }
 
@@ -226,6 +239,7 @@ public class CharacterCurrentSupportingEvidenceResolver {
 
     public static final class Capture {
         private final UUID workId;
+        private final Map<UUID, AnalysisJobSourceView> sources = new java.util.HashMap<>();
         private final Map<SettingCandidate, org.monitoring.catchholebackend.domain.character.repository.StoredCharacterEvidenceRepository.Evidence> evidence = new java.util.IdentityHashMap<>();
         private Capture(UUID workId) { this.workId = Objects.requireNonNull(workId); }
     }
@@ -235,15 +249,18 @@ public class CharacterCurrentSupportingEvidenceResolver {
         public InvalidEvidenceException() { this("CURRENT_EVIDENCE_BINDING_INVALID"); }
         public InvalidEvidenceException(String reason) { this(reason, null); }
         public InvalidEvidenceException(String reason, AnalysisJob source) {
-            super(AnalysisJobErrorCode.ANALYSIS_CURRENT_EVIDENCE_INVALID, diagnosticContext(reason, source));
+            this(reason, source == null ? null : source.getId(),
+                    source == null || source.getEpisode() == null ? null : source.getEpisode().getId(),
+                    source == null ? null : source.getSourceEpisodeNo());
+        }
+        public InvalidEvidenceException(String reason, UUID jobId, UUID episodeId, Integer episodeNo) {
+            super(AnalysisJobErrorCode.ANALYSIS_CURRENT_EVIDENCE_INVALID, diagnosticContext(reason, jobId, episodeId, episodeNo));
         }
     }
 
-    private static Map<String, Object> diagnosticContext(String reason, AnalysisJob source) {
+    private static Map<String, Object> diagnosticContext(String reason, UUID jobId, UUID episodeId, Integer episodeNo) {
         return Map.of("failureDiagnostics", new AnalysisFailureDiagnostics(1, "SPRING", "UNKNOWN", reason,
                 "CURRENT_EVIDENCE_SOURCE_READ_FAILED".equals(reason) ? "ANALYSIS_CURRENT_EVIDENCE_SOURCE_UNAVAILABLE" : "ANALYSIS_CURRENT_EVIDENCE_INVALID",
-                null, null, null, source == null ? null : source.getId(), null,
-                source == null || source.getEpisode() == null ? null : source.getEpisode().getId(),
-                source == null ? null : source.getSourceEpisodeNo()));
+                null, null, null, jobId, null, episodeId, episodeNo));
     }
 }

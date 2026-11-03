@@ -6,8 +6,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.HexFormat;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -81,6 +84,37 @@ class AnalysisStateJournalTest {
         assertThat(journal.hash(first)).isEqualTo(journal.hash(second));
         assertThat(journal.canonicalJson(first)).contains("\"값\":1,");
         assertThat(journal.hash(first)).isNotEqualTo(journal.hash(mapper.readTree("{\"배열\":[2,1],\"값\":1,\"이름\":\"주인공\"}")));
+    }
+
+    @Test
+    @DisplayName("버퍼보다 큰 인용과 유니코드·제어 문자도 기존 canonical UTF-8 hash를 보존한다")
+    void streamsLargeEvidenceWithoutChangingCanonicalBytesOrInput() throws Exception {
+        String quote = "가😀".repeat(10_000) + "\n\t\"\\";
+        ObjectNode input = mapper.createObjectNode();
+        input.put("z", quote);
+        input.set("a", mapper.readTree("[null,true,false,-0.0,1e-12,1.2300]"));
+        JsonNode before = input.deepCopy();
+        String canonical = "{\"a\":[null,true,false,0,0.000000000001,1.23],\"z\":\""
+                + "가😀".repeat(10_000) + "\\n\\t\\\"\\\\\"}";
+        String expectedHash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                .digest(canonical.getBytes(StandardCharsets.UTF_8)));
+
+        assertThat(journal.canonicalJson(input)).isEqualTo(canonical);
+        assertThat(journal.hash(input)).isEqualTo(expectedHash);
+        assertThat(input).isEqualTo(before);
+        input.put("z", quote + "추가 근거");
+        assertThat(journal.hash(input)).isNotEqualTo(expectedHash);
+    }
+
+    @Test
+    @DisplayName("스트리밍 hash도 비유한 숫자와 지원하지 않는 JSON 노드를 거절한다")
+    void streamingHashKeepsInvalidValueRejection() {
+        for (JsonNode invalid : List.of(mapper.getNodeFactory().numberNode(Double.NaN),
+                mapper.getNodeFactory().numberNode(Double.POSITIVE_INFINITY),
+                mapper.getNodeFactory().binaryNode(new byte[]{1}), mapper.missingNode())) {
+            assertThatThrownBy(() -> journal.hash(invalid)).isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> journal.canonicalJson(invalid)).isInstanceOf(IllegalArgumentException.class);
+        }
     }
 
     @ParameterizedTest

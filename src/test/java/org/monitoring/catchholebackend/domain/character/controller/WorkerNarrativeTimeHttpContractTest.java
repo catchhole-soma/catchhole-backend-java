@@ -158,6 +158,7 @@ class WorkerNarrativeTimeHttpContractTest {
  @Test void productionTimeValuesSurviveActualHttpIncludingLegacyNulls() throws Exception {
   var verified=org.monitoring.catchholebackend.support.StoredCharacterEvidenceTestSupport.verified(quote);
   when(storedEvidence.find(any())).thenAnswer(call -> verified.find(call.getArgument(0)));
+  when(storedEvidence.find(any(), any())).thenAnswer(call -> verified.find(call.getArgument(0), call.getArgument(1)));
 
   Member member=Member.register("time-contract@fixture.invalid","fixture",null,"검증");
   Work work=Work.create(member,"시점 HTTP 계약",WorkGenre.FANTASY,null);id(work,UUID.randomUUID());
