@@ -24,6 +24,7 @@ public class ValidationUsageServiceImpl implements ValidationUsageService {
     private final AiTokenUsageRepository usages;
     private final AiTokenAccountRepository accounts;
     private final AiTokenService accountService;
+    private final org.monitoring.catchholebackend.domain.validation.mapper.ValidationDataMapper sources;
 
     @Transactional public Map<String,Object> reserveValidationUsage(UUID id,UUID lease,Reserve command) {
         var job=access.running(id,lease,command.scope());
@@ -34,6 +35,8 @@ public class ValidationUsageServiceImpl implements ValidationUsageService {
                     ||!model.path("model").asText().equals(query.indexModel())||!model.path("version").asText().equals(query.indexVersion())||model.path("dimensions").asInt()!=query.indexDimensions())throw error(VALIDATION_RESULT_INVALID);
             callInput=mapper.toTree(query);
         } else if(query!=null)throw error(VALIDATION_RESULT_INVALID);
+        if(command.role()==ValidationRole.INDEX_EMBEDDING)callInput=indexInput(job,command.indexInput());
+        else if(command.indexInput()!=null)throw error(VALIDATION_RESULT_INVALID);
         var existing=usages.findByRequestId(command.requestId()).orElse(null);
         if(existing!=null) {
             owned(existing,job,lease,command.scope());
@@ -48,10 +51,27 @@ public class ValidationUsageServiceImpl implements ValidationUsageService {
         if(prior.size()>=limits.path("maxCalls").asInt()||command.reservedTokens()>limits.path("maxReservedTokens").asLong()-allocated)throw error(VALIDATION_EXECUTION_LIMIT_EXCEEDED);
         // Configuration v2: one call may reserve at most the branch input cap plus that generation role's own output cap.
         var perCall=job.getConfiguration().path("budgets").path(role==ValidationRole.TYPO?"typo":"setting");
-        if(role!=ValidationRole.QUERY_EMBEDDING&&command.reservedTokens()>(long)perCall.path("inputTokens").asInt()+limits.path("outputTokens").asInt())throw error(VALIDATION_EXECUTION_LIMIT_EXCEEDED);
+        // Embedding roles have no generation input/output split; their per-run maxReservedTokens above bounds them.
+        if(!role.embedding()&&command.reservedTokens()>(long)perCall.path("inputTokens").asInt()+limits.path("outputTokens").asInt())throw error(VALIDATION_EXECUTION_LIMIT_EXCEEDED);
         var usage=AiTokenUsage.reserveValidation(command.requestId(),job,role.purpose(),command.model(),command.reservedTokens());
         usage.bindValidationCallInput(callInput);
-        account(job).reserve(usage.getReservedCharge());usages.save(usage);return view(usage);
+        // A service-paid call (INDEX_EMBEDDING) holds nothing on the author's account.
+        if(!usage.isServicePaid())account(job).reserve(usage.getReservedCharge());
+        usages.save(usage);return view(usage);
+    }
+    /**
+     * 접수 때 색인 채우기(2026-11-02): 예약 하나는 이 실행의 고정 RAG 출처(앞 회차, 접수 때 현재 판이던 설정집) 하나의 조각 묶음이다.
+     * 입력 digest·manifest·색인 identity와 출처 ref·hash가 고정 실행과 같아야 하며 원문은 받지 않는다(hash만 원장에 남긴다).
+     */
+    private com.fasterxml.jackson.databind.JsonNode indexInput(ValidationJob job,IndexInput index) {
+        var model=job.getConfiguration().path("models").path("INDEX_EMBEDDING");
+        if(index==null||index.contractVersion()!=1||!job.getInputDigest().equals(index.inputDigest())||!job.getManifestHash().equals(index.manifestHash())
+                ||!model.path("model").asText().equals(index.indexModel())||!model.path("version").asText().equals(index.indexVersion())||model.path("dimensions").asInt()!=index.indexDimensions())throw error(VALIDATION_RESULT_INVALID);
+        var source=sources.toSourceReferences(job.getReport()).get(index.sourceRef());
+        boolean indexed=source!=null&&("EPISODE".equals(source.path("sourceKind").asText())
+                ||"SETTING_BOOK".equals(source.path("sourceKind").asText())&&source.path("currentRevision").asBoolean(false));
+        if(!indexed||!index.sourceHash().equals(source.path("contentHash").asText()))throw error(VALIDATION_RESULT_INVALID);
+        return mapper.toTree(index);
     }
     @Transactional public Map<String,Object> reportValidationUsage(UUID id,UUID lease,UUID request,Usage command) {
         var job=access.lock(id);var usage=usages.findByRequestId(request).orElseThrow(()->error(VALIDATION_NOT_FOUND));

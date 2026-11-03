@@ -25,7 +25,7 @@ public record ValidationExecutionProperties(boolean enabled, Duration leaseDurat
                 throw new IllegalArgumentException("검수 실행 예산을 명시적으로 설정해야 합니다.");
         }
     }
-    /** Generation roles carry their own output cap, model and reasoning effort; QUERY_EMBEDDING leaves all three empty. */
+    /** Generation roles carry their own output cap, model and reasoning effort; embedding roles (QUERY/INDEX_EMBEDDING) leave all three empty. */
     public record RoleBudget(int maxCalls,long maxReservedTokens,Integer outputTokens,String model,String reasoningEffort) {
         public void validate(ValidationRole role) {
             if(maxCalls<1||maxReservedTokens<1)throw new IllegalArgumentException("검수 역할 예산이 필요합니다.");
@@ -53,6 +53,11 @@ public record ValidationExecutionProperties(boolean enabled, Duration leaseDurat
                 roles.get(ValidationRole.QUERY_EMBEDDING).validate(ValidationRole.QUERY_EMBEDDING);
                 if(!"text-embedding-3-small".equals(queryEmbeddingModel))throw new IllegalArgumentException("기존 검색 색인과 호환되는 명시적 임베딩 모델이 필요합니다.");
             } else if(queryEmbeddingModel!=null&&!queryEmbeddingModel.isBlank())throw new IllegalArgumentException("검수 임베딩 예산이 필요합니다.");
+            // 접수 때 색인 채우기(INDEX_EMBEDDING)는 같은 색인 공간을 채우므로 검색(QUERY_EMBEDDING)이 켜진 설정에서만 둔다.
+            if(roles.containsKey(ValidationRole.INDEX_EMBEDDING)) {
+                if(!roles.containsKey(ValidationRole.QUERY_EMBEDDING))throw new IllegalArgumentException("검수 색인 채우기에는 검색 임베딩(QUERY_EMBEDDING) 예산이 필요합니다.");
+                roles.get(ValidationRole.INDEX_EMBEDDING).validate(ValidationRole.INDEX_EMBEDDING);
+            }
         }
     }
 }

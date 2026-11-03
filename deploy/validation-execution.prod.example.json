@@ -46,6 +46,10 @@
         "QUERY_EMBEDDING": {
           "max-calls": 250,
           "max-reserved-tokens": 400000
+        },
+        "INDEX_EMBEDDING": {
+          "max-calls": 400,
+          "max-reserved-tokens": 40000000
         }
       },
       "query-embedding-model": "text-embedding-3-small"

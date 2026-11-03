@@ -12,9 +12,10 @@ import org.monitoring.catchholebackend.global.config.validation.ValidationExecut
  * 검수 Job configuration v2(#349 grid v4)를 쓰는 유일한 곳. 접수(queuePrepared)와 legacy 설정의 retry 전환이 이 모양만 저장한다.
  * <pre>{configurationVersion:2, leaseMillis, maxLeaseRecoveries,
  *  budgets:{setting:{modelCalls,lookups,seconds,inputTokens,segmentChars,contextChars,searchLimit}, typo:{...},
- *           roles:{PLANNER|JUDGE|TYPO:{maxCalls,maxReservedTokens,outputTokens}, QUERY_EMBEDDING:{maxCalls,maxReservedTokens}}},
+ *           roles:{PLANNER|JUDGE|TYPO:{maxCalls,maxReservedTokens,outputTokens}, QUERY_EMBEDDING|INDEX_EMBEDDING:{maxCalls,maxReservedTokens}}},
  *  budgetRevision:1, budgetHistory:[],
- *  models:{PLANNER|JUDGE|TYPO:{model,reasoningEffort}, QUERY_EMBEDDING:{model,version,dimensions}}}</pre>
+ *  models:{PLANNER|JUDGE|TYPO:{model,reasoningEffort}, QUERY_EMBEDDING|INDEX_EMBEDDING:{model,version,dimensions}}}</pre>
+ * INDEX_EMBEDDING(선택, 2026-11-02)은 접수 때 그 작품의 빈 RAG 색인을 채우는 역할이며 QUERY_EMBEDDING과 같은 색인 identity를 쓴다.
  * 역할 순서는 enum 순서로 고정해 저장 JSON이 설정 Map 순서에 흔들리지 않게 한다. 운영 수치는 api.env의 설정 JSON에만 둔다.
  */
 public final class ValidationExecutionConfiguration {

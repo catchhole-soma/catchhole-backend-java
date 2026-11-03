@@ -39,6 +39,9 @@ public class ValidationExecutionBudgetPolicy {
             if(!retrieval.retrievalEmbeddingVersion().equals(models.path("QUERY_EMBEDDING").path("version").asText()))throw error(VALIDATION_PUBLICATION_CONFLICT);
             // Removing a runtime role does not silently replace its previously frozen model.
         }
+        // 접수 때 색인 채우기(INDEX_EMBEDDING): 새로 켠 역할은 retry에서 도입한다(색인 identity는 QUERY_EMBEDDING과 같다). 이미 고정된 모델은 바꾸지 않는다.
+        if(properties.roles().containsKey(ValidationRole.INDEX_EMBEDDING)&&!models.has("INDEX_EMBEDDING")&&models.has("QUERY_EMBEDDING"))
+            models.set("INDEX_EMBEDDING",models.path("QUERY_EMBEDDING").deepCopy());
         configuration.set("models",models);
         if(!legacy&&journal.hash(previous).equals(journal.hash(next))&&journal.hash(modelsBefore).equals(journal.hash(models)))return;
         int revision=configuration.path("budgetRevision").asInt(1)+1;var history=configuration.withArray("budgetHistory");var change=history.addObject().put("revision",revision).put("generation",job.getGeneration()+1);
@@ -75,6 +78,7 @@ public class ValidationExecutionBudgetPolicy {
             else models.set(role.name(),ValidationExecutionConfiguration.generationModel(budget));
         }
         if(before.has("QUERY_EMBEDDING"))models.set("QUERY_EMBEDDING",before.path("QUERY_EMBEDDING").deepCopy());
+        if(before.has("INDEX_EMBEDDING"))models.set("INDEX_EMBEDDING",before.path("INDEX_EMBEDDING").deepCopy());
         return models;
     }
 }
