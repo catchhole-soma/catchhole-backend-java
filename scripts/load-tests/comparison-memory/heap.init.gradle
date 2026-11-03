@@ -1,0 +1,17 @@
+// Applied after the repository's default test heap settings. Product JVM settings are untouched.
+gradle.projectsEvaluated {
+    allprojects {
+        tasks.withType(Test).configureEach {
+            minHeapSize = '256m'
+            maxHeapSize = '768m'
+            maxParallelForks = 1
+            outputs.upToDateWhen { false }
+            systemProperty 'spring.test.context.cache.maxSize', '1'
+            def output = System.getenv('GH365_PERFORMANCE_OUTPUT')
+            if (output) {
+                jvmArgs "-Xlog:gc*,safepoint:file=${output}/worker-%p-gc.log:time,uptime,level,tags"
+            }
+            testLogging { events 'passed', 'failed', 'skipped'; exceptionFormat 'full' }
+        }
+    }
+}

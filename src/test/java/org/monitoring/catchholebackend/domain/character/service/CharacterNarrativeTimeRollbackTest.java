@@ -39,6 +39,7 @@ class CharacterNarrativeTimeRollbackTest {
     private final JsonNodeFactory json = JsonNodeFactory.instance;
 
     @ParameterizedTest @ValueSource(booleans = {true, false})
+    @DisplayName("회복 후보 보류는 독립적인 앞 시점과 이력을 보존한다")
     void holdingLaterRecoveryKeepsEarlierIndependentTimeAndHistory(boolean checkTime) {
         assertHoldingLaterRecovery(checkTime, false);
     }
@@ -49,7 +50,17 @@ class CharacterNarrativeTimeRollbackTest {
         assertHoldingLaterRecovery(checkTime, true);
     }
 
+    @ParameterizedTest @ValueSource(booleans = {true, false})
+    @DisplayName("구형 전체 이력과 새 증분이 섞여도 보류한 기여만 제거하고 뒤 독립 근거를 보존한다")
+    void mixedStoredHistoryKeepsIndependentLaterHistory(boolean legacyHistory) {
+        assertHoldingLaterRecovery(false, true, legacyHistory, true);
+    }
+
     private void assertHoldingLaterRecovery(boolean checkTime, boolean wholePerson) {
+        assertHoldingLaterRecovery(checkTime, wholePerson, false, false);
+    }
+
+    private void assertHoldingLaterRecovery(boolean checkTime, boolean wholePerson, boolean legacyHistory, boolean independentHistory) {
         var journal = new AnalysisStateJournal();
         var states = mock(AnalysisRunStateService.class);
         var candidates = mock(SettingCandidateRepository.class);
@@ -102,6 +113,23 @@ class CharacterNarrativeTimeRollbackTest {
         ReflectionTestUtils.setField(c2, "removedSnapshotEntriesJson", json.arrayNode().add(json.objectNode().put("factType", "STATUS").put("factKey", "status.검지_경직")));
         service.recordDecision(job, c2, entry(CharacterFactType.STATUS, "status.회복"), List.of(new CharacterSnapshotSlot(CharacterFactType.STATUS, "status.검지_경직")), List.of());
         assertThat(projected.get().path("characters").path(ref).path("currentNarrativeTime").path("description").asText()).isEqualTo("T2");
+        AnalysisStateChange recordedHistory = recorded.stream().filter(change -> change.eventId().endsWith(":history")).findFirst().orElseThrow();
+        assertThat(recordedHistory.appendsHistory()).isTrue();
+        assertThat(recordedHistory.value()).hasSize(2); // 이전 이력 1개를 복제하지 않고 종료 사실과 회복 사건만 기록한다.
+        if (legacyHistory) {
+            recorded.set(recorded.indexOf(recordedHistory), new AnalysisStateChange(recordedHistory.eventId(), recordedHistory.path(),
+                    projected.get().path("characters").path(ref).path("historyFacts"), false,
+                    recordedHistory.operation(), recordedHistory.sourceCandidateIds()));
+            log.set("changes", journal.toJson(recorded));
+        }
+        SettingCandidate later = null;
+        if (independentHistory) {
+            later = candidate(work, job, ownerId, CharacterFactOperation.HISTORY_ONLY, CharacterFactType.PROFILE, "profile.이전_직업");
+            ObjectNode origin = json.objectNode().put("availability", "VERIFIED");
+            origin.putArray("evidenceSpans").add(json.objectNode().put("quote", "독립적인 과거 근거 😀"));
+            when(evidence.captureCandidate(any(), eq(later))).thenReturn(origin);
+            service.recordDecision(job, later, entry(CharacterFactType.PROFILE, "profile.이전_직업"), List.of(), List.of());
+        }
         var c3 = candidate(work, job, ownerId, CharacterFactOperation.REVIEW_REQUIRED, CharacterFactType.STATUS, "status.회복");
         when(candidates.findByIdAndWorkIdForUpdate(c2.getId(), work.getId())).thenReturn(java.util.Optional.of(c2));
         service.recordDecision(job, c3, entry(CharacterFactType.STATUS, "status.회복"), List.of(), List.of(c2.getId()), "Q2");
@@ -109,8 +137,14 @@ class CharacterNarrativeTimeRollbackTest {
         assertThat(c2.getAutomaticReviewHoldReason()).isNotNull();
         if (checkTime) assertThat(result.path("currentNarrativeTime").path("description").asText()).isEqualTo("T1");
         else {
-            assertThat(result.path("historyFacts")).hasSize(1);
+            assertThat(result.path("historyFacts")).hasSize(independentHistory ? 2 : 1);
             assertThat(result.path("historyFacts").get(0).path("factKey").asText()).isEqualTo("status.이전_사건");
+            if (independentHistory) {
+                assertThat(result.path("historyFacts").get(1).path("sourceCandidateId").asText()).isEqualTo(later.getId().toString());
+                assertThat(result.path("historyFacts").get(1).path("factKey").asText()).isEqualTo("profile.이전_직업");
+                assertThat(result.path("historyFacts").get(1).path("supportingSource").path("evidenceSpans").get(0).path("quote").asText())
+                        .isEqualTo("독립적인 과거 근거 😀");
+            }
         }
     }
 

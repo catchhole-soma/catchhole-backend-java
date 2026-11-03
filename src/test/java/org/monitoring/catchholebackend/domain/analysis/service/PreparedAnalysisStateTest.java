@@ -138,6 +138,113 @@ class PreparedAnalysisStateTest {
         assertThatThrownBy(() -> service.prepareState(job)).isInstanceOf(AppException.class);
     }
 
+    @Test
+    @DisplayName("v1 이력을 보존한 채 두 저장 경로가 증분을 추가하고 v2로 승격하여 재개한다")
+    void upgradesOnlyOnHistoryAppendAndResumesMixedStoredJournal() {
+        var json = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance;
+        var history = ((com.fasterxml.jackson.databind.node.ArrayNode) job.getAutomaticInputState()
+                .at("/characters/hero/historyFacts")).deepCopy();
+        history.addObject().put("factValue", "검술 3단").put("quote", "과거 저장 인용");
+        var legacy = new AnalysisStateChange("legacy", List.of("characters", "hero", "historyFacts"), history,
+                false, "UPDATE", List.of());
+        service.appendValidatedChanges(job, job.getInputStateHash(), List.of(legacy));
+        JsonNode oldRecord = job.getStateJournal();
+        assertThat(oldRecord.path("formatVersion").asInt()).isEqualTo(1);
+        var first = AnalysisStateChange.appendHistory("new-1", "hero",
+                json.arrayNode().add(json.objectNode().put("factValue", "검술 4단").put("quote", "새 근거 😀")), "UPDATE", List.of());
+        var prepared = service.prepareState(job);
+        prepared.append(List.of(first, first));
+        assertThat(job.getStateJournal().path("formatVersion").asInt()).isEqualTo(2);
+        assertThat(job.getStateJournal().path("changes").get(0)).isEqualTo(oldRecord.path("changes").get(0));
+        assertThat(job.getStateJournal().path("changes")).hasSize(2);
+        var second = AnalysisStateChange.appendHistory("new-2", "hero",
+                json.arrayNode().add(json.objectNode().put("factValue", "검술 5단")), "HISTORY_ONLY", List.of());
+        service.appendValidatedChanges(job, job.getInputStateHash(), List.of(second, second));
+        JsonNode expected = new AnalysisStateJournal().apply(job.getAutomaticInputState(), List.of(legacy, first, second));
+        assertThat(prepared.projectedState()).isEqualTo(expected);
+        assertThat(service.prepareState(job).projectedState()).isEqualTo(expected);
+        assertThat(service.getProjectedState(job)).isEqualTo(expected);
+        assertThat(expected.at("/characters/hero/historyFacts")).hasSize(4);
+        assertThat(job.getStateJournal().path("changes")).hasSize(3);
+        assertThat(AnalysisStateJournal.FORMAT_VERSION).isEqualTo(1);
+        service.seal(job);
+        assertThat(job.getStateJournal().path("outputStateHash").asText()).isEqualTo(journal.hash(expected));
+    }
+
+    @Test
+    @DisplayName("잘못된 증분 저장은 버전과 상태를 부분 변경하지 않으며 다른 모드의 event 재사용을 거절한다")
+    void invalidHistoryAppendKeepsVersionAndProjectionAtomic() {
+        var json = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance;
+        var prepared = service.prepareState(job);
+        JsonNode before = job.getStateJournal();
+        JsonNode state = prepared.projectedState().deepCopy();
+        var valid = AnalysisStateChange.appendHistory("history", "hero", json.arrayNode().add("이력"), "UPDATE", List.of());
+        var invalid = AnalysisStateChange.appendHistory("missing", "missing", json.arrayNode(), "UPDATE", List.of());
+        assertThatThrownBy(() -> prepared.append(List.of(valid, invalid))).isInstanceOf(AppException.class);
+        assertThat(job.getStateJournal()).isEqualTo(before);
+        assertThat(prepared.projectedState()).isEqualTo(state);
+        assertThatThrownBy(() -> service.appendValidatedChanges(job, job.getInputStateHash(), List.of(valid, invalid)))
+                .isInstanceOf(AppException.class);
+        assertThat(job.getStateJournal()).isEqualTo(before);
+        prepared.append(List.of(valid));
+        var replace = new AnalysisStateChange(valid.eventId(), valid.path(), valid.value(), false, valid.operation(), List.of());
+        assertThatThrownBy(() -> prepared.append(List.of(replace))).isInstanceOf(AppException.class);
+    }
+
+    @Test
+    @DisplayName("v1으로 위장한 증분 및 지원하지 않는 저장 버전은 읽기를 거절한다")
+    void rejectsAppendInVersionOneAndUnknownStorageVersions() {
+        var json = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance;
+        ObjectNode record = (ObjectNode) job.getStateJournal();
+        var append = AnalysisStateChange.appendHistory("history", "hero", json.arrayNode(), "UPDATE", List.of());
+        record.set("changes", journal.toJson(List.of(append)));
+        job.replacePendingJournal(record);
+        assertThatThrownBy(() -> service.prepareState(job)).isInstanceOf(AppException.class);
+        assertThatThrownBy(() -> service.getProjectedState(job)).isInstanceOf(AppException.class);
+        record.put("formatVersion", 3);
+        job.replacePendingJournal(record);
+        assertThatThrownBy(() -> service.prepareState(job)).isInstanceOf(AppException.class);
+        record.put("formatVersion", 4_294_967_297L);
+        job.replacePendingJournal(record);
+        assertThatThrownBy(() -> service.prepareState(job)).isInstanceOf(AppException.class);
+        record.put("formatVersion", 2);
+        job.replacePendingJournal(record);
+        assertThat(service.prepareState(job).projectedState()).isEqualTo(job.getAutomaticInputState());
+    }
+
+    @Test
+    @DisplayName("수동 순차 실행의 다음 회차는 v2 이력과 근거를 이전 회차 hash 그대로 복원한다")
+    void manualSuccessorReplaysVersionTwoPredecessorAndPreservesOutputHash() {
+        Work work = job.getWork();
+        JsonNode base = job.getAutomaticInputState().deepCopy();
+        AnalysisJob first = AnalysisJob.create(work, null, episode, AnalysisJobType.SETTING_EXTRACTION);
+        ReflectionTestUtils.setField(first, "id", UUID.randomUUID());
+        first.initializeOrderedRun(UUID.randomUUID(), 1, 0, null, base);
+        first.prepareOrderedInput(journal.hash(base));
+        first.claim("test", "comparison", LocalDateTime.now().plusMinutes(10));
+        ObjectNode record = (ObjectNode) job.getStateJournal();
+        record.put("runId", first.getAnalysisRunId().toString()).put("jobId", first.getId().toString());
+        first.replacePendingJournal(record);
+        Episode nextEpisode = Episode.create(work, null, 26, "26화", "next", "v1", "c".repeat(64), 100);
+        ReflectionTestUtils.setField(nextEpisode, "id", UUID.randomUUID());
+        AnalysisJob next = AnalysisJob.create(work, null, nextEpisode, AnalysisJobType.SETTING_EXTRACTION);
+        ReflectionTestUtils.setField(next, "id", UUID.randomUUID());
+        next.initializeOrderedRun(first.getAnalysisRunId(), 1, 1, first.getId(), null);
+        when(jobs.findAllByAnalysisRunIdAndRunGenerationOrderByRunSequenceAsc(first.getAnalysisRunId(), 1L))
+                .thenReturn(List.of(first, next));
+        var json = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance;
+        var append = AnalysisStateChange.appendHistory("first-history", "hero",
+                json.arrayNode().add(json.objectNode().put("factValue", "검술 3단").put("quote", "이전 회차 근거")), "UPDATE", List.of());
+        service.appendValidatedChanges(first, first.getInputStateHash(), List.of(append));
+        service.seal(first);
+        first.succeed("{}", null, null);
+        JsonNode expected = journal.apply(base, List.of(append));
+        assertThat(service.getInputState(next)).isEqualTo(expected);
+        assertThat(first.getStateJournal().path("outputStateHash").asText()).isEqualTo(journal.hash(expected));
+        assertThat(first.getStateJournal().path("formatVersion").asInt()).isEqualTo(2);
+        assertThat(first.getRunBaseState()).isEqualTo(base);
+    }
+
     private AnalysisStateChange change(String id, List<String> path, JsonNode value) {
         return new AnalysisStateChange(id, path, value, false, "IDENTITY", List.of(UUID.randomUUID()));
     }
