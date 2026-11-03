@@ -87,7 +87,10 @@ class ValidationDataIntegrationTest {
     }
     ValidationDataRequest request(String operation, String source, String expectedSource, Integer start, Integer end) {
         return new ValidationDataRequest(report.getBaselineHash(), report.getSourceContentHash(), operation,
-                0, 100, source, expectedSource, "v1", start, end);
+                0, 100, source, expectedSource, "v1", start, end, null);
+    }
+    ValidationDataRequest settings(List<String> subjectRefs) {
+        return new ValidationDataRequest(report.getBaselineHash(), report.getSourceContentHash(), "SETTINGS", 0, 100, null, null, null, null, null, subjectRefs);
     }
     JsonNode read(String operation) { return service.readValidationData(member.getId(), work.getId(), report.getId(), request(operation, null, null, null, null)); }
 
@@ -97,6 +100,39 @@ class ValidationDataIntegrationTest {
         assertThat(read("INPUT").at("/sources/0/sourceRef").asText()).isEqualTo("R1");
         for (String table : List.of("analysis_jobs", "setting_candidates", "world_setting_candidates", "character_facts"))
             assertThat(jdbc.queryForObject("select count(*) from "+table, Integer.class)).isZero();
+    }
+    @Test @DisplayName("SUBJECTS는 주체 목록을 한 번에, SETTINGS는 요청 주체의 현재값 행만 공통 fixture와 같게 준다(grid v4)")
+    void subjectsAndCurrentSettingsFollowTheSharedVector() throws Exception {
+        var vector=json.readTree(java.nio.file.Path.of("docs/contracts/validation-execution-v1.json").toFile()).path("execution").path("subjectCatalogueVector");
+        var entries=(com.fasterxml.jackson.databind.node.ArrayNode)vector.path("entries").deepCopy();
+        ((com.fasterxml.jackson.databind.node.ObjectNode)entries.path(0).path("state")).putArray("explicitAuthorCorrections").addObject().put("correctionId","synthetic-correction");
+        org.springframework.test.util.ReflectionTestUtils.setField(report,"baselineEntries",entries);em.flush();
+        var subjects=read("SUBJECTS");
+        assertThat(subjects.path("projectionVersion").asInt()).isEqualTo(2);
+        assertThat(subjects.has("clueVersion")).isFalse();
+        assertThat(subjects.path("subjects")).isEqualTo(vector.path("subjects"));
+        assertThat(subjects.path("subjectCount").asInt()).isEqualTo(vector.path("subjectCount").asInt());
+        assertThat(subjects.path("entryCount").asInt()).isEqualTo(vector.path("entryCount").asInt());
+        for(var request:vector.path("settingsRequests")) {
+            var refs=new ArrayList<String>();request.path("subjectRefs").forEach(ref->refs.add(ref.asText()));
+            var result=service.readValidationData(member.getId(),work.getId(),report.getId(),settings(refs));
+            var actual=new ArrayList<String>();result.path("settings").forEach(row->{actual.add(row.path("entry_ref").asText());assertThat(row.path("domain").asText()).isNotEqualTo("worldHistory");assertThat(row.path("author_correction").isNull()).isTrue();});
+            var expected=new ArrayList<String>();request.path("entryRefs").forEach(ref->expected.add(ref.asText()));
+            assertThat(actual).as(refs.toString()).isEqualTo(expected);
+            assertThat(result.path("authorCorrectionProofs").size()).isEqualTo(actual.contains("B1")?1:0);
+        }
+        for(var invalid:vector.path("invalidSettingsRequests")) {
+            var refs=new ArrayList<String>();invalid.forEach(ref->refs.add(ref.asText()));
+            assertThatThrownBy(()->service.readValidationData(member.getId(),work.getId(),report.getId(),settings(refs))).as(refs.size()+" refs")
+                    .isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class).hasFieldOrPropertyWithValue("resultCode",org.monitoring.catchholebackend.global.exception.CommonErrorCode.REQUEST_VALIDATION_FAILED);
+        }
+        assertThatThrownBy(()->service.readValidationData(member.getId(),work.getId(),report.getId(),settings(null))).isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class);
+    }
+    @Test @DisplayName("전체 대상 원문 읽기는 더 이상 기계 단서(modelClues)를 계산하지 않는다")
+    void fullTargetReadHasNoModelClues() {
+        var result=service.readValidationData(member.getId(),work.getId(),report.getId(),request("READ_SOURCE","T1",target.getContentHash(),null,null));
+        assertThat(result.path("status").asText()).isEqualTo("READY");
+        assertThat(result.has("modelClues")).isFalse();assertThat(result.has("clueVersion")).isFalse();
     }
     @Test @DisplayName("반복 인용·이모지의 Unicode code point 위치를 정확히 읽는다")
     void readsExactUnicodeSlice() {

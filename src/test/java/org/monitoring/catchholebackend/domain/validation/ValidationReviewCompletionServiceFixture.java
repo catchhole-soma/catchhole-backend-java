@@ -85,13 +85,12 @@ abstract class ValidationReviewCompletionServiceFixture {
     static UUID id(Map<String,Object> j) {return (UUID)j.get("jobId");}
     static UUID lease(Map<String,Object> j) {return (UUID)j.get("leaseToken");}
     static Scope scope(Map<String,Object> j) {return (Scope)j.get("scope");}
-    static Map<String,Object> batch(List<?> questions) {return Map.of("questions",questions,"segments",List.of(Map.of("segment_ref","TSEG1","status",questions.isEmpty()?"NO_CHECK":"PLANNED","reason","합성 완료")),"rules",List.of());}
+    static Map<String,Object> batch(List<?> questions) {return Map.of("questions",questions,"segments",List.of(Map.of("segment_ref","TSEG1","status",questions.isEmpty()?"NO_CHECK":"PLANNED","reason","합성 완료")));}
     void plan(Map<String,Object> j,ValidationStageKind kind,String ref,Map<String,Object> body) {results.publishValidationPlan(id(j),lease(j),new Publish(scope(j),kind+":"+ref,ValidationBranch.SETTING,kind,ref,body,List.of(),null));}
     /** 설정 질문 0건과 오탈자 구간 하나로 실행을 끝낸다. typoFinding이면 판단할 오탈자 제안 하나를 남긴다. */
     Run runToCompletion(Fixture f,boolean typoFinding) {
         var j=claim();assertThat(j).isNotNull();
-        plan(j,ValidationStageKind.PLANNER,"TSEG1",batch(List.of()));plan(j,ValidationStageKind.SUBJECT_RESOLUTION,"TSEG1",Map.of("mentions",List.of()));
-        plan(j,ValidationStageKind.COVERAGE,"TSEG1",batch(List.of()));plan(j,ValidationStageKind.MERGED_PLAN,"PLAN",Map.of("questions",List.of()));
+        plan(j,ValidationStageKind.PLANNER,"TSEG1",batch(List.of()));plan(j,ValidationStageKind.MERGED_PLAN,"PLAN",Map.of("questions",List.of()));
         Map<String,Object> typo=typoFinding
                 ?Map.of("segments",List.of(Map.of("segment_ref","TSEG1","status","PLANNED","reason","제안 있음")),"suggestions",List.of(Map.of("category","SPELLING","reason","맞춤법 제안","replacement","원교","span",Map.of("source_ref","T1","start",6,"end",8,"quote","원고"))))
                 :Map.of("segments",List.of(Map.of("segment_ref","TSEG1","status","NO_CHECK","reason","오탈자 없음")),"suggestions",List.of());
