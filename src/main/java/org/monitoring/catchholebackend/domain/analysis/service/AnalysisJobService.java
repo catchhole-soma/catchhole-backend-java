@@ -2,6 +2,7 @@ package org.monitoring.catchholebackend.domain.analysis.service;
 
 import java.util.List;
 import java.util.UUID;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisBatchKind;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.dto.request.AnalysisJobCreateRequest;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisBatchSummaryResponse;
@@ -34,13 +35,25 @@ public interface AnalysisJobService {
     /**
      * 작품 소유권을 확인한 뒤 분석 이력을 업로드 batch 단위로 최신 요청순 페이지 조회한다.
      * 같은 회차를 재시도한 이력은 가장 최근 작업만 현재 상태 집계에 사용한다.
+     * kind로 현재 검수 report가 있는 배치와 없는 배치를 나눠 페이지를 만든다.
      */
     PageResponse<AnalysisBatchSummaryResponse> getAnalysisBatches(
             Long memberId,
             UUID workId,
             int page,
-            int size
+            int size,
+            AnalysisBatchKind kind
     );
+
+    /** 모든 배치를 조회한다. */
+    default PageResponse<AnalysisBatchSummaryResponse> getAnalysisBatches(
+            Long memberId,
+            UUID workId,
+            int page,
+            int size
+    ) {
+        return getAnalysisBatches(memberId, workId, page, size, AnalysisBatchKind.ALL);
+    }
 
     /**
      * 작품 소유권과 분석 작업 소속을 확인한 뒤 분석 작업 상세 정보를 조회한다.

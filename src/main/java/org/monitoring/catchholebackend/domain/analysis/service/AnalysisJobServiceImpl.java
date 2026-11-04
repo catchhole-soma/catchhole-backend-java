@@ -28,6 +28,7 @@ import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisBatchP
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisBatchSummaryRepository;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisBatchSummaryRepository.GroupSummary;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisBatchKind;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisBatchStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus;
@@ -223,11 +224,12 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
             Long memberId,
             UUID workId,
             int page,
-            int size
+            int size,
+            AnalysisBatchKind kind
     ) {
         Work work = workRepository.getOwnedWork(workId, memberId);
         Page<AnalysisBatchPageRow> batchPage =
-                analysisJobRepository.findBatchPage(work.getId(), PageRequest.of(page, size));
+                analysisJobRepository.findBatchPage(work.getId(), kind.name(), PageRequest.of(page, size));
         List<UUID> batchIds = batchPage.getContent().stream()
                 .map(AnalysisBatchPageRow::getBatchId)
                 .toList();

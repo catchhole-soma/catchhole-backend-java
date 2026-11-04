@@ -248,7 +248,7 @@ class OpenApiContractIntegrationTest {
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/analysis-jobs/batches']['get']['operationId']")
                         .value("getAnalysisBatches"))
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/analysis-jobs/batches']['get']['parameters'][*]['name']")
-                        .value(containsInAnyOrder("workId", "page", "size")))
+                        .value(containsInAnyOrder("workId", "page", "size", "kind")))
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/analysis-jobs/batches']['get']['parameters'][2]['schema']['maximum']")
                         .value(20))
                 .andExpect(jsonPath("$['paths']['/api/v1/works/{workId}/analysis-jobs/batches']['get']['responses']['400']['content']['application/json']['schema']['$ref']")
