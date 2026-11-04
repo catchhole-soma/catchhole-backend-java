@@ -436,6 +436,8 @@ stateDiagram-v2
 ```
 
 Worker가 내부 claim API로 작업을 가져가면 `AnalysisJob.claim()`이 `RUNNING`, lease token/만료 시각, claim 횟수를 기록합니다. 이후 Worker는 `X-Worker-Lease-Token`을 보내 상태를 `SUCCEEDED` 또는 `FAILED`로 변경합니다. 만료된 lease는 checkpoint를 보존한 채 다시 `PENDING`으로 전환하며 세 번째 만료에는 `FAILED`로 종료합니다. 작품 영구 삭제는 활성 Job을 `CANCELED`로 바꾸고 lease를 제거하므로 이후 heartbeat·완료·실패 요청은 상태 검증에서 거절됩니다.
+
+만료 회수는 claim 트랜잭션의 앞부분에서 수행합니다. 후보 ID를 찾은 뒤 Work → Job 순서로 잠그고 최신 상태·lease 만료 여부를 재검증한 작업만 회수합니다. 그사이 다른 Worker가 재claim했거나 expiry가 연장됐다면 예약·후보·비교 상태를 변경하지 않습니다. 세 번째 실행도 lease가 유효하면 정상 실행이며, 잠긴 행은 건너뛰어 다음 claim에서 다시 확인합니다. 경합 근거와 PostgreSQL 회귀는 [만료 lease 동시 회수 검증](analysis-lease-recovery-concurrency.md)에 정리합니다.
 `FAILED` 이후 재시도는 기존 작업을 `PENDING`으로 되돌리는 전이가 아닙니다. `POST /analysis-jobs/{analysisJobId}/retry`가 실패 회차별로 새로운 `PENDING` 단일 회차 작업을 만듭니다.
 
 화면에서는 같은 upload batch에 생성된 회차별 `AnalysisJob.status`를 집계하고, 각 응답의 단일 `episodes` 항목으로 `Episode.status`를 표시합니다. Worker progress는 `currentStep` 표시 문구와 `episodeStatus` enum을 함께 보내며, 백엔드는 문자열을 해석하지 않고 해당 Job의 회차에만 명시적 상태를 적용합니다. 한 Job이 실패해도 다음 회차 Job은 계속 claim할 수 있습니다.

@@ -26,6 +26,7 @@ import org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysi
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisJobWorkerMapper;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobLeaseRecoveryRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
@@ -52,7 +53,6 @@ import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComp
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComparisonStatus;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
-import org.springframework.data.domain.Pageable;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
@@ -63,6 +63,8 @@ class AnalysisJobWorkerServiceCharacterBatchRecoveryTest {
 
     @Mock
     private AnalysisJobRepository analysisJobRepository;
+    @Mock
+    private AnalysisJobLeaseRecoveryRepository recoveryRepository;
     @Mock
     private AnalysisJobLeaseService analysisJobLeaseService;
     @Mock
@@ -97,6 +99,7 @@ class AnalysisJobWorkerServiceCharacterBatchRecoveryTest {
     void setUp() {
         service = new AnalysisJobWorkerServiceImpl(new org.monitoring.catchholebackend.domain.analysis.processor.AnalysisFailureDiagnosticsSanitizer(org.mockito.Mockito.mock(org.springframework.jdbc.core.JdbcTemplate.class)),
                 claimRepository,
+                recoveryRepository,
                 analysisRunStateService,
                 List.of(),
                 List.of(),
@@ -180,11 +183,10 @@ class AnalysisJobWorkerServiceCharacterBatchRecoveryTest {
         ReflectionTestUtils.setField(batch, "id", UUID.randomUUID());
         candidate.startComparison(batch, "C1");
 
-        when(analysisJobRepository.findExpiredLeaseCandidates(
-                eq(AnalysisJobStatus.RUNNING),
+        when(recoveryRepository.findExpiredLeasesForUpdate(
                 eq(List.of(AnalysisJobType.SETTING_EXTRACTION)),
                 any(LocalDateTime.class),
-                any(Pageable.class)
+                eq(20)
         )).thenReturn(List.of(job));
         when(claimRepository.findClaimableJob(any())).thenReturn(java.util.Optional.empty());
         when(worldBatchRepository.findAllByAnalysisJobIdAndStatusForUpdate(
@@ -252,11 +254,10 @@ class AnalysisJobWorkerServiceCharacterBatchRecoveryTest {
         AnalysisJob staleJob = AnalysisJob.createCharacterFactComparison(candidate, "a".repeat(64));
         ReflectionTestUtils.setField(staleJob, "id", UUID.randomUUID());
         staleJob.claim("test-model", "비교 중", LocalDateTime.now().minusMinutes(1));
-        when(analysisJobRepository.findExpiredLeaseCandidates(
-                eq(AnalysisJobStatus.RUNNING),
+        when(recoveryRepository.findExpiredLeasesForUpdate(
                 eq(List.of(AnalysisJobType.CHARACTER_FACT_COMPARISON)),
                 any(LocalDateTime.class),
-                any(Pageable.class)
+                eq(20)
         )).thenReturn(List.of(staleJob));
         when(claimRepository.findClaimableJob(any())).thenReturn(java.util.Optional.empty());
         when(worldBatchRepository.findAllByAnalysisJobIdAndStatusForUpdate(
