@@ -223,6 +223,9 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
     /**
      * GH312: 파일 교체 뒤 재검수 report는 회차의 새 업로드 batch에 묶이므로 퇴역 report만 남은 옛 batch는 목록에 올리지 않는다.
      * 표시되는 batch의 최초·최근 요청 시각은 계속 모든 접수 이력을 집계한다.
+     * kind는 {@link org.monitoring.catchholebackend.domain.analysis.type.AnalysisBatchKind} 이름이며,
+     * ANALYSIS는 분석 Job이 있는 batch, VALIDATION은 현재 검수 report가 있는 batch라서 검토를 마쳐 설정 추출이
+     * 시작된 검수 batch는 두 목록에 모두 나온다.
      */
     @Query(value = """
             with requests as (
@@ -231,16 +234,23 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
                 union all select batch_id, created_at from validation_reports where work_id = :workId
             ) select cast(b.id as varchar) as batchId, b.upload_type as uploadType, min(r.created_at) as firstRequestedAt,
                 max(r.created_at) as lastRequestedAt from upload_batches b join requests r on r.batch_id = b.id
-                where exists (select 1 from analysis_jobs j where j.batch_id = b.id and j.job_type in ('SETTING_EXTRACTION','EPISODE_VALIDATION'))
-                   or exists (select 1 from validation_reports v where v.batch_id = b.id and v.is_current = true)
+                where (exists (select 1 from analysis_jobs j where j.batch_id = b.id and j.job_type in ('SETTING_EXTRACTION','EPISODE_VALIDATION'))
+                   or exists (select 1 from validation_reports v where v.batch_id = b.id and v.is_current = true))
+                  and (:kind = 'ALL'
+                   or (:kind = 'VALIDATION' and exists (select 1 from validation_reports v where v.batch_id = b.id and v.is_current = true))
+                   or (:kind = 'ANALYSIS' and exists (select 1 from analysis_jobs j where j.batch_id = b.id and j.job_type in ('SETTING_EXTRACTION','EPISODE_VALIDATION'))))
                 group by b.id, b.upload_type order by max(r.created_at) desc, b.id desc
             """, countQuery = """
             select count(*) from upload_batches b where b.work_id = :workId and (
                 exists (select 1 from analysis_jobs j where j.batch_id = b.id and j.job_type in ('SETTING_EXTRACTION','EPISODE_VALIDATION'))
                 or exists (select 1 from validation_reports r where r.batch_id = b.id and r.is_current = true))
+              and (:kind = 'ALL'
+                or (:kind = 'VALIDATION' and exists (select 1 from validation_reports r where r.batch_id = b.id and r.is_current = true))
+                or (:kind = 'ANALYSIS' and exists (select 1 from analysis_jobs j where j.batch_id = b.id and j.job_type in ('SETTING_EXTRACTION','EPISODE_VALIDATION'))))
             """, nativeQuery = true)
     Page<AnalysisBatchPageRow> findBatchPage(
             @Param("workId") UUID workId,
+            @Param("kind") String kind,
             Pageable pageable
     );
 

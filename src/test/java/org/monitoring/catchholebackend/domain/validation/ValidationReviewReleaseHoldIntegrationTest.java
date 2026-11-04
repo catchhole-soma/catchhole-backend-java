@@ -7,6 +7,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisBatchKind;
 import org.monitoring.catchholebackend.domain.validation.dto.request.ValidationReviewCompletionRequest;
 import org.monitoring.catchholebackend.domain.validation.type.*;
 import org.monitoring.catchholebackend.global.exception.AppException;
@@ -66,6 +67,21 @@ class ValidationReviewReleaseHoldIntegrationTest extends ValidationReviewComplet
         assertThat(batches).extracting(b->b.batchId()).as("a batch holding only the retired report is not listed (it would read as FAILED)").doesNotContain(originalBatch);
         var episode=episodeService.getEpisodes(f.member(),f.work()).stream().filter(e->e.id().equals(f.target())).findFirst().orElseThrow();
         assertThat(episode.validationReportId()).isEqualTo(next.report());
+    }
+
+    @Test @DisplayName("검수 batch는 오류 리포트 목록에 나오고 검토 종료가 추출 Job을 만든 뒤에야 분석 목록에도 나온다")
+    void validationBatchJoinsAnalysisListOnceReleaseJobExists() {
+        var f=fixture();var batch=reportBatch(f);
+        assertThat(batchIds(f,AnalysisBatchKind.VALIDATION)).containsExactly(batch);
+        assertThat(batchIds(f,AnalysisBatchKind.ANALYSIS)).as("a no-job report is not a setting extraction card yet").isEmpty();
+        assertThat(analysisJobService.getAnalysisBatches(f.member(),f.work(),0,20,AnalysisBatchKind.ANALYSIS).totalElements()).isZero();
+        var run=runToCompletion(f,false);assertThat(run.done().get("extractionJobId")).isNotNull();
+        assertThat(batchIds(f,AnalysisBatchKind.ANALYSIS)).as("the release extraction job puts the batch on the analysis list").containsExactly(batch);
+        assertThat(batchIds(f,AnalysisBatchKind.VALIDATION)).containsExactly(batch);
+        assertThat(batchIds(f,AnalysisBatchKind.ALL)).containsExactly(batch);
+    }
+    java.util.List<UUID> batchIds(Fixture f,AnalysisBatchKind kind) {
+        return analysisJobService.getAnalysisBatches(f.member(),f.work(),0,20,kind).content().stream().map(b->b.batchId()).toList();
     }
 
     @Test @DisplayName("커밋된 정상 0건 자동 종료는 receipt와 release Job을 함께 남긴다")

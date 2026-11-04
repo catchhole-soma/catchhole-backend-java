@@ -22,6 +22,7 @@ import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisBatc
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisJobResponse;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisJobProgressResponse;
 import org.monitoring.catchholebackend.domain.analysis.service.AnalysisJobService;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisBatchKind;
 import org.monitoring.catchholebackend.domain.auth.security.MemberPrincipal;
 import org.monitoring.catchholebackend.global.common.response.CommonErrorResponse;
 import org.monitoring.catchholebackend.global.common.response.CommonResponse;
@@ -104,7 +105,7 @@ public class AnalysisJobController {
             operationId = "getAnalysisBatches",
             summary = "분석 배치 목록 조회",
             description = "업로드 배치별 최신 유효 분석 작업과 설정 후보 검토 현황을 "
-                    + "최근 분석 요청순으로 페이지 조회합니다."
+                    + "최근 분석 요청순으로 페이지 조회합니다. kind로 분석 목록과 오류 리포트 목록의 배치를 나눕니다."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "분석 배치 목록 조회 성공"),
@@ -145,10 +146,20 @@ public class AnalysisJobController {
             @RequestParam(defaultValue = "10")
             @Min(value = 1, message = "페이지 크기는 1 이상이어야 합니다.")
             @Max(value = 20, message = "페이지 크기는 20 이하여야 합니다.")
-            int size
+            int size,
+            @Parameter(
+                    name = "kind",
+                    in = ParameterIn.QUERY,
+                    description = "배치 종류. ALL(기본)은 모든 배치, ANALYSIS는 설정 추출 등 분석 Job이 있는 배치, "
+                            + "VALIDATION은 현재 신규 회차 검수 report가 있는 배치입니다. "
+                            + "검토를 마쳐 설정 추출이 시작된 검수 배치는 ANALYSIS와 VALIDATION에 모두 나옵니다.",
+                    example = "ANALYSIS"
+            )
+            @RequestParam(defaultValue = "ALL")
+            AnalysisBatchKind kind
     ) {
         return CommonResponse.success(
-                analysisJobService.getAnalysisBatches(member.memberId(), workId, page, size)
+                analysisJobService.getAnalysisBatches(member.memberId(), workId, page, size, kind)
         );
     }
 

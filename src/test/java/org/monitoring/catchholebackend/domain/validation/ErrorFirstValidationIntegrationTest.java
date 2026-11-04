@@ -236,6 +236,29 @@ class ErrorFirstValidationIntegrationTest {
         assertNoExtraction();
     }
 
+    @Test @DisplayName("배치 목록 kind는 분석 batch와 검수 batch를 서버 페이지 단위로 나눈다")
+    void batchListKindSeparatesAnalysisAndValidationBatches() throws Exception {
+        prepare(); var receipt = start("kind");
+        var analysisBatch = org.monitoring.catchholebackend.domain.upload.entity.UploadBatch.create(work, member,
+                org.monitoring.catchholebackend.domain.upload.type.UploadType.INITIAL_IMPORT,
+                org.monitoring.catchholebackend.domain.upload.type.UploadSourceType.FILE);
+        em.persist(analysisBatch);
+        em.persist(AnalysisJob.create(work, analysisBatch, null, AnalysisJobType.SETTING_EXTRACTION)); em.flush();
+        String url = "/api/v1/works/" + work.getId() + "/analysis-jobs/batches";
+        mvc.perform(get(url).header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.totalElements").value(2));
+        mvc.perform(get(url).header(HttpHeaders.AUTHORIZATION, "Bearer " + token).queryParam("kind", "ANALYSIS"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.totalElements").value(1))
+                .andExpect(jsonPath("$.data.content[0].batchId").value(analysisBatch.getId().toString()))
+                .andExpect(jsonPath("$.data.content[0].validationReports").isEmpty());
+        mvc.perform(get(url).header(HttpHeaders.AUTHORIZATION, "Bearer " + token).queryParam("kind", "VALIDATION"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.totalElements").value(1))
+                .andExpect(jsonPath("$.data.content[0].batchId").value(batchId.toString()))
+                .andExpect(jsonPath("$.data.content[0].validationReports[0].reportId").value(receipt.path("reportId").asText()));
+        mvc.perform(get(url).header(HttpHeaders.AUTHORIZATION, "Bearer " + token).queryParam("kind", "REPORTS"))
+                .andExpect(status().isBadRequest());
+    }
+
     @Test @DisplayName("추출 전에 원고 파일을 교체할 수 있고 이전 기준과 결과는 무효화한다")
     void replacementBeforeExtractionInvalidatesCopiesAndKeepsOriginalBatch() throws Exception {
         prepare(); var r = stored(start("replace")); UUID originalBatch = batchId;
