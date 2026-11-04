@@ -984,6 +984,12 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - 캐릭터·세계관 CLOSED는 근거·비교 결과를 보존하며 기본 목록/집계와 후속 참고에서 제외한다. dismiss/사용자 반려 정책과 섞지 않는다. 관계 HOLD는 별도 종료 행으로 원본 결정과 고정 문맥을 보존한다. 종료와 새 Job 생성은 한 트랜잭션이고 metricsRequestId로 동의 기록을 연결한다.
 - 같은 Job 재시도·진행 중 묶음과 별도 오류 검사 release는 기존 계속 흐름을 유지한다. 설정집과 완료된 후행 결과를 이번 종료로 변경하지 않는다. 계약/배포/검증은 `docs/analysis-review-continuation.md`를 따른다.
 
+### 만료 lease 회수 경합 (#282)
+
+- 일반 Worker의 만료 회수는 `AnalysisJobLeaseRecoveryRepository`에서 ID 후보 선정 → Work → Job의 `SKIP LOCKED` 잠금 → 최신 상태·허용 종류·lease 조건 재검증 순서로 수행한다. fetch join의 후속 잠금은 최초 만료 조건을 다시 검사하지 않으므로, 잠금 선언만으로 새 lease 보호를 보장하지 않는다.
+- 최신 값 확인 전에 미반영 변경을 flush하고, 예약 해제·후보/비교 상태 변경·재대기·실패 등 회수 부수효과는 검증 뒤에만 수행한다. 같은 Work는 한 번만 refresh한다. 일반 회수에서 관계 전용 Job은 제외하며 5분 lease·scan 20건·최대 claim 3회와 checkpoint 정책은 유지한다.
+- 새 두 번째/세 번째 lease, stale 영속성 컨텍스트, terminal/삭제 전이, 예약·후보 보존과 잠긴 행 건너뛰기는 실제 PostgreSQL의 동기화된 독립 트랜잭션으로 검증한다. 범위와 한계는 `docs/analysis-lease-recovery-concurrency.md`를 따른다.
+
 ### 분석 상태 재사용 (#294)
 
 - `AnalysisRunStateService.prepareState(job)`의 `PreparedState`는 Job 잠금을 보유한 한 번의 처리에서만 지역 변수로 사용한다. 전역·ThreadLocal·요청 간 캐시로 보관하지 않는다. `projectedState()`는 읽기 전용 view이며 append 뒤에는 다시 얻는다.

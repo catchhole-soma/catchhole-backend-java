@@ -382,8 +382,10 @@ class OrderedAnalysisPostgresIntegrationTest {
     }
 
     private WorkerAnalysisJobClaimRequest request() {
+        // 누적 분석 Worker는 고정 원문 근거 계약 지원을 명시해야 claim 대상에 포함된다.
         return new WorkerAnalysisJobClaimRequest(null, null, Set.of(AnalysisJobType.SETTING_EXTRACTION),
-                Set.of(AnalysisMode.CONFIRMED_ONLY, AnalysisMode.ORDERED_PROVISIONAL));
+                Set.of(AnalysisMode.CONFIRMED_ONLY, AnalysisMode.ORDERED_PROVISIONAL),
+                null, null, null, null, true);
     }
 
     private AnalysisStateChange reference() {

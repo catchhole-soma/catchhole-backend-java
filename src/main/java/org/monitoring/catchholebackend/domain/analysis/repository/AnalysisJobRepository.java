@@ -1,7 +1,6 @@
 package org.monitoring.catchholebackend.domain.analysis.repository;
 
 import jakarta.persistence.LockModeType;
-import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -340,32 +339,6 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             UUID episodeId,
             UUID batchId,
             AnalysisJobType jobType
-    );
-
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("""
-            select analysisJob
-            from AnalysisJob analysisJob
-            join fetch analysisJob.work
-            left join fetch analysisJob.batch
-            left join fetch analysisJob.worldSettingCandidate
-            left join fetch analysisJob.settingCandidate
-            where analysisJob.status = :status
-              and analysisJob.jobType in :jobTypes
-              and analysisJob.work.lifecycleStatus =
-                  org.monitoring.catchholebackend.domain.work.type.WorkLifecycleStatus.ACTIVE
-              and (
-                    analysisJob.leaseToken is null
-                    or analysisJob.leaseExpiresAt is null
-                    or analysisJob.leaseExpiresAt <= :now
-              )
-            order by analysisJob.leaseExpiresAt asc, analysisJob.createdAt asc
-            """)
-    List<AnalysisJob> findExpiredLeaseCandidates(
-            @Param("status") AnalysisJobStatus status,
-            @Param("jobTypes") Collection<AnalysisJobType> jobTypes,
-            @Param("now") LocalDateTime now,
-            Pageable pageable
     );
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

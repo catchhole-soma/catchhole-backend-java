@@ -21,9 +21,9 @@ import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisJobWorkerM
 import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisSemanticCurrentContextMapper;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobClaimRepository;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobLeaseRecoveryRepository;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisFailureCode;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage;
-import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenUsageOutcome;
@@ -52,7 +52,6 @@ import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingComp
 import org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.global.exception.AppException;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -69,6 +68,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
 
     private final AnalysisFailureDiagnosticsSanitizer failureDiagnosticsSanitizer;
     private final AnalysisJobClaimRepository analysisJobClaimRepository;
+    private final AnalysisJobLeaseRecoveryRepository analysisJobLeaseRecoveryRepository;
     private final AnalysisRunStateService analysisRunStateService;
     private final List<AnalysisJournalContributor> analysisJournalContributors;
     private final List<AnalysisAutomaticApplicationContributor> automaticApplicationContributors;
@@ -463,11 +463,10 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             Collection<AnalysisJobType> jobTypes,
             LocalDateTime now
     ) {
-        List<AnalysisJob> expiredJobs = analysisJobRepository.findExpiredLeaseCandidates(
-                AnalysisJobStatus.RUNNING,
+        List<AnalysisJob> expiredJobs = analysisJobLeaseRecoveryRepository.findExpiredLeasesForUpdate(
                 jobTypes.stream().filter(t -> t != AnalysisJobType.RELATIONSHIP_EXTRACTION).toList(),
                 now,
-                PageRequest.of(0, EXPIRED_LEASE_SCAN_SIZE)
+                EXPIRED_LEASE_SCAN_SIZE
         );
         for (AnalysisJob expiredJob : expiredJobs) {
             aiTokenService.releaseReservedForAnalysisJob(
