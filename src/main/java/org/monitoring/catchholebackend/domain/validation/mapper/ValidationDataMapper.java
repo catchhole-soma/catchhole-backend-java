@@ -65,14 +65,6 @@ public class ValidationDataMapper {
         return result;
     }
 
-    public ArrayNode toEntries(JsonNode entries, int offset, int limit) {
-        ArrayNode result = JsonNodeFactory.instance.arrayNode();
-        for (int index = offset; index < Math.min(entries.size(), (long) offset + limit); index++) {
-            ObjectNode entry = entries.get(index).deepCopy();
-            entry.put("entryRef", "B" + (index + 1)).put("entryHash", journal.hash(entries.get(index))); result.add(entry);
-        }
-        return result;
-    }
     private static final Set<String> PRIVATE=Set.of("actualCharacterId","actualWorldSettingId","provisionalSubjectKey","subjectRef","sourceKey","sourceVersion","sourceHash");
     public Map<String,JsonNode> toValidationSettings(JsonNode entries,Map<String,? extends JsonNode> sources) {
         var result=new LinkedHashMap<String,JsonNode>();var subjects=new LinkedHashMap<String,String>();int index=0;

@@ -80,6 +80,7 @@ class ValidationLiveSettingsIntegrationTest {
     @Autowired AnalysisStateJournal journal;
     @Autowired CharacterSnapshotAccessor snapshots;
     @Autowired List<AnalysisStateSource> stateSources;
+    @Autowired org.monitoring.catchholebackend.domain.validation.service.ValidationDataService data;
 
     Member member; Work work; UploadBatch batch; Episode prior70; Episode prior100; Episode target;
     AnalysisJob job70; AnalysisJob job100;
@@ -250,6 +251,22 @@ class ValidationLiveSettingsIntegrationTest {
         // SUBJECTS(색인만 읽는 행)도 순서·이름·별칭까지 같다.
         assertThat(mapper.toValidationSubjectCatalogue(live.entries(index, Set.of()), sources).toString())
                 .isEqualTo(mapper.toValidationSubjectCatalogue(legacyEntries, sources).toString());
+
+        // 데이터 API(Worker가 받는 응답)로도 같다: 같은 작품의 legacy report와 seed 없이 접수한 live report의 SUBJECTS·SETTINGS.
+        var liveReport = ValidationReport.create(em.find(Work.class, work.getId()), em.find(Episode.class, target.getId()), em.find(UploadBatch.class, batch.getId()), "e".repeat(64));
+        em.persist(liveReport); baselines.prepare(liveReport); em.flush();
+        assertThat(liveReport.getBaselineSeed()).isNull();
+        var legacy = em.find(ValidationReport.class, report.getId());
+        java.util.function.BiFunction<ValidationReport, String, JsonNode> read = (r, operation) -> data.readValidationData(member.getId(), work.getId(), r.getId(),
+                new org.monitoring.catchholebackend.domain.validation.dto.request.ValidationDataRequest(r.getBaselineHash(), r.getSourceContentHash(), operation, 0, 100,
+                        null, null, null, null, null, operation.equals("SETTINGS") ? allSubjectRefs(index) : null));
+        assertThat(read.apply(liveReport, "SUBJECTS").path("subjects").toString()).isEqualTo(read.apply(legacy, "SUBJECTS").path("subjects").toString());
+        var liveSettings = read.apply(liveReport, "SETTINGS"); var legacySettings = read.apply(legacy, "SETTINGS");
+        java.util.function.Function<JsonNode, List<String>> model = response -> StreamSupport.stream(response.path("settings").spliterator(), false)
+                .map(row -> compactSettingRow(row).toString()).toList();
+        assertThat(model.apply(liveSettings)).isEqualTo(model.apply(legacySettings)).hasSize(4);
+        assertThat(liveSettings.path("authorCorrectionProofs").toString()).isEqualTo(legacySettings.path("authorCorrectionProofs").toString());
+        assertThat(liveSettings.path("authorCorrectionProofs").get(0).path("entryRef").asText()).isEqualTo("B2");
     }
 
     void assertParity(JsonNode legacyEntries, JsonNode liveEntries, Map<String, ObjectNode> sources, ValidationLiveSettings.Index index) {

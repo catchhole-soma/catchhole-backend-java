@@ -75,12 +75,24 @@ class ValidationWorkerIntegrationTest extends ValidationWorkerFixture {
                 org.monitoring.catchholebackend.domain.character.entity.CharacterFact.class,org.monitoring.catchholebackend.domain.character.entity.CharacterSnapshotSource.class,
                 org.monitoring.catchholebackend.domain.character.entity.WorkCharacter.class,org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting.class))
             assertThat(statistics.getEntityStatistics(forbidden.getName()).getLoadCount()).as(forbidden.getSimpleName()).isZero();
-        // 접수(SQL 29번 수준) + queue: 기준 검증(fingerprint scalar 2·manifest 1·원고/출처 현재 상태 scalar)·manifest hash·실행 설정·Job insert.
-        // 인물·세계관·후보 0개와 30개가 같은 49번, 엔티티 로드 6개(Member·Work·UploadBatch·UploadFile·Episode 2)다.
+        // 접수(SQL 29번 수준) + queue: 현재 입력 확인 2번(각각 fingerprint scalar 2 포함)·기준 검증(fingerprint 2·manifest 1·원고/출처 현재 상태 scalar)·manifest hash·실행 설정·Job insert.
+        // 인물·세계관·후보 0개와 30개가 같은 53번, 엔티티 로드 6개(Member·Work·UploadBatch·UploadFile·Episode 2)다.
         assertThat(statistics.getPrepareStatementCount()).isEqualTo(QUEUED_INTAKE_STATEMENTS);
         assertThat(statistics.getEntityLoadCount()).isEqualTo(QUEUED_INTAKE_ENTITY_LOADS);
     }
-    static final long QUEUED_INTAKE_STATEMENTS=49,QUEUED_INTAKE_ENTITY_LOADS=6;
+    static final long QUEUED_INTAKE_STATEMENTS=53,QUEUED_INTAKE_ENTITY_LOADS=6;
+    @Test @DisplayName("#381 실행 중 잠금을 우회해 확정 설정 version을 바꾸면 heartbeat·자료 읽기·게시가 409로 멈추고 대기 Job은 claim 때 취소된다")
+    void bypassingSettingsWriteStopsTheRun() throws Exception {
+        source();var report=stored(start());var job=claim();
+        internal(path(job,"/heartbeat"),job,Map.of("scope",scope(job)),200);
+        em.createNativeQuery("update world_settings set version = version + 1 where work_id = :w").setParameter("w",work.getId()).executeUpdate();
+        assertThat(internal(path(job,"/heartbeat"),job,Map.of("scope",scope(job)),409).path("code").asText()).isEqualTo("VALIDATION_SOURCE_VERSION_CONFLICT");
+        assertThatThrownBy(()->data.readValidationData(member.getId(),work.getId(),report.getId(),new org.monitoring.catchholebackend.domain.validation.dto.request.ValidationDataRequest(report.getBaselineHash(),report.getSourceContentHash(),"SUBJECTS",0,100,null,null,null,null,null,null),
+                UUID.fromString(job.path("jobId").asText()),UUID.fromString(job.path("leaseToken").asText())))
+                .isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class).hasFieldOrPropertyWithValue("resultCode",org.monitoring.catchholebackend.domain.validation.exception.ValidationErrorCode.VALIDATION_SOURCE_VERSION_CONFLICT);
+        assertThat(internal(path(job,"/plans"),job,publication(job,"SETTING","PLANNER","TSEG1",batch("TSEG1",List.of())),409).path("code").asText()).isEqualTo("VALIDATION_SOURCE_VERSION_CONFLICT");
+        noExtraction();
+    }
     @Test @DisplayName("#381 legacy seed report는 저장 seed 검증으로 queue되고 manifest hash는 seed.sources와 같으며 저장 기준 항목으로 자료를 읽는다")
     void legacySeedReportIsStillServed() throws Exception {
         source();
