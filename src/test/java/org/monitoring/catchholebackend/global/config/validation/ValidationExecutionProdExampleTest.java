@@ -61,6 +61,8 @@ class ValidationExecutionProdExampleTest {
         assertThat(properties.enabled()).isTrue();
         assertThat(properties.leaseDuration()).isEqualTo(Duration.ofSeconds(60));
         assertThat(properties.maxLeaseRecoveries()).isEqualTo(2);
+        // #381: 대기 중인 검수가 확정 설정 쓰기를 잠그는 시간. lease(60초)는 바쁜 단일 Worker의 대기열에 비해 짧다.
+        assertThat(properties.settingsLockQueuedTimeout()).isEqualTo(Duration.ofMinutes(10));
         assertThat(properties.setting()).isEqualTo(SETTING);
         assertThat(properties.typo()).isEqualTo(TYPO);
         // configuration v2: 퇴역 역할(RELATED_SELECTION·COVERAGE)은 없고 생성 역할마다 출력 상한·모델·추론 강도를 둔다.
@@ -101,6 +103,18 @@ class ValidationExecutionProdExampleTest {
 
         assertThatThrownBy(() -> bind(properties)).isInstanceOf(BindException.class)
                 .rootCause().isInstanceOf(IllegalArgumentException.class).hasMessage("검수 역할 예산이 필요합니다.");
+    }
+
+    @Test
+    @DisplayName("예시에서 검수 대기 중 설정 잠금 시간을 빼면 활성 기동이 실패하고 비활성 기동은 유지된다")
+    void exampleRequiresSettingsLockQueuedTimeoutWhenEnabled() throws IOException {
+        var properties = flattenedExample();
+        assertThat(properties.remove("validation.execution.settings-lock-queued-timeout")).isEqualTo("10m");
+        properties.put("validation.execution.enabled", true);
+        assertThatThrownBy(() -> bind(properties)).isInstanceOf(BindException.class)
+                .rootCause().isInstanceOf(IllegalArgumentException.class).hasMessage("검수 실행 제한을 명시적으로 설정해야 합니다.");
+        properties.put("validation.execution.enabled", false);
+        assertThat(bind(properties).enabled()).isFalse();
     }
 
     @Test

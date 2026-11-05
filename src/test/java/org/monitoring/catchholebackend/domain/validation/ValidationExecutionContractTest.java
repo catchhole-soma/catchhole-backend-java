@@ -189,7 +189,7 @@ class ValidationExecutionContractTest {
         var limits=new HashMap<String,org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.Limits>();
         for(String branch:List.of("setting","typo")) {var b=expected.path("budgets").path(branch);
             limits.put(branch,new org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties.Limits(b.path("modelCalls").asInt(),b.path("lookups").asInt(),b.path("seconds").asDouble(),b.path("inputTokens").asInt(),b.path("segmentChars").asInt(),b.path("contextChars").asInt(),b.path("searchLimit").asInt()));}
-        var properties=new org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties(true,java.time.Duration.ofMillis(expected.path("leaseMillis").asLong()),expected.path("maxLeaseRecoveries").asInt(),limits.get("setting"),limits.get("typo"),roles,"text-embedding-3-small");
+        var properties=new org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties(true,java.time.Duration.ofMillis(expected.path("leaseMillis").asLong()),expected.path("maxLeaseRecoveries").asInt(),java.time.Duration.ofMinutes(10),limits.get("setting"),limits.get("typo"),roles,"text-embedding-3-small");
         var retrieval=mock(org.monitoring.catchholebackend.global.config.chat.ChatProperties.class);when(retrieval.retrievalEmbeddingVersion()).thenReturn("v1");
         var built=ValidationExecutionConfiguration.build(properties,retrieval);
         assertThat(journal.canonicalJson(built)).isEqualTo(journal.canonicalJson(expected));

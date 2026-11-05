@@ -8,6 +8,7 @@ import org.monitoring.catchholebackend.global.config.validation.ValidationExecut
 
 @DisplayName("검수 실행의 명시적 설정과 기본 비활성")
 class ValidationExecutionPropertiesTest {
+    static final Duration QUEUED_LOCK=Duration.ofMinutes(10);
     Limits limits() {return new Limits(10,20,30,1000,100,10,10);}
     static RoleBudget generation(String model,String effort) {return new RoleBudget(10,10000,100,model,effort);}
     Map<ValidationRole,RoleBudget> roles() {
@@ -15,23 +16,23 @@ class ValidationExecutionPropertiesTest {
         roles.put(ValidationRole.PLANNER,generation("gpt-6.1-terra","medium"));roles.put(ValidationRole.JUDGE,generation("gpt-6-luna","high"));roles.put(ValidationRole.TYPO,generation("gpt-6.1-terra","low"));
         return roles;
     }
-    ValidationExecutionProperties enabled(Map<ValidationRole,RoleBudget> roles,String embedding) {return new ValidationExecutionProperties(true,Duration.ofSeconds(30),2,limits(),limits(),roles,embedding);}
+    ValidationExecutionProperties enabled(Map<ValidationRole,RoleBudget> roles,String embedding) {return new ValidationExecutionProperties(true,Duration.ofSeconds(30),2,QUEUED_LOCK,limits(),limits(),roles,embedding);}
     @Test @DisplayName("비활성 앱은 검수 예산 없이 기동한다") void disabledNeedsNoExecutionConfiguration() {
-        assertThatCode(()->new ValidationExecutionProperties(false,null,null,null,null,null,null)).doesNotThrowAnyException();
+        assertThatCode(()->new ValidationExecutionProperties(false,null,null,null,null,null,null,null)).doesNotThrowAnyException();
     }
     @Test @DisplayName("비활성 앱은 남아 있는 퇴역 역할 키가 binding되어도 기동한다") void disabledToleratesStaleRetiredRoleKeys() {
         var roles=roles();roles.put(ValidationRole.COVERAGE,new RoleBudget(40,2_400_000,null,null,null));
-        assertThatCode(()->new ValidationExecutionProperties(false,null,null,null,null,roles,null)).doesNotThrowAnyException();
+        assertThatCode(()->new ValidationExecutionProperties(false,null,null,null,null,null,roles,null)).doesNotThrowAnyException();
     }
     @Test @DisplayName("활성 앱은 빠진 제한이나 생성 역할 예산을 거절한다") void enabledRequiresAllExplicitLimits() {
-        assertThatThrownBy(()->new ValidationExecutionProperties(true,null,null,null,null,null,null)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(()->new ValidationExecutionProperties(true,null,null,null,null,null,null,null)).isInstanceOf(IllegalArgumentException.class);
         assertThatCode(()->enabled(roles(),null)).doesNotThrowAnyException();
         for(var role:List.of(ValidationRole.PLANNER,ValidationRole.JUDGE,ValidationRole.TYPO)) {var roles=roles();roles.remove(role);
             assertThatThrownBy(()->enabled(roles,null)).as(role.name()).isInstanceOf(IllegalArgumentException.class).hasMessage("검수 역할 예산이 필요합니다.");}
         var unsetContext=new Limits(10,20,30,1000,100,null,10);
-        assertThatThrownBy(()->new ValidationExecutionProperties(true,Duration.ofSeconds(30),2,unsetContext,limits(),roles(),null)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(()->new ValidationExecutionProperties(true,Duration.ofSeconds(30),2,QUEUED_LOCK,unsetContext,limits(),roles(),null)).isInstanceOf(IllegalArgumentException.class);
         var wideSearch=new Limits(10,20,30,1000,100,10,101);
-        assertThatThrownBy(()->new ValidationExecutionProperties(true,Duration.ofSeconds(30),2,wideSearch,limits(),roles(),null)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(()->new ValidationExecutionProperties(true,Duration.ofSeconds(30),2,QUEUED_LOCK,wideSearch,limits(),roles(),null)).isInstanceOf(IllegalArgumentException.class);
     }
     @Test @DisplayName("생성 역할은 출력 상한·모델·추론 강도를 모두 요구하고 알 수 없는 강도를 거절한다") void generationRolesNeedOutputModelAndEffort() {
         for(var broken:List.of(new RoleBudget(10,10000,null,"gpt-6.1-terra","medium"),new RoleBudget(10,10000,0,"gpt-6.1-terra","medium"),
@@ -48,10 +49,17 @@ class ValidationExecutionPropertiesTest {
             assertThatThrownBy(()->enabled(roles,null)).as(role.name()).isInstanceOf(IllegalArgumentException.class).hasMessageContaining(role.name());
         }
     }
+    @Test @DisplayName("활성 앱은 검수 대기 중 설정 잠금 시간이 없거나 양수가 아니면 거절하고 비활성 앱은 요구하지 않는다") void enabledRequiresSettingsLockQueuedTimeout() {
+        for(var broken:Arrays.asList(null,Duration.ZERO,Duration.ofSeconds(-1),Duration.ofNanos(1)))
+            assertThatThrownBy(()->new ValidationExecutionProperties(true,Duration.ofSeconds(30),2,broken,limits(),limits(),roles(),null)).as(String.valueOf(broken))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessage("검수 실행 제한을 명시적으로 설정해야 합니다.");
+        assertThat(enabled(roles(),null).settingsLockQueuedTimeout()).isEqualTo(QUEUED_LOCK);
+        assertThat(new ValidationExecutionProperties(false,null,null,null,null,null,null,null).settingsLockQueuedTimeout()).isNull();
+    }
     @Test @DisplayName("미세한 lease와 유한하지 않은 예산을 거절한다") void invalidDurationsAndNumbersFailClosed() {
-        assertThatThrownBy(()->new ValidationExecutionProperties(true,Duration.ofNanos(1),2,limits(),limits(),roles(),null)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(()->new ValidationExecutionProperties(true,Duration.ofNanos(1),2,QUEUED_LOCK,limits(),limits(),roles(),null)).isInstanceOf(IllegalArgumentException.class);
         var infinite=new Limits(10,20,Double.POSITIVE_INFINITY,1000,100,10,10);
-        assertThatThrownBy(()->new ValidationExecutionProperties(true,Duration.ofSeconds(30),2,infinite,limits(),roles(),null)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(()->new ValidationExecutionProperties(true,Duration.ofSeconds(30),2,QUEUED_LOCK,infinite,limits(),roles(),null)).isInstanceOf(IllegalArgumentException.class);
     }
     @Test @DisplayName("선택 임베딩은 명시 모델과 별도 예산을 함께 요구하고 출력·모델·추론 강도를 두지 않는다") void embeddingIsOptionalButNeverImplicit() {
         var roles=roles();roles.put(ValidationRole.QUERY_EMBEDDING,new RoleBudget(2,100,null,null,null));

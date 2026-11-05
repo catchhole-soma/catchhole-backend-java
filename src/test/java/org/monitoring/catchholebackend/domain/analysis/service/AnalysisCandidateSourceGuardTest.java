@@ -21,7 +21,8 @@ import org.springframework.test.util.ReflectionTestUtils;
 @DisplayName("후보 확정 시 원문 manifest 보호")
 class AnalysisCandidateSourceGuardTest {
     private final EpisodeSourcePurgeRequestRepository requests = mock(EpisodeSourcePurgeRequestRepository.class);
-    private final AnalysisCandidateSourceGuard guard = new AnalysisCandidateSourceGuard(requests, mock(org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository.class));
+    private final AnalysisCandidateSourceGuard guard = new AnalysisCandidateSourceGuard(requests, mock(org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository.class),
+            mock(org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock.class));
 
     @ParameterizedTest
     @ValueSource(strings = {"episodeNo", "contentHash", "contentS3Key", "contentS3Version", "archived", "purging"})

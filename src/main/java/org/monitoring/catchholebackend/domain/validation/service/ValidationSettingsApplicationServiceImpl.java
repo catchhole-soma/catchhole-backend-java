@@ -36,6 +36,7 @@ public class ValidationSettingsApplicationServiceImpl implements ValidationSetti
     private final ValidationReportRepository reports;
     private final ValidationSettingsApplicationRepository applications;
     private final ValidationApplicationGate gate;
+    private final org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock settingsLock;
     private final ValidationReviewMapper mapper;
     private final AnalysisStateJournal journal;
     private final List<AnalysisAutomaticApplicationContributor> contributors;
@@ -91,7 +92,11 @@ public class ValidationSettingsApplicationServiceImpl implements ValidationSetti
         return mapper.toApplicationResponse(switch(decision.kind()) {
             case NOT_READY->throw error(VALIDATION_APPLICATION_NOT_READY);
             case HELD->hold(receipt,ValidationReviewTrigger.EXPLICIT,request.idempotencyKey(),hash,decision.reasons(),null);
-            case READY->applyPlan(receipt,decision,ValidationReviewTrigger.EXPLICIT,request.idempotencyKey(),hash);
+            case READY->{
+                // #381: 작가의 회차 전체 확정은 다른 회차의 검수가 실행 중이면 확정 설정을 쓰지 않는다. 보류 기록(HELD)은 설정을 쓰지 않아 막지 않는다.
+                settingsLock.assertUnlocked(workId);
+                yield applyPlan(receipt,decision,ValidationReviewTrigger.EXPLICIT,request.idempotencyKey(),hash);
+            }
         });
     }
 

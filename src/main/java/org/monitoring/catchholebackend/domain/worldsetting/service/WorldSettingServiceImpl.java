@@ -98,7 +98,7 @@ public class WorldSettingServiceImpl implements WorldSettingService {
             WorldSettingCreateRequest request
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
-        analysisRunStateService.assertSettingMutationAllowed(work.getId());
+        analysisRunStateService.assertConfirmedSettingMutationAllowed(work.getId());
         analysisRunStateService.confirmedSettingsChanged(work.getId());
         String normalizedSubjectName = WorldSettingNameNormalizer.duplicateKey(request.subjectName());
         if (worldSettingRepository.findByWorkIdAndCategoryAndNormalizedSubjectName(
@@ -141,7 +141,7 @@ public class WorldSettingServiceImpl implements WorldSettingService {
         if (worldSetting.getVersion() == previousVersion) {
             return toDetail(worldSetting);
         }
-        analysisRunStateService.assertSettingMutationAllowed(work.getId());
+        analysisRunStateService.assertConfirmedSettingMutationAllowed(work.getId());
         analysisRunStateService.confirmedSettingsChanged(work.getId());
         worldImageService.clearMismatchedImage(worldSetting);
         automaticImages.refreshWorldSettingImages(List.of(worldSetting));
@@ -158,7 +158,7 @@ public class WorldSettingServiceImpl implements WorldSettingService {
             WorldSettingPropertyCreateRequest request
     ) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
-        analysisRunStateService.assertSettingMutationAllowed(work.getId());
+        analysisRunStateService.assertConfirmedSettingMutationAllowed(work.getId());
         analysisRunStateService.confirmedSettingsChanged(work.getId());
         WorldSetting worldSetting = getWorldSettingForUpdate(worldSettingId, work.getId());
         worldSetting.validateVersion(request.version());
@@ -192,7 +192,7 @@ public class WorldSettingServiceImpl implements WorldSettingService {
         if (worldSetting.getVersion() == previousVersion && previouslyProtected) {
             return toDetail(worldSetting);
         }
-        analysisRunStateService.assertSettingMutationAllowed(work.getId());
+        analysisRunStateService.assertConfirmedSettingMutationAllowed(work.getId());
         analysisRunStateService.confirmedSettingsChanged(work.getId());
         worldSetting.protectManualProperty(request.currentScopeName(), request.currentSettingName());
         worldSetting.protectManualProperty(request.scopeName(), request.settingName());

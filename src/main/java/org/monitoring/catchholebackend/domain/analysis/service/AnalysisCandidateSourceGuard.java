@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
 public class AnalysisCandidateSourceGuard {
     private final EpisodeSourcePurgeRequestRepository purgeRequests;
     private final org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository jobs;
+    private final org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock settingsLock;
 
     public void assertCurrent(AnalysisJob job, Episode sourceEpisode) {
         var targets = targets(job, sourceEpisode);
@@ -53,12 +54,14 @@ public class AnalysisCandidateSourceGuard {
      * GH312 S3: release 회차(현재 report에 검토 종료 receipt)는 회차 전체 확정만 확정 설정을 쓴다. 사람의 개별·그룹 확정,
      * 저장 선택(reviewedApplicationMode), 승격·신규 대상 생성 진입점이 호출하며 수정·제외·연결·재비교·재개는 호출하지 않는다.
      * 자동 반영과 회차 전체 확정은 기존 assertCurrent만 사용한다.
+     * #381: 같은 작품의 검수가 실행 중이면 사람의 확정·승격도 409 VALIDATION_SETTINGS_LOCKED다.
      */
-    public void assertManualWriteAllowed(AnalysisJob job, Episode sourceEpisode) {
+    public void assertManualWriteAllowed(java.util.UUID workId, AnalysisJob job, Episode sourceEpisode) {
         var targets = targets(job, sourceEpisode);
         if (!targets.isEmpty() && jobs.existsReleasedValidationForEpisodes(targets)) {
             throw new AppException(org.monitoring.catchholebackend.domain.validation.exception.ValidationErrorCode.VALIDATION_RELEASE_MANUAL_CONFIRM_BLOCKED);
         }
+        settingsLock.assertUnlocked(workId);
     }
 
     private java.util.Set<java.util.UUID> targets(AnalysisJob job, Episode sourceEpisode) {

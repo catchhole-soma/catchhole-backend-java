@@ -263,7 +263,7 @@ public class CharacterServiceImpl implements CharacterService {
         if (!changed) {
             return toDetailResponse(character, firstAppearanceEpisode, schemas);
         }
-        analysisRunStateService.assertSettingMutationAllowed(work.getId());
+        analysisRunStateService.assertConfirmedSettingMutationAllowed(work.getId());
         analysisRunStateService.confirmedSettingsChanged(work.getId());
         character.updateBasicInfo(name, roleLabel);
         character.updateFirstAppearanceEpisodeId(firstAppearanceEpisodeId);
@@ -284,7 +284,7 @@ public class CharacterServiceImpl implements CharacterService {
     @Transactional
     public CharacterArchiveResponse archiveCharacter(Long memberId, UUID workId, UUID characterId) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
-        analysisRunStateService.assertSettingMutationAllowed(work.getId());
+        analysisRunStateService.assertConfirmedSettingMutationAllowed(work.getId());
         analysisRunStateService.confirmedSettingsChanged(work.getId());
         WorkCharacter character = getActiveCharacterForUpdate(work.getId(), characterId);
         character.archive();
@@ -296,7 +296,7 @@ public class CharacterServiceImpl implements CharacterService {
     @Transactional
     public CharacterRestoreResponse restoreCharacter(Long memberId, UUID workId, UUID characterId) {
         Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
-        analysisRunStateService.assertSettingMutationAllowed(work.getId());
+        analysisRunStateService.assertConfirmedSettingMutationAllowed(work.getId());
         analysisRunStateService.confirmedSettingsChanged(work.getId());
         WorkCharacter character = getArchivedCharacterForUpdate(work.getId(), characterId);
         if (workCharacterRepository.existsByWorkIdAndNameAndStatusAndIdNot(
