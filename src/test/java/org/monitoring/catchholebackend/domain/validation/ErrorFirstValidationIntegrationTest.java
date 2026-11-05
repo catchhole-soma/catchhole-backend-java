@@ -362,6 +362,36 @@ class ErrorFirstValidationIntegrationTest {
         assertThat(fact.path("supportingSource").path("source").path("episodeNo").asInt()).isEqualTo(70);
         assertThat(seed.toString()).doesNotContain("SOURCE_EVIDENCE_PURGED");
     }
+    @Test
+    @DisplayName("기준 준비의 파기 대기 확인은 이력 수가 아니라 출처 수만큼만 조회한다")
+    void baselineCaptureChecksPurgeOncePerSourceInsteadOfPerHistoryRow() throws Exception {
+        prepare();
+        var priorEpisode = em.createQuery("select e from Episode e where e.work = :work and e.episodeNo = 70", Episode.class).setParameter("work", work).getSingleResult();
+        var priorJob = AnalysisJob.create(work, null, priorEpisode, AnalysisJobType.SETTING_EXTRACTION); em.persist(priorJob);
+        var current = WorldSetting.create(work, WorldSettingCategory.RACE, "기존 종족", "서식지", "남부"); em.persist(current);
+        for (String value : List.of("남부", "북부", "동부", "서부", "중부", "해안")) {
+            var c = WorldSettingCandidate.create(work, priorEpisode, priorJob, WorldSettingCategory.RACE, "기존 종족", "서식지", value,
+                    JsonNodeFactory.instance.arrayNode().add(JsonNodeFactory.instance.objectNode().put("quote", value)), BigDecimal.ONE, null);
+            ReflectionTestUtils.setField(c, "targetWorldSetting", current); ReflectionTestUtils.setField(c, "reviewStatus", WorldSettingReviewStatus.CONFIRMED);
+            ReflectionTestUtils.setField(c, "finalCategory", WorldSettingCategory.RACE); ReflectionTestUtils.setField(c, "finalSubjectName", "기존 종족");
+            ReflectionTestUtils.setField(c, "finalSettingName", "서식지"); ReflectionTestUtils.setField(c, "finalValue", value);
+            ReflectionTestUtils.setField(c, "finalOperation", WorldSettingOperation.UPDATE);
+            em.persist(c);
+        }
+        em.flush(); em.clear();
+        var statistics = em.getEntityManagerFactory().unwrap(org.hibernate.SessionFactory.class).getStatistics();
+        statistics.clear();
+
+        var receipt = start("purge-check-once");
+
+        // 앞 회차 원고 2개(70·100화)와 과거 Job 출처 1개뿐이므로 이력 6행이 늘어도 파기 대기 확인은 최대 3번이다.
+        long purgeChecks = java.util.Arrays.stream(statistics.getQueries())
+                .filter(query -> query.contains("EpisodeSourcePurgeRequest") && query.contains("retainedContentKey"))
+                .mapToLong(query -> statistics.getQueryStatistics(query).getExecutionCount()).sum();
+        assertThat(purgeChecks).isBetween(1L, 3L);
+        var seed = em.find(ValidationReport.class, UUID.fromString(receipt.path("reportId").asText())).getBaselineSeed();
+        assertThat(seed.path("worldHistory").findValuesAsText("sourceAvailability")).hasSize(6).containsOnly("AVAILABLE");
+    }
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     @DisplayName("세계관 확정 이력과 보관한 설정집의 실제 revision도 고정한다")

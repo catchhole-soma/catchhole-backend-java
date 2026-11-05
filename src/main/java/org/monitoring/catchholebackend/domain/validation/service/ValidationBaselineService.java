@@ -93,7 +93,7 @@ public class ValidationBaselineService {
         ArrayNode manifests = seed.putArray("sources");
         for (var episode : episodes.findAllByWorkIdAndStatusNotOrderByEpisodeNoDesc(report.getWork().getId(), EpisodeStatus.ARCHIVED)) {
             if (episode.getEpisodeNo() >= report.getSourceEpisodeNo() || episode.getContentHash() == null
-                    || episode.getContentS3Key() == null || purges.blocksSource(episode.getId(),episode.getContentS3Key())) continue;
+                    || episode.getContentS3Key() == null || views.blocksSource(episode.getId(), episode.getContentS3Key())) continue;
             var manifest = manifests.addObject().put("sourceKind", "EPISODE").put("episodeId", episode.getId().toString())
                     .put("episodeNo", episode.getEpisodeNo()).put("contentHash", episode.getContentHash())
                     .put("contentRevision", episode.getContentRevision())
@@ -126,6 +126,7 @@ public class ValidationBaselineService {
      */
     private final class SourceViews {
         private final Map<UUID, Optional<AnalysisJobSourceView>> byId = new HashMap<>();
+        private final Map<List<Object>, Boolean> blocked = new HashMap<>();
 
         SourceViews(UUID workId) {
             sourceJobs.findExtractionSourcesForWork(workId).forEach(view -> byId.put(view.getId(), Optional.of(view)));
@@ -136,6 +137,15 @@ public class ValidationBaselineService {
 
         AnalysisJobSourceView byId(UUID id) {
             return id == null ? null : byId.computeIfAbsent(id, sourceJobs::findSourceById).orElse(null);
+        }
+
+        /**
+         * 파기 대기 여부는 같은 (회차, 원고 key)마다 한 번만 묻는다. 쿼리마다 Hibernate가 영속성 컨텍스트의 엔티티 수천 개를
+         * dirty check하므로, 세계관 이력·인물 근거마다 다시 물으면 접수 시간이 출처 수가 아니라 이력 수에 비례해 늘어난다.
+         * 접수는 Work 잠금 아래라 이 사이에 파기 요청이 바뀌지 않는다.
+         */
+        boolean blocksSource(UUID episodeId, String contentKey) {
+            return blocked.computeIfAbsent(Arrays.asList(episodeId, contentKey), key -> purges.blocksSource(episodeId, contentKey));
         }
     }
 
@@ -310,7 +320,7 @@ public class ValidationBaselineService {
                     .put("operation", candidate.getFinalOperation() == null ? null : candidate.getFinalOperation().name())
                     .put("historyOnly", candidate.isHistoryOnly()).put("effectiveFromEpisodeNo", candidate.getEffectiveFromEpisodeNo())
                     .put("temporalScope", temporalScope == null ? null : temporalScope.name());
-            boolean available = accessible(source, report);
+            boolean available = accessible(source, report, views);
             row.put("sourceAvailability", available ? "AVAILABLE" : "UNAVAILABLE");
             row.set("evidenceSpans", available ? copy(candidate.getEvidenceSpans()) : JsonNodeFactory.instance.arrayNode());
             row.set("comparison", available ? copy(candidate.getRawComparisonJson()) : NullNode.instance);
@@ -322,7 +332,7 @@ public class ValidationBaselineService {
     }
 
     /** 과거 출처가 지금도 같은 원고·설정집 revision을 가리키고 대상 회차보다 앞서는지 scalar 값만으로 확인한다. */
-    private boolean accessible(AnalysisJobSourceView source, ValidationReport target) {
+    private boolean accessible(AnalysisJobSourceView source, ValidationReport target, SourceViews views) {
         if (source == null || !target.getWork().getId().equals(source.getWorkId())) return false;
         if (source.isSettingBookSource()) {
             return source.getSourceSettingBookRevisionId() != null
@@ -333,7 +343,7 @@ public class ValidationBaselineService {
                         || source.getSourceReferenceEpisodeNo() < target.getSourceEpisodeNo());
         }
         return source.getEpisodeId() != null && source.getEpisodeStatus() != EpisodeStatus.ARCHIVED
-                && !purges.blocksSource(source.getEpisodeId(), source.getSourceContentS3Key())
+                && !views.blocksSource(source.getEpisodeId(), source.getSourceContentS3Key())
                 && source.getSourceEpisodeNo() != null && source.getSourceEpisodeNo() < target.getSourceEpisodeNo()
                 && Objects.equals(source.getSourceContentHash(), source.getEpisodeContentHash())
                 && Objects.equals(source.getSourceContentS3Key(), source.getEpisodeContentS3Key())
@@ -349,7 +359,7 @@ public class ValidationBaselineService {
             if (object.has("availability") && object.path("source").isObject()
                     && object.path("sourceAnalysisJobId").isTextual()) {
                 var source = views.byId(UUID.fromString(object.path("sourceAnalysisJobId").asText()));
-                if (!accessible(source, target)) return org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.purgeEvidence(object);
+                if (!accessible(source, target, views)) return org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.purgeEvidence(object);
             }
             var fields = new ArrayList<String>(); object.fieldNames().forEachRemaining(fields::add);
             for (String field : fields) object.set(field, sanitizeEvidence(object.get(field), target, views));
@@ -359,7 +369,7 @@ public class ValidationBaselineService {
             if (object.has("identityEvidence")) {
                 for (JsonNode id : object.path("provenance").path("sourceCandidateIds")) {
                     var candidate = characters.findByIdAndWorkId(UUID.fromString(id.asText()), target.getWork().getId()).orElse(null);
-                    if (candidate == null || !accessible(views.of(candidate.getAnalysisJob()), target)) { object.remove("identityEvidence"); break; }
+                    if (candidate == null || !accessible(views.of(candidate.getAnalysisJob()), target, views)) { object.remove("identityEvidence"); break; }
                 }
             }
         } else {
