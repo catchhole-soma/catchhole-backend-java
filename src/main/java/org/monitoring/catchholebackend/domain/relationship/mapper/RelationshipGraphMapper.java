@@ -21,6 +21,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.UUID;
 
 @Component
 public class RelationshipGraphMapper {
@@ -112,10 +113,17 @@ public class RelationshipGraphMapper {
 
     public Edge toEdge(RelationshipGraphEdge edge, RelationshipGraphEvent event, int evidenceCount,
             int lastVerifiedEpisodeNo, boolean updateIncomplete) {
+        return toEdge(edge, event, evidenceCount, lastVerifiedEpisodeNo, updateIncomplete,
+                edge.getSourceNodeId(), edge.getTargetNodeId());
+    }
+
+    /** Endpoints are the read-resolved profile nodes; the stored edge row keeps its own ids. */
+    public Edge toEdge(RelationshipGraphEdge edge, RelationshipGraphEvent event, int evidenceCount,
+            int lastVerifiedEpisodeNo, boolean updateIncomplete, UUID sourceNodeId, UUID targetNodeId) {
         return new Edge(
                 edge.getId(),
-                edge.getSourceNodeId(),
-                edge.getTargetNodeId(),
+                sourceNodeId,
+                targetNodeId,
                 edge.getAxis(),
                 edge.getKind(),
                 event.getLabel(),

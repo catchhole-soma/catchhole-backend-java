@@ -26,11 +26,19 @@ public class RelationshipGraphNode extends BaseEntity {
     private UUID characterId;
     private Integer characterLinkedEpisodeNo;
 
+    // The name observed when this node was recorded. It is a matching key and analysis-time
+    // history, so no path (link, merge, profile rename) rewrites it.
     @Column(nullable = false, length = 100)
     private String name;
 
+    // The first episode in which this node's own name is known.
     @Column(nullable = false)
     private int firstEpisodeNo;
+
+    // GH382: an unlinked alias node redirects to its profile's node. A plain id, not an
+    // association: reads resolve it in memory and never lazily traverse the chain.
+    private UUID mergedIntoNodeId;
+    private Integer mergedAtEpisodeNo;
 
     public static RelationshipGraphNode create(
             UUID id, UUID workId, UUID characterId, String name, int episodeNo) {
@@ -49,9 +57,26 @@ public class RelationshipGraphNode extends BaseEntity {
     }
 
     public void link(UUID characterId, int episodeNo) {
-        if (this.characterId == null) {
+        if (this.characterId == null && mergedIntoNodeId == null) {
             this.characterId = characterId;
             this.characterLinkedEpisodeNo = episodeNo;
         }
+    }
+
+    public boolean isMerged() {
+        return mergedIntoNodeId != null;
+    }
+
+    /**
+     * Redirects this unlinked node to the profile node. Edges, events and the stored name stay
+     * unchanged. Returns false when this node is linked or already redirected elsewhere.
+     */
+    public boolean mergeInto(UUID canonicalId, int episodeNo) {
+        if (id.equals(canonicalId)) throw new IllegalStateException("A node cannot merge into itself.");
+        if (characterId != null) return false;
+        if (mergedIntoNodeId != null) return mergedIntoNodeId.equals(canonicalId);
+        mergedIntoNodeId = canonicalId;
+        mergedAtEpisodeNo = episodeNo;
+        return true;
     }
 }

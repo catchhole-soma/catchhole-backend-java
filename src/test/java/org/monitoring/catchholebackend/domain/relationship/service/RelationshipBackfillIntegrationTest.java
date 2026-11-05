@@ -581,6 +581,79 @@ class RelationshipBackfillIntegrationTest {
                 .anyMatch(n -> n.name().equals("보라") && n.profileRegistered());
     }
 
+    private UUID boundNodeId(UUID jobId, String ref) {
+        return tx.execute(t -> UUID.fromString(em.find(RelationshipGraphAnalysis.class, jobId)
+                .getBindings().path("nodes").path(ref).path("id").asText()));
+    }
+
+    @Test
+    @DisplayName("공개 세대의 프로필 노드를 백필 세대도 별칭으로 다시 써서 공개 뒤에도 한 노드로 보인다")
+    void aliasResolvesToSharedNodeAcrossGenerations() {
+        source = "아라 린과 보라는 함께 길을 떠났다. 아라와 보라는 웃었다.";
+        when(storage.getText(anyString())).thenReturn(source);
+        UUID one = episode(1);
+        episode(2);
+        UUID characterId = tx.execute(t -> {
+            var character = org.monitoring.catchholebackend.domain.character.entity.WorkCharacter.create(
+                    em.find(Work.class, workId), "아라 린 프로필", null, null, null, null, null, null, null, null, null);
+            em.persist(character);
+            return character.getId();
+        });
+        // Published generation 0: an ordinary analysis links "아라 린"; the same job confirms "아라".
+        var inline = tx.execute(t -> {
+            var e = em.find(Episode.class, one);
+            var j = AnalysisJob.create(e.getWork(), null, e, AnalysisJobType.SETTING_EXTRACTION);
+            j.enableRelationshipAnalysis();
+            em.persist(j);
+            em.flush();
+            j.claim("test", "test", LocalDateTime.now().plusMinutes(1));
+            graph.beginRelationshipAnalysis(j);
+            var json = new com.fasterxml.jackson.databind.ObjectMapper();
+            for (String name : List.of("아라 린", "아라")) {
+                var discovery = org.monitoring.catchholebackend.domain.character.entity.SettingCandidate
+                        .createCharacterDiscovery(e.getWork(), e, UUID.randomUUID(), j, name, name, characterId,
+                                org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus.MATCHED,
+                                json.createArrayNode(), java.math.BigDecimal.ONE, json.createObjectNode());
+                discovery.confirm();
+                em.persist(discovery);
+            }
+            return new AbstractMap.SimpleEntry<>(j.getId(), j.getLeaseToken());
+        });
+        Context published = graph.prepareRelationshipAnalysis(inline.getKey(), inline.getValue(),
+                new Prepare(1, storage.contentHash(source), List.of(new Observation("O1",
+                        new Endpoint("아라 린", "아라 린"), new Endpoint("보라", "보라"), "함께 길을 떠난다",
+                        List.of(new Evidence(0, source.length(), source)))), 0));
+        var o = published.observations().getFirst();
+        graph.completeRelationshipAnalysis(inline.getKey(), inline.getValue(), new Complete(1, published.contextToken(),
+                List.of(new Decision(List.of("O1"), Operation.ADD, null, o.sourceNodeRefs().getFirst(),
+                        o.targetNodeRefs().getFirst(), Axis.SOCIAL, Kind.COMPANIONSHIP, "동행", "함께 길을 떠난다",
+                        Direction.MUTUAL, TemporalScope.PRESENT, null))));
+        tx.executeWithoutResult(t -> {
+            var j = em.find(AnalysisJob.class, inline.getKey());
+            graph.finalizeRelationshipAnalysis(j);
+            j.succeed(null, 0, 0);
+        });
+        UUID profile = boundNodeId(inline.getKey(), o.sourceNodeRefs().getFirst());
+        UUID bora = boundNodeId(inline.getKey(), o.targetNodeRefs().getFirst());
+
+        // Building generation 1: the verified alias binds the shared profile node ID.
+        coordinator.bootstrapRelationshipBackfill();
+        var first = claim();
+        var c1 = prepare(first);
+        String aliasRef = c1.observations().getFirst().sourceNodeRefs().getFirst();
+        assertThat(boundNodeId(first.analysisJobId(), aliasRef)).isEqualTo(profile);
+        assertThat(c1.nodes()).filteredOn(n -> n.ref().equals(aliasRef)).singleElement()
+                .satisfies(n -> assertThat(n.profileRegistered()).isTrue());
+        finish(first, c1);
+        finish(claim());
+        assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.COMPLETE);
+        var result = graph.getRelationshipGraph(owner, workId, null);
+        assertThat(result.nodes()).extracting(n -> n.id()).containsExactlyInAnyOrder(profile, bora);
+        assertThat(jdbc.queryForObject(
+                "select count(*) from relationship_graph_nodes where work_id=? and name='아라'", Long.class, workId))
+                .isZero();
+    }
+
     @Test
     @DisplayName("백필의 과거 이름 조회는 확정 후보와 원 분석 Job을 적재하지 않고 scalar 조회 한 번으로 끝낸다")
     void backfillHistoricalIdentityDoesNotHydrateAnalysisJobs() {

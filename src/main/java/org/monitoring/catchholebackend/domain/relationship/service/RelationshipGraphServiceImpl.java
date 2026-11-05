@@ -31,6 +31,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
@@ -82,6 +83,7 @@ import java.util.TreeMap;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -437,6 +439,10 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
             throw new AppException(RELATIONSHIP_GRAPH_INCOMPLETE);
         assertDependencyRevision(analysis);
         Context context = mapper.toContext(analysis);
+        // One node load serves event-name orientation, alias-slot suppression and profile linking.
+        NodeIndex index =
+                new NodeIndex(nodes.findAllByWorkIdOrderByFirstEpisodeNoAscIdAsc(job.getWork().getId()));
+        Set<String> suppressedKeys = null;
         Map<String, ContextNode> contextNodes =
                 context.nodes().stream().collect(Collectors.toMap(ContextNode::ref, n -> n));
         Map<String, ContextObservation> observations = new LinkedHashMap<>();
@@ -445,6 +451,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         for (Decision decision : mapper.decisions(analysis)) {
             if (decision.operation() == Operation.HOLD || decision.operation() == Operation.EXCLUDE)
                 continue;
+            // Frozen bindings are applied as recorded (a stale alias-node id is not rewritten).
             UUID source = nodeId(analysis, decision.sourceNodeRef()),
                     target = nodeId(analysis, decision.targetNodeRef());
             String key =
@@ -457,18 +464,32 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                                     decision.direction()));
             RelationshipGraphEdge edge;
             if (decision.relationshipRef() == null) {
+                var found = edges.findByWorkIdAndCanonicalKey(job.getWork().getId(), key);
+                if (found.isEmpty() && index.hasAliases(source, target)) {
+                    // A suppressed edge is absent from the context, so the model may ADD it again
+                    // between the profile node and a partner. A user deletion recorded on a
+                    // redirected node's edge must still block that same slot.
+                    if (suppressedKeys == null)
+                        suppressedKeys =
+                                edges.findAllByWorkId(job.getWork().getId()).stream()
+                                        .filter(RelationshipGraphEdge::isSuppressed)
+                                        .map(RelationshipGraphEdge::getCanonicalKey)
+                                        .collect(Collectors.toSet());
+                    Set<String> deleted = suppressedKeys;
+                    if (aliasSlotKeys(index, source, target, decision).stream()
+                            .anyMatch(deleted::contains)) continue;
+                }
                 edge =
-                        edges.findByWorkIdAndCanonicalKey(job.getWork().getId(), key)
-                                .orElseGet(
-                                        () ->
-                                                edges.save(
-                                                        RelationshipGraphEdge.create(
-                                                                job.getWork().getId(),
-                                                                source,
-                                                                target,
-                                                                decision.axis(),
-                                                                decision.kind(),
-                                                                key)));
+                        found.orElseGet(
+                                () ->
+                                        edges.save(
+                                                RelationshipGraphEdge.create(
+                                                        job.getWork().getId(),
+                                                        source,
+                                                        target,
+                                                        decision.axis(),
+                                                        decision.kind(),
+                                                        key)));
             } else {
                 edge =
                         edges.findById(
@@ -501,6 +522,10 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                     array.add(entry);
                 }
             }
+            // An UPDATE may target an edge recorded on a redirected node while the decision
+            // refers to its profile node; orient event names by the resolved endpoints.
+            UUID edgeSource = index.canonicalOf(edge.getSourceNodeId()),
+                    edgeTarget = index.canonicalOf(edge.getTargetNodeId());
             events.save(
                     mapper.toEvent(
                             analysis,
@@ -508,20 +533,20 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                             decision,
                             contextNodes
                                     .get(
-                                            source.equals(edge.getSourceNodeId())
+                                            index.canonicalOf(source).equals(edgeSource)
                                                     ? decision.sourceNodeRef()
                                                     : decision.targetNodeRef())
                                     .name(),
                             contextNodes
                                     .get(
-                                            target.equals(edge.getTargetNodeId())
+                                            index.canonicalOf(target).equals(edgeTarget)
                                                     ? decision.targetNodeRef()
                                                     : decision.sourceNodeRef())
                                     .name(),
                             evidence));
             edge.changed();
         }
-        linkConfirmedCharacters(job, analysis, context);
+        linkConfirmedCharacters(job, analysis, context, index);
         analysis.apply();
         // A late ordinary episode adds its own dated event. Later PRESENT decisions (including
         // MERGE) remain the decisions made for their episodes, not materialized predecessor state.
@@ -535,7 +560,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
     }
 
     private void linkConfirmedCharacters(
-            AnalysisJob job, RelationshipGraphAnalysis analysis, Context context) {
+            AnalysisJob job, RelationshipGraphAnalysis analysis, Context context, NodeIndex index) {
         var confirmed =
                 candidates.findAllByAnalysisJobIdOrderByCreatedAtAscIdAsc(job.getId()).stream()
                         .filter(
@@ -544,16 +569,21 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                                                         == SettingCandidateReviewStatus.CONFIRMED
                                                 && c.getMatchedCharacterId() != null)
                         .toList();
+        // A redirected node is never linked again. A profile node counts from its earliest name.
         Map<UUID, RelationshipGraphNode> currentNodes =
-                nodes.findAllByWorkIdOrderByFirstEpisodeNoAscIdAsc(job.getWork().getId()).stream()
-                        .filter(n -> n.getFirstEpisodeNo() <= analysis.getEpisodeNo())
+                index.nodes().stream()
+                        .filter(
+                                n ->
+                                        !n.isMerged()
+                                                && index.visibleFrom(n.getId())
+                                                        <= analysis.getEpisodeNo())
                         .collect(Collectors.toMap(RelationshipGraphNode::getId, n -> n));
         Map<String, Long> nameCounts =
                 currentNodes.values().stream()
                         .collect(
                                 Collectors.groupingBy(
                                         RelationshipGraphNode::getName, Collectors.counting()));
-        Map<UUID, UUID> links = new HashMap<>();
+        Map<UUID, UUID> links = new LinkedHashMap<>();
         for (ContextNode visible : context.nodes()) {
             var node = currentNodes.get(nodeId(analysis, visible.ref()));
             if (node == null
@@ -580,8 +610,24 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                         .collect(Collectors.toSet());
         links.forEach(
                 (nodeId, characterId) -> {
-                    if (owned.contains(characterId))
-                        currentNodes.get(nodeId).link(characterId, analysis.getEpisodeNo());
+                    if (!owned.contains(characterId)) return;
+                    RelationshipGraphNode node = currentNodes.get(nodeId);
+                    List<RelationshipGraphNode> profile = index.canonicalNodesOf(characterId);
+                    if (profile.isEmpty()) {
+                        node.link(characterId, analysis.getEpisodeNo());
+                    } else if (profile.size() == 1) {
+                        // A second confirmed name of the same profile redirects to its node
+                        // instead of linking a parallel node. Edges, events and names stay.
+                        if (node.mergeInto(profile.getFirst().getId(), analysis.getEpisodeNo()))
+                            index.merged(node);
+                        else
+                            log.warn("GH382 relationship node not merged workId={} characterId={}",
+                                    job.getWork().getId(), characterId);
+                    } else {
+                        // Already split production data waits for the one-time cleanup.
+                        log.warn("GH382 profile has several relationship nodes workId={} characterId={}",
+                                job.getWork().getId(), characterId);
+                    }
                 });
     }
 
@@ -602,13 +648,15 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         // jobs, internal HOLD and reanalysis must not manufacture duplicate same-name node IDs.
         List<RelationshipGraphNode> allNodes =
                 nodes.findAllByWorkIdOrderByFirstEpisodeNoAscIdAsc(workId);
+        NodeIndex index = new NodeIndex(allNodes);
+        // Stored names stay matching keys. A redirected node's name resolves to its profile node,
+        // which is therefore visible from the first episode in which any of its names is known.
         Map<String, List<RelationshipGraphNode>> allByName =
                 allNodes.stream().collect(Collectors.groupingBy(RelationshipGraphNode::getName));
-        List<RelationshipGraphNode> workNodes = new ArrayList<>(allNodes);
-        List<RelationshipGraphNode> existing =
-                allNodes.stream().filter(n -> n.getFirstEpisodeNo() <= cutoff).toList();
         Map<String, List<RelationshipGraphNode>> byName = new LinkedHashMap<>();
-        existing.forEach(n -> byName.computeIfAbsent(n.getName(), x -> new ArrayList<>()).add(n));
+        for (var node : allNodes)
+            if (node.getFirstEpisodeNo() <= cutoff)
+                addDistinct(byName, node.getName(), index.canonicalNode(node));
         JsonNode input =
                 job.isOrderedProvisional() ? runState.getInputState(job) : mapper.toJson(Map.of());
         // Ordered input contributes only representative names. Its alias strings carry no
@@ -647,9 +695,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                     // A name confirmed for exactly one profile by this cutoff (representative
                     // name or alias) reuses that profile's node instead of starting another one.
                     List<RelationshipGraphNode> profile =
-                            workNodes.stream()
-                                    .filter(n -> identities.getFirst().equals(n.getCharacterId()))
-                                    .toList();
+                            index.canonicalNodesOf(identities.getFirst());
                     if (profile.size() > 1) {
                         // Already split data is not guessed into one node here.
                         byName.put(endpoint.name(), List.of());
@@ -657,8 +703,23 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                     }
                     if (profile.size() == 1) {
                         RelationshipGraphNode node = profile.getFirst();
-                        if (persistNodes && node.getName().equals(endpoint.name()))
-                            node.observeAt(cutoff);
+                        List<RelationshipGraphNode> named =
+                                allByName.getOrDefault(endpoint.name(), List.of()).stream()
+                                        .filter(n -> index.canonicalOf(n.getId()).equals(node.getId()))
+                                        .toList();
+                        if (!named.isEmpty()) {
+                            // This exact stored name of the profile becomes cutoff-safe here.
+                            if (persistNodes) named.forEach(n -> n.observeAt(cutoff));
+                        } else if (index.visibleFrom(node.getId()) > cutoff) {
+                            // Record the alias as a redirect so later contexts at this cutoff
+                            // still include the profile node, without its not-yet-known name.
+                            var alias =
+                                    RelationshipGraphNode.create(
+                                            UUID.randomUUID(), workId, null, endpoint.name(), cutoff);
+                            alias.mergeInto(node.getId(), cutoff);
+                            if (persistNodes) alias = nodes.save(alias);
+                            index.add(alias);
+                        }
                         contextNames.putIfAbsent(node.getId(), endpoint.name());
                         byName.put(endpoint.name(), List.of(node));
                         continue;
@@ -670,12 +731,15 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                 List<RelationshipGraphNode> future =
                         allByName.getOrDefault(endpoint.name(), List.of());
                 if (!future.isEmpty()) {
-                    if (future.size() != 1 || conflictsWithKnownIdentity(future, identities)) {
+                    List<RelationshipGraphNode> resolved =
+                            future.stream().map(index::canonicalNode).distinct().toList();
+                    if (resolved.size() != 1 || conflictsWithKnownIdentity(resolved, identities)) {
                         byName.put(endpoint.name(), List.of());
                         continue;
                     }
-                    RelationshipGraphNode node = future.getFirst();
-                    if (persistNodes) node.observeAt(cutoff);
+                    RelationshipGraphNode node = resolved.getFirst();
+                    // Move the stored rows carrying this name, never a profile node's other name.
+                    if (persistNodes) future.forEach(n -> n.observeAt(cutoff));
                     contextNames.putIfAbsent(node.getId(), endpoint.name());
                     byName.put(endpoint.name(), List.of(node));
                     continue;
@@ -688,7 +752,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                                 endpoint.name(),
                                 cutoff);
                 if (persistNodes) node = nodes.save(node);
-                workNodes.add(node);
+                index.add(node);
                 byName.put(endpoint.name(), List.of(node));
             }
         Map<UUID, String> refs = new LinkedHashMap<>();
@@ -703,13 +767,20 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                 if (ref == null) {
                     ref = "N" + (contextNodes.size() + 1);
                     refs.put(node.getId(), ref);
+                    // Prior edges recorded on a redirected node project onto the same ref.
+                    for (var member : index.members(node.getId()))
+                        refs.putIfAbsent(member.getId(), ref);
+                    String name =
+                            node.getFirstEpisodeNo() <= cutoff
+                                    ? node.getName()
+                                    : contextNames.get(node.getId());
+                    if (name == null)
+                        name = Objects.requireNonNullElse(index.nameAt(node, cutoff), node.getName());
                     contextNodes.put(
                             ref,
                             new ContextNode(
                                     ref,
-                                    node.getFirstEpisodeNo() <= cutoff
-                                            ? node.getName()
-                                            : contextNames.getOrDefault(node.getId(), node.getName()),
+                                    name,
                                     node.getCharacterId() != null
                                             && node.getCharacterLinkedEpisodeNo() != null
                                             && node.getCharacterLinkedEpisodeNo() <= cutoff));
@@ -758,8 +829,10 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
             if (edge == null || edge.isSuppressed()) continue;
             String source = refs.get(edge.getSourceNodeId()),
                     target = refs.get(edge.getTargetNodeId());
+            // An old edge between a redirected node and its own profile node is not a pair.
             if (source == null
                     || target == null
+                    || source.equals(target)
                     || (pairScoped
                             ? !relevantPairs.contains(RelationshipGraphRules.pair(source, target))
                             : !relevant.contains(source) && !relevant.contains(target))) continue;
@@ -858,7 +931,8 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         List<ContextNode> neededNodes =
                 contextNodes.values().stream().filter(n -> neededRefs.contains(n.ref())).toList();
         List<BlockedPair> blockedPairs = new ArrayList<>();
-        Map<String, Integer> failedPairs = failedPairEpisodes(allAnalyses, cutoff - 1, validPriorIds);
+        Map<String, Integer> failedPairs =
+                failedPairEpisodes(allAnalyses, cutoff - 1, validPriorIds, index);
         for (var observation : observations) {
             if (RelationshipGraphRules.pair(observation) == null) continue;
             String sourceRef = observation.sourceNodeRefs().getFirst(), targetRef = observation.targetNodeRefs().getFirst();
@@ -914,9 +988,12 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                 workId, List.of(SettingCandidateKind.CHARACTER_DISCOVERY), names, cutoff);
     }
 
-    /** Persisted N refs are local to a context. Cross-episode dependencies use actual node IDs. */
+    /**
+     * Persisted N refs are local to a context. Cross-episode dependencies use actual node IDs,
+     * resolved through redirects so a failed alias-node pair still blocks its profile-node pair.
+     */
     private Map<String, Integer> failedPairEpisodes(Map<Integer, RelationshipGraphAnalysis> all,
-            int cutoff, Set<UUID> valid) {
+            int cutoff, Set<UUID> valid, NodeIndex index) {
         Map<String, Integer> result = new HashMap<>();
         for (var analysis : all.values()) {
             if (analysis.getEpisodeNo() > cutoff || !valid.contains(analysis.getId()) || !analysis.hasFailures()) continue;
@@ -934,7 +1011,8 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                     // A damaged persisted binding is not authority to advance the dependent pair.
                     try { UUID.fromString(source); UUID.fromString(target); }
                     catch (IllegalArgumentException malformed) { conflict(); }
-                    result.merge(RelationshipGraphRules.pair(source, target), analysis.getEpisodeNo(), Math::min);
+                    result.merge(RelationshipGraphRules.pair(index.resolvedId(source), index.resolvedId(target)),
+                            analysis.getEpisodeNo(), Math::min);
                 }
             }
         }
@@ -1011,32 +1089,35 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         Map<UUID, List<PublicEvidence>> evidence = evidence(read, cutoff);
         int verificationCutoff = episodeNo != null ? episodeNo : read.analyses().keySet().stream()
                 .mapToInt(Integer::intValue).max().orElse(cutoff);
-        Map<String, Integer> failedPairs = failedPairEpisodes(read.analyses(), verificationCutoff, read.validIds());
+        Map<String, Integer> failedPairs =
+                failedPairEpisodes(read.analyses(), verificationCutoff, read.validIds(), read.index());
         List<Edge> output = new ArrayList<>();
         Map<UUID, Node> outputNodes = new LinkedHashMap<>();
+        // Edges stay physically on their recorded nodes; output endpoints are the resolved
+        // profile nodes. An old edge between an alias node and its own profile node is hidden.
         List<RelationshipGraphEvent> visible =
                 latest.values().stream()
-                        .filter(e -> !read.edges().get(e.getEdgeId()).isSuppressed())
+                        .filter(e -> {
+                            var edge = read.edges().get(e.getEdgeId());
+                            return !edge.isSuppressed() && !read.index().selfLoop(edge);
+                        })
                         .toList();
         for (var event : visible.stream().limit(200).toList()) {
             var edge = read.edges().get(event.getEdgeId());
-            var progress = pairProgress(read, edge, event, verificationCutoff, failedPairs);
+            UUID source = read.index().canonicalOf(edge.getSourceNodeId()),
+                    target = read.index().canonicalOf(edge.getTargetNodeId());
+            var progress = pairProgress(read, source, target, verificationCutoff, failedPairs);
             output.add(
                     mapper.toEdge(
                             edge, event, evidence.getOrDefault(edge.getId(), List.of()).size(),
-                            progress.lastVerifiedEpisodeNo(), progress.updateIncomplete()));
+                            progress.lastVerifiedEpisodeNo(), progress.updateIncomplete(),
+                            source, target));
             outputNodes.put(
-                    edge.getSourceNodeId(),
-                    mapper.toNode(
-                            read.nodes().get(edge.getSourceNodeId()),
-                            event.getSourceName(),
-                            cutoff));
+                    source,
+                    mapper.toNode(read.index().node(source), event.getSourceName(), cutoff));
             outputNodes.put(
-                    edge.getTargetNodeId(),
-                    mapper.toNode(
-                            read.nodes().get(edge.getTargetNodeId()),
-                            event.getTargetName(),
-                            cutoff));
+                    target,
+                    mapper.toNode(read.index().node(target), event.getTargetName(), cutoff));
         }
         var considered =
                 read.analyses().values().stream()
@@ -1118,9 +1199,10 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
 
     private record PairProgress(int lastVerifiedEpisodeNo, boolean updateIncomplete) {}
 
-    private PairProgress pairProgress(ReadState read, RelationshipGraphEdge edge,
-            RelationshipGraphEvent event, int cutoff, Map<String, Integer> failedPairs) {
-        String pair = RelationshipGraphRules.pair(edge.getSourceNodeId().toString(), edge.getTargetNodeId().toString());
+    /** {@code source}/{@code target} are the resolved profile nodes of the edge. */
+    private PairProgress pairProgress(ReadState read, UUID source, UUID target, int cutoff,
+            Map<String, Integer> failedPairs) {
+        String pair = RelationshipGraphRules.pair(source.toString(), target.toString());
         Integer pairFailure = failedPairs.get(pair);
         int verified = 0;
         boolean incomplete = false, advancing = true;
@@ -1146,7 +1228,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         Graph graph = graph(read, episodeNo);
         if (graph.selectedEpisode() == null) throw new AppException(RELATIONSHIP_GRAPH_NOT_FOUND);
         var edge = read.edges().get(edgeId);
-        if (edge == null || edge.isSuppressed())
+        if (edge == null || edge.isSuppressed() || read.index().selfLoop(edge))
             throw new AppException(RELATIONSHIP_GRAPH_NOT_FOUND);
         int cutoff = graph.selectedEpisode().episodeNo();
         var event = latestEvents(read, cutoff).get(edgeId);
@@ -1154,14 +1236,15 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         List<PublicEvidence> evidence = evidence(read, cutoff).getOrDefault(edgeId, List.of());
         int verificationCutoff = episodeNo != null ? episodeNo : read.analyses().keySet().stream()
                 .mapToInt(Integer::intValue).max().orElse(cutoff);
-        var progress = pairProgress(read, edge, event, verificationCutoff,
-                failedPairEpisodes(read.analyses(), verificationCutoff, read.validIds()));
+        UUID source = read.index().canonicalOf(edge.getSourceNodeId()),
+                target = read.index().canonicalOf(edge.getTargetNodeId());
+        var progress = pairProgress(read, source, target, verificationCutoff,
+                failedPairEpisodes(read.analyses(), verificationCutoff, read.validIds(), read.index()));
         return new Detail(
-                mapper.toEdge(edge, event, evidence.size(), progress.lastVerifiedEpisodeNo(), progress.updateIncomplete()),
-                mapper.toNode(
-                        read.nodes().get(edge.getSourceNodeId()), event.getSourceName(), cutoff),
-                mapper.toNode(
-                        read.nodes().get(edge.getTargetNodeId()), event.getTargetName(), cutoff),
+                mapper.toEdge(edge, event, evidence.size(), progress.lastVerifiedEpisodeNo(),
+                        progress.updateIncomplete(), source, target),
+                mapper.toNode(read.index().node(source), event.getSourceName(), cutoff),
+                mapper.toNode(read.index().node(target), event.getTargetName(), cutoff),
                 evidence,
                 edge.getVersion());
     }
@@ -1185,8 +1268,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                         workId, Integer.MAX_VALUE),
                 edges.findAllByWorkId(workId).stream()
                         .collect(Collectors.toMap(RelationshipGraphEdge::getId, e -> e)),
-                nodes.findAllByWorkIdOrderByFirstEpisodeNoAscIdAsc(workId).stream()
-                        .collect(Collectors.toMap(RelationshipGraphNode::getId, n -> n)),
+                new NodeIndex(nodes.findAllByWorkIdOrderByFirstEpisodeNoAscIdAsc(workId)),
                 episodeMap);
     }
 
@@ -1238,7 +1320,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
             Set<UUID> validIds,
             List<RelationshipGraphEvent> events,
             Map<UUID, RelationshipGraphEdge> edges,
-            Map<UUID, RelationshipGraphNode> nodes,
+            NodeIndex index,
             Map<UUID, Episode> episodes) {}
 
     @Override
@@ -1553,4 +1635,137 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
     private record SourceSnapshot(String key, String hash, Context context) {}
 
     private record BuiltContext(Context context, ObjectNode bindings) {}
+
+    private static void addDistinct(
+            Map<String, List<RelationshipGraphNode>> byName, String name, RelationshipGraphNode node) {
+        var group = byName.computeIfAbsent(name, x -> new ArrayList<>());
+        if (group.stream().noneMatch(n -> n.getId().equals(node.getId()))) group.add(node);
+    }
+
+    /** Slot keys of the same decision recorded on any redirected node of either endpoint. */
+    private Set<String> aliasSlotKeys(NodeIndex index, UUID source, UUID target, Decision decision) {
+        Set<String> keys = new HashSet<>();
+        for (var from : index.members(index.canonicalOf(source)))
+            for (var to : index.members(index.canonicalOf(target)))
+                if (!from.getId().equals(to.getId()))
+                    keys.add(
+                            storage.contentHash(
+                                    RelationshipGraphRules.canonical(
+                                            from.getId().toString(),
+                                            to.getId().toString(),
+                                            decision.axis(),
+                                            decision.kind(),
+                                            decision.direction())));
+        return keys;
+    }
+
+    /**
+     * A work's nodes with GH382 redirects resolved in memory, built from the single node load the
+     * caller already performs. A redirected node keeps its row; reads use its profile node.
+     */
+    private static final class NodeIndex {
+        private static final int MAX_REDIRECT_DEPTH = 8;
+        private final Map<UUID, RelationshipGraphNode> byId = new LinkedHashMap<>();
+        private final Map<UUID, UUID> canonical = new HashMap<>();
+        private final Map<UUID, List<RelationshipGraphNode>> members = new HashMap<>();
+
+        NodeIndex(List<RelationshipGraphNode> nodes) {
+            nodes.forEach(node -> byId.put(node.getId(), node));
+            byId.values().forEach(this::register);
+        }
+
+        java.util.Collection<RelationshipGraphNode> nodes() {
+            return byId.values();
+        }
+
+        RelationshipGraphNode node(UUID id) {
+            return byId.get(id);
+        }
+
+        void add(RelationshipGraphNode node) {
+            byId.put(node.getId(), node);
+            register(node);
+        }
+
+        /** Re-resolves a node redirected in this transaction together with anything resolving to it. */
+        void merged(RelationshipGraphNode node) {
+            List<RelationshipGraphNode> moved = members.remove(node.getId());
+            UUID root = resolve(node.getId());
+            for (var member : moved == null ? List.of(node) : moved) {
+                canonical.put(member.getId(), root);
+                members.computeIfAbsent(root, x -> new ArrayList<>()).add(member);
+            }
+        }
+
+        UUID canonicalOf(UUID id) {
+            return canonical.getOrDefault(id, id);
+        }
+
+        /** Keeps an unredirected id's original text so legacy dependency keys are unchanged. */
+        String resolvedId(String id) {
+            UUID raw = UUID.fromString(id);
+            UUID resolved = canonicalOf(raw);
+            return resolved.equals(raw) ? id : resolved.toString();
+        }
+
+        RelationshipGraphNode canonicalNode(RelationshipGraphNode node) {
+            return byId.get(canonicalOf(node.getId()));
+        }
+
+        boolean selfLoop(RelationshipGraphEdge edge) {
+            return canonicalOf(edge.getSourceNodeId()).equals(canonicalOf(edge.getTargetNodeId()));
+        }
+
+        boolean hasAliases(UUID source, UUID target) {
+            return members(canonicalOf(source)).size() > 1 || members(canonicalOf(target)).size() > 1;
+        }
+
+        /** The profile's unredirected nodes across the work; more than one is split data. */
+        List<RelationshipGraphNode> canonicalNodesOf(UUID characterId) {
+            return byId.values().stream()
+                    .filter(n -> characterId.equals(n.getCharacterId()) && !n.isMerged())
+                    .toList();
+        }
+
+        /** The node itself and every node redirected to it. */
+        List<RelationshipGraphNode> members(UUID canonicalId) {
+            return members.getOrDefault(canonicalId, List.of());
+        }
+
+        /** The first episode in which any name of this profile node is known. */
+        int visibleFrom(UUID canonicalId) {
+            return members(canonicalId).stream()
+                    .mapToInt(RelationshipGraphNode::getFirstEpisodeNo)
+                    .min()
+                    .orElse(byId.get(canonicalId).getFirstEpisodeNo());
+        }
+
+        /** The node's own name once known by the cutoff, else the latest alias known by then. */
+        String nameAt(RelationshipGraphNode node, int cutoff) {
+            if (node.getFirstEpisodeNo() <= cutoff) return node.getName();
+            return members(node.getId()).stream()
+                    .filter(n -> n.getFirstEpisodeNo() <= cutoff)
+                    .max(Comparator.comparingInt(RelationshipGraphNode::getFirstEpisodeNo)
+                            .thenComparing(RelationshipGraphNode::getId, Comparator.reverseOrder()))
+                    .map(RelationshipGraphNode::getName)
+                    .orElse(null);
+        }
+
+        private void register(RelationshipGraphNode node) {
+            UUID root = resolve(node.getId());
+            canonical.put(node.getId(), root);
+            members.computeIfAbsent(root, x -> new ArrayList<>()).add(node);
+        }
+
+        private UUID resolve(UUID id) {
+            UUID current = id;
+            for (int depth = 0; ; depth++) {
+                RelationshipGraphNode node = byId.get(current);
+                // A redirect is same-work and acyclic; anything else is damaged data, not a guess.
+                if (node == null || depth > MAX_REDIRECT_DEPTH) conflict();
+                if (node.getMergedIntoNodeId() == null) return current;
+                current = node.getMergedIntoNodeId();
+            }
+        }
+    }
 }
