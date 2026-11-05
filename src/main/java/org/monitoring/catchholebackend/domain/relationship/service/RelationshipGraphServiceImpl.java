@@ -963,14 +963,59 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                         List.copyOf(held),
                         job.isRelationshipPartialResultsEnabled(),
                         List.copyOf(blockedPairs));
+        Set<String> dependencyPairs = Set.of();
         if (job.getJobType() == AnalysisJobType.SETTING_EXTRACTION) {
+            dependencyPairs = manualDependencyPairs(context, bindings);
             bindings.put("manualDependencyVersion", 1);
-            bindings.put("manualDependencyRevision", manualDependencyRevision(workId,
-                    manualDependencyPairs(context, bindings)));
+            bindings.put("manualDependencyRevision", manualDependencyRevision(workId, dependencyPairs));
             var sourceIds = bindings.putArray("sourceDependencies");
             sourceDependencies.stream().sorted().forEach(id -> sourceIds.add(id.toString()));
+        } else if (pairScoped) {
+            dependencyPairs = stableComparisonPairs(observations, bindings);
         }
+        captureAliasDependencies(workId, bindings, dependencyPairs, allEdges.values(), index);
         return new BuiltContext(context, bindings);
+    }
+
+    /**
+     * GH382: a context projects an alias-node edge onto its profile node's ref, so its dependency
+     * pairs name the profile node while the existing revisions filter edges by raw endpoints.
+     * Capture those raw alias-edge pairs and their user edits in separate fields. The existing
+     * fields, hashes frozen before this field existed, and old-server rollback stay unchanged;
+     * contexts without a redirected edge get no field at all.
+     */
+    private void captureAliasDependencies(UUID workId, ObjectNode bindings, Set<String> dependencyPairs,
+            java.util.Collection<RelationshipGraphEdge> workEdges, NodeIndex index) {
+        if (dependencyPairs.isEmpty()) return;
+        Set<String> aliasPairs = new java.util.TreeSet<>();
+        for (var edge : workEdges) {
+            String source = edge.getSourceNodeId().toString(), target = edge.getTargetNodeId().toString();
+            String raw = RelationshipGraphRules.pair(source, target);
+            String resolved = RelationshipGraphRules.pair(index.resolvedId(source), index.resolvedId(target));
+            if (!raw.equals(resolved) && dependencyPairs.contains(resolved)) aliasPairs.add(raw);
+        }
+        if (aliasPairs.isEmpty()) return;
+        bindings.put("aliasDependencyVersion", 1);
+        var captured = bindings.putArray("aliasDependencyPairs");
+        aliasPairs.forEach(captured::add);
+        bindings.put("aliasDependencyRevision", manualDependencyRevision(workId, aliasPairs));
+    }
+
+    /** Rechecks user edits on the captured alias-edge pairs; absent for legacy/alias-free contexts. */
+    private void assertAliasDependencyRevision(RelationshipGraphAnalysis analysis) {
+        JsonNode bindings = analysis.getBindings();
+        JsonNode version = bindings.path("aliasDependencyVersion");
+        if (version.isMissingNode()) return;
+        JsonNode pairs = bindings.path("aliasDependencyPairs");
+        if (!version.isInt() || version.intValue() != 1 || !pairs.isArray() || pairs.isEmpty()
+                || !bindings.path("aliasDependencyRevision").isTextual()) conflict();
+        Set<String> captured = new HashSet<>();
+        for (JsonNode pair : pairs) {
+            if (!pair.isTextual()) conflict();
+            captured.add(pair.textValue());
+        }
+        if (!Objects.equals(bindings.path("aliasDependencyRevision").textValue(),
+                manualDependencyRevision(analysis.getWorkId(), captured))) conflict();
     }
 
     /**
@@ -1576,6 +1621,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
     }
 
     private void assertDependencyRevision(RelationshipGraphAnalysis analysis) {
+        assertAliasDependencyRevision(analysis);
         JsonNode manualVersion = analysis.getBindings().path("manualDependencyVersion");
         if (!manualVersion.isMissingNode()) {
             if (!manualVersion.isInt() || manualVersion.intValue() != 1

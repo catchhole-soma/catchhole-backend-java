@@ -628,6 +628,8 @@ class EpisodeRelationshipGraphIntegrationTest {
         Context frozen = prepare(third);
         assertThat(boundNodeId(third, frozen.observations().getFirst().sourceNodeRefs().getFirst()))
                 .isEqualTo(alias);
+        // Frozen before any redirect: no alias dependency field, so its hashes stay as captured.
+        assertThat(analyses.findById(third).orElseThrow().getBindings().has("aliasDependencyVersion")).isFalse();
 
         UUID fourth = job(4);
         Context later = prepare(fourth);
@@ -707,6 +709,61 @@ class EpisodeRelationshipGraphIntegrationTest {
                 r.targetNodeRef(), r.axis(), r.kind(), r.label(), add.summary(), r.direction(),
                 TemporalScope.PRESENT, null));
         assertThat(service.getRelationshipGraph(owner, workId, 4).partial()).isFalse();
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"correction", "deletion", "correction-partial", "deletion-partial"})
+    @DisplayName("병합 뒤 준비한 문맥은 프로필 노드로 투영한 별칭 노드 관계의 사용자 정정·삭제도 충돌로 거부한다")
+    void userChangeOnRedirectedEdgeAfterPrepareRejectsStaleComparison(String mutation) {
+        UUID first = job(1);
+        Context initial = prepare(first);
+        apply(first, initial, action(initial, Operation.ADD, Kind.COMPANIONSHIP, "함께 여행한다"));
+        UUID alias = boundNodeId(first, initial.observations().getFirst().sourceNodeRefs().getFirst());
+        UUID bora = boundNodeId(first, initial.observations().getFirst().targetNodeRefs().getFirst());
+        UUID characterId = character("아라 린");
+        UUID profile = profileNodeAt(2, "아라 린과 다라는 함께 길을 떠났다.", "아라 린", "다라", characterId);
+        UUID third = job(3);
+        Context merging = prepare(third);
+        confirmDiscovery(third, characterId, "아라");
+        apply(third, merging, hold());
+        assertMergedInto(alias, profile, 3, 1);
+
+        UUID fourth = job(4);
+        if (mutation.endsWith("partial"))
+            tx.executeWithoutResult(t -> jobs.findById(fourth).orElseThrow().enableRelationshipPartialResults());
+        Context frozen = prepare(fourth);
+        assertThat(boundNodeId(fourth, frozen.observations().getFirst().sourceNodeRefs().getFirst())).isEqualTo(profile);
+        // The alias-node edge is projected onto the profile node's ref.
+        var observed = frozen.observations().getFirst();
+        var pair = java.util.Set.of(observed.sourceNodeRefs().getFirst(), observed.targetNodeRefs().getFirst());
+        var projected = frozen.relationships().stream()
+                .filter(r -> java.util.Set.of(r.sourceNodeRef(), r.targetNodeRef()).equals(pair))
+                .findFirst().orElseThrow();
+        assertThat(UUID.fromString(analyses.findById(fourth).orElseThrow().getBindings()
+                .path("relationships").path(projected.ref()).asText()))
+                .isEqualTo(service.getRelationshipGraph(owner, workId, 1).edges().getFirst().id());
+        var aliasPairs = analyses.findById(fourth).orElseThrow().getBindings().path("aliasDependencyPairs");
+        assertThat(aliasPairs.isArray()).isTrue();
+        assertThat(aliasPairs).extracting(com.fasterxml.jackson.databind.JsonNode::asText)
+                .contains(org.monitoring.catchholebackend.domain.relationship.processor.RelationshipGraphRules
+                        .pair(alias.toString(), bora.toString()));
+        Decision update = new Decision(List.of("O1"), Operation.UPDATE, projected.ref(), projected.sourceNodeRef(),
+                projected.targetNodeRef(), projected.axis(), projected.kind(), projected.label(), "새 설명",
+                projected.direction(), TemporalScope.PRESENT, null);
+        Edge edge = service.getRelationshipGraph(owner, workId, 3).edges().stream()
+                .filter(e -> endpoints(e).equals(java.util.Set.of(profile, bora))).findFirst().orElseThrow();
+        if (mutation.startsWith("correction"))
+            service.correctRelationshipEdge(owner, workId, edge.id(), new Correction(edge.version(), "사용자가 바로잡은 설명"));
+        else service.deleteRelationshipEdge(owner, workId, edge.id(), edge.version());
+
+        java.util.function.Consumer<AppException> conflict = failure -> assertThat(failure.getResultCode())
+                .isEqualTo(org.monitoring.catchholebackend.domain.relationship.exception.RelationshipGraphErrorCode.RELATIONSHIP_GRAPH_CONFLICT);
+        assertThatThrownBy(() -> service.getRelationshipAnalysis(fourth, lease))
+                .isInstanceOfSatisfying(AppException.class, conflict);
+        assertThatThrownBy(() -> service.completeRelationshipAnalysis(fourth, lease,
+                new Complete(1, frozen.contextToken(), List.of(update))))
+                .isInstanceOfSatisfying(AppException.class, conflict);
+        assertThat(analyses.findById(fourth).orElseThrow().getStatus()).isEqualTo(AnalysisStatus.PREPARED);
     }
 
     private org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.Node graphNode(

@@ -507,14 +507,12 @@ class RelationshipBackfillIntegrationTest {
     }
 
     private void confirmedName(UUID episodeId, String sourceName, String currentName) {
-        tx.executeWithoutResult(
+        UUID characterId = tx.execute(
                 t -> {
-                    var episode = em.find(Episode.class, episodeId);
-                    var work = episode.getWork();
                     var character =
                             org.monitoring.catchholebackend.domain.character.entity.WorkCharacter
                                     .create(
-                                            work,
+                                            em.find(Episode.class, episodeId).getWork(),
                                             currentName,
                                             null,
                                             null,
@@ -526,6 +524,17 @@ class RelationshipBackfillIntegrationTest {
                                             null,
                                             null);
                     em.persist(character);
+                    return character.getId();
+                });
+        confirmedName(episodeId, sourceName, characterId);
+    }
+
+    /** Confirms one more name of an existing profile through its own successful core job. */
+    private void confirmedName(UUID episodeId, String sourceName, UUID characterId) {
+        tx.executeWithoutResult(
+                t -> {
+                    var episode = em.find(Episode.class, episodeId);
+                    var work = episode.getWork();
                     var job =
                             AnalysisJob.create(
                                     work, null, episode, AnalysisJobType.SETTING_EXTRACTION);
@@ -543,7 +552,7 @@ class RelationshipBackfillIntegrationTest {
                                                     .SettingEntityType.CHARACTER,
                                             sourceName,
                                             sourceName,
-                                            character.getId(),
+                                            characterId,
                                             org.monitoring.catchholebackend.domain.character.type
                                                     .SettingCandidateMatchStatus.MATCHED,
                                             "profile.설명",
@@ -656,6 +665,68 @@ class RelationshipBackfillIntegrationTest {
         assertThat(jdbc.queryForObject(
                 "select count(*) from relationship_graph_nodes where work_id=? and name='아라'", Long.class, workId))
                 .isZero();
+    }
+
+    @Test
+    @DisplayName("백필 부분 문맥도 프로필 노드로 투영한 별칭 노드 관계의 사용자 정정을 충돌로 거부한다")
+    void partialBackfillContextGuardsRedirectedEdgeCorrection() {
+        source = "아라 린과 보라와 아라는 함께 길을 떠났다.";
+        when(storage.getText(anyString())).thenReturn(source);
+        UUID one = episode(1), two = episode(2);
+        episode(3);
+        UUID characterId = tx.execute(t -> {
+            var character = org.monitoring.catchholebackend.domain.character.entity.WorkCharacter.create(
+                    em.find(Work.class, workId), "아라 린", null, null, null, null, null, null, null, null, null);
+            em.persist(character);
+            return character.getId();
+        });
+        confirmedName(one, "아라 린", characterId);
+        confirmedName(two, "아라", characterId);
+        coordinator.bootstrapRelationshipBackfill();
+
+        // 1화: "아라"는 아직 별칭이 아니라 독립 노드, "아라 린"은 프로필 노드다.
+        var first = coordinator.claimRelationshipJob(partialRequest()).orElseThrow();
+        var c1 = graph.prepareRelationshipAnalysis(first.analysisJobId(), first.leaseToken(),
+                new Prepare(1, storage.contentHash(source), List.of(
+                        new Observation("O1", new Endpoint("아라", "아라"), new Endpoint("보라", "보라"),
+                                "함께 이동한다", List.of(new Evidence(0, source.length(), source))),
+                        new Observation("O2", new Endpoint("아라 린", "아라 린"), new Endpoint("보라", "보라"),
+                                "함께 이동한다", List.of(new Evidence(0, source.length(), source)))), 0));
+        UUID alias = boundNodeId(first.analysisJobId(), c1.observations().get(0).sourceNodeRefs().getFirst());
+        UUID profile = boundNodeId(first.analysisJobId(), c1.observations().get(1).sourceNodeRefs().getFirst());
+        assertThat(alias).isNotEqualTo(profile);
+        graph.completeRelationshipAnalysis(first.analysisJobId(), first.leaseToken(), new Complete(1,
+                c1.contextToken(), List.of(pairDecision(c1, "O1"), pairDecision(c1, "O2"))));
+        coordinator.completeRelationshipJob(first.analysisJobId(), first.leaseToken(), null);
+
+        // 2화: 확정 별칭 "아라"의 고정 인물 정보로 독립 노드가 프로필 노드에 합쳐진다.
+        var second = coordinator.claimRelationshipJob(partialRequest()).orElseThrow();
+        var c2 = prepare(second);
+        graph.completeRelationshipAnalysis(second.analysisJobId(), second.leaseToken(),
+                new Complete(1, c2.contextToken(), List.of(pairDecision(c2, "O1"))));
+        coordinator.completeRelationshipJob(second.analysisJobId(), second.leaseToken(), null);
+        UUID mergedInto = tx.execute(t -> em.find(RelationshipGraphNode.class, alias).getMergedIntoNodeId());
+        assertThat(mergedInto).isEqualTo(profile);
+
+        // 3화: 새 부분 문맥은 별칭 노드 edge를 프로필 노드 쌍으로 투영한다.
+        var third = coordinator.claimRelationshipJob(partialRequest()).orElseThrow();
+        var c3 = prepare(third);
+        assertThat(boundNodeId(third.analysisJobId(), c3.observations().getFirst().sourceNodeRefs().getFirst()))
+                .isEqualTo(profile);
+        assertThat(c3.relationships()).hasSize(2);
+        UUID aliasEdge = jdbc.queryForObject(
+                "select id from relationship_graph_edges where work_id=? and (source_node_id=? or target_node_id=?)",
+                UUID.class, workId, alias, alias);
+        Long version = jdbc.queryForObject("select version from relationship_graph_edges where id=?", Long.class, aliasEdge);
+        graph.correctRelationshipEdge(owner, workId, aliasEdge, new Correction(version, "작가 정정"));
+
+        java.util.function.Consumer<AppException> conflict = failure -> assertThat(failure.getResultCode())
+                .isEqualTo(org.monitoring.catchholebackend.domain.relationship.exception.RelationshipGraphErrorCode.RELATIONSHIP_GRAPH_CONFLICT);
+        assertThatThrownBy(() -> graph.getRelationshipAnalysis(third.analysisJobId(), third.leaseToken()))
+                .isInstanceOfSatisfying(AppException.class, conflict);
+        assertThatThrownBy(() -> graph.completeRelationshipAnalysis(third.analysisJobId(), third.leaseToken(),
+                new Complete(1, c3.contextToken(), List.of(pairDecision(c3, "O1")))))
+                .isInstanceOfSatisfying(AppException.class, conflict);
     }
 
     @Test
