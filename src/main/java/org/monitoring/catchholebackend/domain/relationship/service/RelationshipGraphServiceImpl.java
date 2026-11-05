@@ -884,16 +884,16 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                     continue;
                 String ref = "H" + (held.size() + 1);
                 var mapped =
-                        contextObservation(
+                        new ContextObservation(
                                 ref,
-                                new Observation(
-                                        ref,
-                                        original.source(),
-                                        original.target(),
-                                        original.summary(),
-                                        original.evidence()),
-                                byName,
-                                refs,
+                                original.source(),
+                                original.target(),
+                                original.summary(),
+                                original.evidence(),
+                                heldEndpointRefs(original.source(), original.sourceNodeRefs(),
+                                        previous.getBindings(), byName, refs, index),
+                                heldEndpointRefs(original.target(), original.targetNodeRefs(),
+                                        previous.getBindings(), byName, refs, index),
                                 previous.getEpisodeNo());
                 // Unresolved and other-pair HOLDs remain in their original analysis. They do not
                 // consume this pair's input budget or become decisions of an unrelated group.
@@ -1049,6 +1049,35 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                 endpointRefs(o.source(), byName, refs),
                 endpointRefs(o.target(), byName, refs),
                 episodeNo);
+    }
+
+    /**
+     * A held endpoint first resolves by name, as before. A name this context does not know at all
+     * (an alias that reused an already visible profile node, which leaves no stored row and is
+     * not re-queried unless observed again) falls back to the node the original analysis bound,
+     * when that node is in this context. A name this context deliberately holds stays empty.
+     */
+    private List<String> heldEndpointRefs(
+            Endpoint endpoint,
+            List<String> originalRefs,
+            JsonNode originalBindings,
+            Map<String, List<RelationshipGraphNode>> byName,
+            Map<UUID, String> refs,
+            NodeIndex index) {
+        List<String> named = endpointRefs(endpoint, byName, refs);
+        if (!named.isEmpty()
+                || endpoint.name() == null
+                || byName.containsKey(endpoint.name())
+                || originalRefs == null
+                || originalRefs.size() != 1
+                || originalBindings == null) return named;
+        String bound = originalBindings.path("nodes").path(originalRefs.getFirst()).path("id").asText();
+        try {
+            String ref = refs.get(index.canonicalOf(UUID.fromString(bound)));
+            return ref == null ? List.of() : List.of(ref);
+        } catch (IllegalArgumentException malformed) {
+            return List.of();
+        }
     }
 
     private List<String> endpointRefs(

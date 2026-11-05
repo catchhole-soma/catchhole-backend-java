@@ -672,6 +672,43 @@ class EpisodeRelationshipGraphIntegrationTest {
         assertThat(companionEdges).isEqualTo(1L);
     }
 
+    @ParameterizedTest(name = "partial={0}")
+    @ValueSource(booleans = {false, true})
+    @DisplayName("별칭으로 프로필 노드에 묶였던 보류 관측은 대표 이름만 나오는 회차에서도 같은 인물 쌍으로 다시 제공한다")
+    void heldAliasObservationResolvesThroughItsFrozenProfileNode(boolean partial) {
+        UUID characterId = character("아라 린");
+        UUID profile = profileNodeAt(1, "아라 린과 보라는 함께 길을 떠났다.", "아라 린", "보라", characterId);
+        confirmedAliasAt(2, "아라는 웃었다.", characterId, "아라");
+
+        String aliasText = "아라와 보라는 다시 만났다.";
+        UUID third = jobWithSource(3, aliasText, false);
+        if (partial) tx.executeWithoutResult(t -> jobs.findById(third).orElseThrow().enableRelationshipPartialResults());
+        Context held = prepareWith(third, aliasText, observation("O1", aliasText, "아라", "보라"));
+        assertThat(boundNodeId(third, held.observations().getFirst().sourceNodeRefs().getFirst())).isEqualTo(profile);
+        apply(third, held, hold());
+
+        String fullText = "아라 린과 보라는 웃었다.";
+        UUID fourth = jobWithSource(4, fullText, false);
+        if (partial) tx.executeWithoutResult(t -> jobs.findById(fourth).orElseThrow().enableRelationshipPartialResults());
+        Context next = prepareWith(fourth, fullText, observation("O1", fullText, "아라 린", "보라"));
+        var current = next.observations().getFirst();
+        assertThat(boundNodeId(fourth, current.sourceNodeRefs().getFirst())).isEqualTo(profile);
+        assertThat(next.heldObservations()).singleElement().satisfies(h -> {
+            assertThat(h.source().name()).isEqualTo("아라");
+            assertThat(h.sourceNodeRefs()).isEqualTo(current.sourceNodeRefs());
+            assertThat(h.targetNodeRefs()).isEqualTo(current.targetNodeRefs());
+            assertThat(h.sourceEpisodeNo()).isEqualTo(3);
+        });
+        // The model can now resolve the held evidence together with the current observation.
+        Decision add = add(next, "O1", Kind.COMPANIONSHIP, "다시 함께 여행한다");
+        String relationship = next.relationships().getFirst().ref();
+        var r = next.relationships().getFirst();
+        apply(fourth, next, new Decision(List.of("O1", "H1"), Operation.UPDATE, relationship, r.sourceNodeRef(),
+                r.targetNodeRef(), r.axis(), r.kind(), r.label(), add.summary(), r.direction(),
+                TemporalScope.PRESENT, null));
+        assertThat(service.getRelationshipGraph(owner, workId, 4).partial()).isFalse();
+    }
+
     private org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.Node graphNode(
             int episodeNo, UUID nodeId) {
         return service.getRelationshipGraph(owner, workId, episodeNo).nodes().stream()
