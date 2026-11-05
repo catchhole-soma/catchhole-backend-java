@@ -16,7 +16,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * 오류 리포트 문맥 블록(2026-11-03): 발견 항목이 인용한 고정 출처의 앞뒤 줄을 읽는다.
- * 읽을 수 있는 출처는 report 고정 manifest(T1·R#) 중 그 항목이 실제로 인용한 것(이번 원고 위치, 판정 근거 문장의 원문)뿐이다.
+ * 읽을 수 있는 출처는 report 고정 출처({@link #fixedSources}, T1·R#) 중 그 항목이 실제로 인용한 것(이번 원고 위치, 판정 근거 문장의 원문)뿐이다.
  * 원문은 {@link ValidationSourceTexts}로만 읽어 hash가 고정값과 다르면 보여 주지 않는다. 한 요청 안에서는 출처마다 한 번만 읽는다.
  */
 @Component
@@ -24,6 +24,7 @@ import org.springframework.stereotype.Component;
 public class ValidationFindingContexts {
     private final ValidationSourceTexts texts;
     private final ValidationDataMapper dataMapper;
+    private final ValidationSourceManifests manifests;
 
     public record Context(ValidationSourceContextResponse context, ValidationSourceContextStatus status) {}
 
@@ -107,13 +108,24 @@ public class ValidationFindingContexts {
     public Reader reader(ValidationReport report, Map<String, ? extends JsonNode> sources) {return new Reader(report, sources);}
 
     /**
+     * report의 고정 출처(T1·R#). legacy(seed) report는 seed의 target·sources, #381 live report는 report 열(T1)과 저장 manifest 행(R#)이다.
+     * 기준이 지워진 report(무효화·퇴역: purge가 seed·baseline hash·manifest 행을 함께 지운다)는 빈 목록이다. live report는 manifest 행 개수가 아니라
+     * baseline hash로 판단한다. 앞 회차·설정집이 없는 첫 회차 report는 manifest 행이 0개여도 이번 원고(T1)를 읽어야 하기 때문이다.
+     */
+    public Map<String, ? extends JsonNode> fixedSources(ValidationReport report) {
+        if (report.getBaselineSeed() != null) return dataMapper.toSourceReferences(report);
+        if (report.getBaselineHash() == null) return Map.of();
+        return dataMapper.toSourceReferences(report, manifests.manifests(report.getId()));
+    }
+
+    /**
      * GET .../source-context. 범위·줄 수는 호출 전에 검사한다. 이 항목이 인용하지 않은 출처는 400, 원문이 고정값과 다르거나 읽지 못하면
      * 409 VALIDATION_SOURCE_CONTEXT_UNAVAILABLE(context.reason = 상태)이다.
      */
     public ValidationSourceContextResponse window(ValidationReport report, ValidationFinding finding, String sourceRef, int anchorStart, int anchorEnd, int before, int after) {
         if (sourceRef == null || !citedSourceRefs(finding).contains(sourceRef)) throw new AppException(CommonErrorCode.REQUEST_VALIDATION_FAILED);
-        if (report.getBaselineSeed() == null) throw unavailable(ValidationSourceContextStatus.SOURCE_UNAVAILABLE);
-        var sources = dataMapper.toSourceReferences(report);
+        var sources = fixedSources(report);
+        if (sources.isEmpty()) throw unavailable(ValidationSourceContextStatus.SOURCE_UNAVAILABLE);
         var source = sources.get(sourceRef);
         if (source == null) throw new AppException(CommonErrorCode.REQUEST_VALIDATION_FAILED);
         var read = texts.read(report.getWork().getId(), report.getSourceEpisodeNo(), source, "T1".equals(sourceRef), () -> { });

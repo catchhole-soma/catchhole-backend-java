@@ -42,6 +42,7 @@ abstract class ValidationRecheckFixture {
     @Autowired ValidationBaselineService baselines;
     @Autowired List<org.monitoring.catchholebackend.domain.analysis.service.AnalysisStateSource> stateSources;
     @Autowired org.monitoring.catchholebackend.domain.validation.processor.ValidationSourceManifests sourceManifests;
+    @Autowired org.monitoring.catchholebackend.domain.validation.processor.ValidationLiveSettings liveSettings;
     @MockitoBean ObjectStorage storage;
     final ObjectMapper json = new ObjectMapper();
     Member member;
@@ -124,15 +125,30 @@ abstract class ValidationRecheckFixture {
     }
     String recheckPath(JsonNode r) { return "/"+r.path("reportId").asText()+"/rechecks"; }
     String correctionPath(JsonNode r) { return "/"+r.path("reportId").asText()+"/corrections"; }
+    /**
+     * 정정 요청의 기준 항목 부분. legacy(seed) report는 저장 기준 항목, #381 live report는 상세 basis와 같은 현재 확정 설정 행(지금 색인 참조·현재 행 hash)이다.
+     * 해당 domain의 첫 항목을 고른다.
+     */
     Map<String, Object> correction(JsonNode response, String domain, String key) {
-        var report = stored(response); JsonNode entry = null; int index = 0;
-        for (var candidate : report.getBaselineEntries()) { index++; if (candidate.path("domain").asText().equals(domain)) { entry = candidate; break; } }
+        var report = stored(response); JsonNode entry = null; String ref = null;
+        if (report.getBaselineEntries() != null) {
+            int index = 0;
+            for (var candidate : report.getBaselineEntries()) { index++; if (candidate.path("domain").asText().equals(domain)) { entry = candidate; ref = "B"+index; break; } }
+        } else {
+            var subject = liveSettings.index(work.getId()).subjects().stream().filter(s -> s.domain().equals(domain)).findFirst().orElse(null);
+            if (subject != null) { ref = subject.entryRef(); entry = liveRow(ref); }
+        }
         assertThat(entry).isNotNull();
         Map<String, Object> input = new LinkedHashMap<>();
         input.put("idempotencyKey", key); input.put("expectedReportVersion", response.path("reportVersion").asLong());
         input.put("baselineId", report.getId()); input.put("expectedBaselineHash", report.getBaselineHash());
         input.put("expectedBaselineRevision", response.path("baselineRevision").asLong());
-        input.put("entryRef", "B"+index); input.put("expectedEntryHash", journal.hash(entry)); return input;
+        input.put("entryRef", ref); input.put("expectedEntryHash", journal.hash(entry)); return input;
+    }
+    /** #381 현재 확정 설정의 주체 하나(B 참조) 전체 행. 검수 상세 basis·정정이 hash하는 행과 같다. */
+    JsonNode liveRow(String entryRef) {
+        var index = liveSettings.index(work.getId());
+        return liveSettings.entries(index, List.of(entryRef)).get(Integer.parseInt(entryRef.substring(1)) - 1);
     }
     Map<String, Object> characterEdit(int age, int level) {
         Map<String, Object> edit = new LinkedHashMap<>(); edit.put("name", character.getName()); edit.put("currentAge", age); edit.put("currentLevel", level);

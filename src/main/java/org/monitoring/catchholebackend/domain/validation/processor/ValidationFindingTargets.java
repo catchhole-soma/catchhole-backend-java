@@ -137,8 +137,28 @@ public class ValidationFindingTargets {
         return result;
     }
 
-    /** 상세 조회 시점의 정정 연결 항목. 실제 대상에 연결된 정정 가능 항목만 기준 순서로 반환한다. */
-    public List<Basis> basis(ValidationReport report, JsonNode checkState, ValidationFinding finding) {
+    /**
+     * #381 live report finding이 상세에서 보는 저장 대상: V102 대표 대상, 그다음 quoted_subjects의 주체(저장 순서, 중복 제거). 질문 subject id는 저장하지 않는다.
+     * 상세 한 번에 이 주체들의 현재 행을 한 번만 읽어 basis와 근거 문장 표기가 함께 쓴다.
+     */
+    public static List<ValidationLiveSettings.Key> storedSubjects(ValidationFinding finding) {
+        var keys = new LinkedHashSet<ValidationLiveSettings.Key>();
+        var primary = key(finding.getSubjectType(), finding.getSubjectId());
+        if (primary != null) keys.add(primary);
+        if (finding.getQuotedSubjects() != null && finding.getQuotedSubjects().isArray())
+            for (var quoted : finding.getQuotedSubjects()) {
+                var key = key(subjectType(text(quoted, "subjectType")), uuid(text(quoted, "subjectId")));
+                if (key != null) keys.add(key);
+            }
+        return List.copyOf(keys);
+    }
+
+    /**
+     * 상세 조회 시점의 정정 연결 항목. legacy(seed) report는 고정 기준 항목에서 실제 대상에 연결된 정정 가능 항목만 기준 순서로 반환하고,
+     * #381 live report는 저장된 대상과 그 현재 행(live, {@link #storedSubjects}를 읽은 것)으로 만든다({@link #liveBasis}).
+     */
+    public List<Basis> basis(ValidationReport report, JsonNode checkState, ValidationFinding finding, Map<ValidationLiveSettings.Key, ValidationLiveSettings.Row> live) {
+        if (report.getBaselineSeed() == null) return liveBasis(report, finding, live);
         var entries = entries(report.getBaselineEntries());
         if (entries.isEmpty() || checkState == null) return List.of();
         var primary = primary(entries, checkState, finding.getPayload()).orElse(null);
@@ -163,6 +183,55 @@ public class ValidationFindingTargets {
         }
         return List.copyOf(result);
     }
+
+    /**
+     * #381 live report의 정정 연결 항목. 판정 때의 B·S 번호를 쓰지 않고 finding에 저장된 대상에서 만든다: V102 대표 대상, 그다음 quoted_subjects의
+     * 서로 다른 주체(저장 순서, 중복 제거, 모두 합쳐 최대 {@value ValidationBasisQuotes#MAX_ITEMS}개). 질문 subject id나 다른 열은 더하지 않는다.
+     * <ul>
+     *   <li>entryRef는 그 주체의 지금 색인 참조, entryHash는 현재 행의 hash(정정 요청이 그대로 돌려주는 CAS 값), currentVersion은 id로 읽은 현재 version이다.</li>
+     *   <li>현재 색인에 없는(보관·삭제된) 주체는 뺀다. 보통은 그 전에 report가 무효화된다.</li>
+     *   <li>slot/path는 legacy처럼 대표 대상이고 finding settingKey가 있을 때만 채운다.</li>
+     *   <li>기준이 지워진(무효화·퇴역으로 baseline hash가 없는) report는 빈 목록이다(legacy의 지워진 seed와 같다).</li>
+     * </ul>
+     */
+    private List<Basis> liveBasis(ValidationReport report, ValidationFinding finding, Map<ValidationLiveSettings.Key, ValidationLiveSettings.Row> rows) {
+        if (report.getBaselineHash() == null) return List.of();
+        var primary = key(finding.getSubjectType(), finding.getSubjectId());
+        var wanted = storedSubjects(finding).stream().limit(ValidationBasisQuotes.MAX_ITEMS).toList();
+        var result = new ArrayList<Basis>();
+        for (var key : wanted) {
+            var live = rows.get(key);
+            if (live == null) continue;
+            boolean character = ValidationLiveSettings.CHARACTERS.equals(key.domain());
+            CharacterFactType factType = null; String factKey = null, scopeName = null, settingName = null;
+            if (key.equals(primary) && finding.getSettingKey() != null) {
+                if (character) {
+                    int split = finding.getSettingKey().indexOf(':');
+                    factType = split < 0 ? null : factType(finding.getSettingKey().substring(0, split));
+                    factKey = factType == null ? null : finding.getSettingKey().substring(split + 1);
+                } else {
+                    var path = path(finding.getSettingKey());
+                    if (path != null) { scopeName = path[0]; settingName = path[1]; }
+                }
+            }
+            var state = live.row().path("state");
+            JsonNode version = character ? state.path("snapshotVersion") : state.path("version");
+            String name = text(state, "name") != null ? text(state, "name") : text(state, "subjectName");
+            result.add(new Basis(live.subject().entryRef(), journal.hash(live.row()), character ? ValidationSubjectType.CHARACTER : ValidationSubjectType.WORLD_SETTING,
+                    key.id(), name, factType, factKey, scopeName, settingName, version.isIntegralNumber() ? version.asLong() : null));
+        }
+        return List.copyOf(result);
+    }
+    static ValidationLiveSettings.Key key(ValidationSubjectType type, UUID id) {
+        if (type == null || id == null) return null;
+        return new ValidationLiveSettings.Key(type == ValidationSubjectType.CHARACTER ? ValidationLiveSettings.CHARACTERS : ValidationLiveSettings.WORLD_SETTINGS, id);
+    }
+    private static ValidationSubjectType subjectType(String name) {
+        if (name == null) return null;
+        for (var type : ValidationSubjectType.values()) if (type.name().equals(name)) return type;
+        return null;
+    }
+    private static UUID uuid(String text) {return text != null && UUID_TEXT.matcher(text).matches() ? UUID.fromString(text) : null;}
 
     private static List<Entry> entries(JsonNode baselineEntries) {
         if (baselineEntries == null || !baselineEntries.isArray()) return List.of();

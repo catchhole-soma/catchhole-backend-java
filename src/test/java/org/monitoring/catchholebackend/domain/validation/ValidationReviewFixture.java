@@ -13,7 +13,6 @@ import org.springframework.http.MediaType;
 abstract class ValidationReviewFixture extends ValidationWorkerFixture {
     static final Map<String,Object> SPAN=Map.of("source_ref","T1","start",0,"end",2,"quote","처음");
     @Autowired org.monitoring.catchholebackend.domain.work.repository.WorkPurgeDataRepository workPurge;
-    @Autowired org.monitoring.catchholebackend.domain.validation.processor.ValidationLiveSettings liveSettings;
     @Autowired org.monitoring.catchholebackend.domain.validation.mapper.ValidationDataMapper validationDataMapper;
     String priorHash;
 

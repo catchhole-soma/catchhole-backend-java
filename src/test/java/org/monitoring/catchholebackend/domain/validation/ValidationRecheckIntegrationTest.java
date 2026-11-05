@@ -28,7 +28,6 @@ import org.monitoring.catchholebackend.domain.validation.event.ValidationStaging
 @SpringBootTest(properties="spring.config.import=") @AutoConfigureMockMvc @ActiveProfiles("test") @Transactional
 class ValidationRecheckIntegrationTest extends ValidationRecheckFixture {
     @Autowired AnalysisRunStateService states;
-    @Autowired org.monitoring.catchholebackend.domain.validation.processor.ValidationLiveSettings liveSettings;
     @Autowired org.monitoring.catchholebackend.domain.validation.processor.ValidationSourceManifests sourceManifests;
     @Autowired org.springframework.context.ApplicationEventPublisher events;
     @Test void changedManuscriptCreatesNewReportWithoutExtraction() throws Exception {

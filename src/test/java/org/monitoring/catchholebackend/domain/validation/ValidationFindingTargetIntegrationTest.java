@@ -153,7 +153,8 @@ class ValidationFindingTargetIntegrationTest extends ValidationReviewFixture {
         assertThat(basis.path("targetId").asText()).isEqualTo(character.getId().toString());assertThat(basis.path("subjectName").asText()).isEqualTo("합성 인물");
         assertThat(basis.path("factType").asText()).isEqualTo("AGE");assertThat(basis.path("factKey").asText()).isEqualTo("age");
         assertThat(basis.path("currentVersion").asLong()).isEqualTo(character.getSnapshotVersion());
-        assertThat(basis.path("entryHash").asText()).isEqualTo(journal.hash(stored(get(report)).getBaselineEntries().get(0)));
+        // #381: entryHash는 지금 확정 설정 행의 hash이고 정정 요청이 그대로 돌려주는 CAS 값이다.
+        assertThat(basis.path("entryHash").asText()).isEqualTo(journal.hash(liveRow("B1")));
         assertThat(basis.path("scopeName").isNull()&&basis.path("settingName").isNull()).isTrue();
         var staging=get(report);
         Map<String,Object> command=new LinkedHashMap<>();command.put("targetId",basis.path("targetId").asText());command.put("expectedSnapshotVersion",basis.path("currentVersion").asLong());
@@ -179,13 +180,34 @@ class ValidationFindingTargetIntegrationTest extends ValidationReviewFixture {
 
     @Test @DisplayName("질문 속성이 slot과 맞지 않아도 basis는 대상 항목을 주고 slot은 비워 둔다")
     void basisWithoutMatchingSlotLeavesSlotEmpty() throws Exception {
-        var report=completedWith(List.of(new Question(List.of("S1","S2"),"손 사용","CAUTION")));
-        var detail=detail(report,only(report,"SETTING"));
-        assertThat(detail.path("subject").path("type").asText()).as("first subject_ref").isEqualTo("CHARACTER");
+        // #381: live report의 basis는 V102 대표 대상과 판정 근거 문장(B 인용)이 가리킨 주체(quoted_subjects)다. 질문 대상만 둘인 판정(Q2)은 대표 대상 하나다.
+        String age=liveSlotValue("B1","AGE:age");
+        var report=completedWith(List.of(new Question(List.of("S1","S2"),"손 사용","CAUTION",List.of(settingQuote("B1",age),settingQuote("B2","북"))),
+                new Question(List.of("S1","S2"),"손 사용","CAUTION")));
+        var page=findings(report,"?branch=SETTING");
+        var detail=detail(report,row(page,"Q1"));
+        assertThat(detail.path("subject").path("type").asText()).as("first setting quote").isEqualTo("CHARACTER");
         assertThat(detail.path("basis").size()).isEqualTo(2);
         for(var basis:detail.path("basis")) {assertThat(basis.path("factType").isNull()&&basis.path("factKey").isNull()&&basis.path("settingName").isNull()).isTrue();assertThat(basis.path("entryHash").asText()).hasSize(64);}
         var refs=new ArrayList<String>();detail.path("basis").forEach(b->refs.add(b.path("entryRef").asText()));assertThat(refs).containsExactly("B1","B2");
+        assertThat(detail.path("basis").path(1).path("entryHash").asText()).isEqualTo(journal.hash(liveRow("B2")));
+        assertThat(detail.path("basis").path(1).path("currentVersion").asLong()).isEqualTo(world.getVersion());
+        var unquoted=detail(report,row(page,"Q2")).path("basis");
+        assertThat(unquoted.size()).as("question subjects are not stored, only the primary target").isEqualTo(1);assertThat(unquoted.path(0).path("entryRef").asText()).isEqualTo("B1");
         var typo=detail(report,only(report,"TYPO"));assertThat(typo.path("basis").isArray()&&typo.path("basis").isEmpty()).isTrue();assertThat(typo.path("subject").isNull()).isTrue();
+    }
+
+    @Test @DisplayName("#381 basis는 지금 색인에서 사라진(보관된) 주체를 빼고 남은 주체의 지금 참조를 준다")
+    void basisDropsSubjectsThatNoLongerExist() throws Exception {
+        String age=liveSlotValue("B1","AGE:age");
+        var report=completedWith(List.of(new Question(List.of("S1","S2"),"서식지","SEVERE",List.of(settingQuote("B2","북"),settingQuote("B1",age)))));
+        var finding=only(report,"SETTING");
+        var refs=new ArrayList<String>();detail(report,finding).path("basis").forEach(b->refs.add(b.path("entryRef").asText()));assertThat(refs).containsExactly("B2","B1");
+        // 잠금·무효화를 거치지 않은 보관(설정 쓰기 경로 밖)으로 인물이 색인에서 빠지면 그 항목만 빠지고 세계관은 지금 참조 B1이 된다.
+        em.flush();em.createNativeQuery("update characters set status='ARCHIVED' where id=:id").setParameter("id",character.getId()).executeUpdate();em.clear();
+        var basis=detail(report,finding).path("basis");
+        assertThat(basis.size()).isEqualTo(1);assertThat(basis.path(0).path("subjectType").asText()).isEqualTo("WORLD_SETTING");
+        assertThat(basis.path(0).path("entryRef").asText()).isEqualTo("B1");assertThat(basis.path(0).path("settingName").asText()).as("primary slot").isEqualTo("서식지");
     }
 
     @Test @DisplayName("#381 live 게시는 B 인용마다 주체·설정 이름표(quoted_subjects)를 이름·key로만 쓰고 원문 인용은 건너뛰며 근거가 없으면 빈 배열, 오탈자는 null이다")
@@ -225,6 +247,13 @@ class ValidationFindingTargetIntegrationTest extends ValidationReviewFixture {
         assertThat(habitat.path("settingKey").asText()).isEqualTo("[null,\"서식지\"]");assertThat(habitat.path("settingName").asText()).isEqualTo("서식지");
         var free=row(page,"Q3");assertThat(free.path("subject").path("name").asText()).isEqualTo("합성 인물");assertThat(free.path("settingKey").isNull()).isTrue();
         assertThat(quoted(report)).hasSize(5).allSatisfy((unit,column)->assertThat(column).as(unit).isNull());
+        // 상세 표기·basis도 저장 기준 항목으로 만든다(질문 대상 S1·S2 둘 다 basis, entryHash는 저장 항목 hash).
+        var detail=detail(report,habitat);var entries=stored(get(report)).getBaselineEntries();
+        assertThat(detail.path("basisQuotes").path(0).path("label").asText()).isEqualTo("설정 · 합성 종족 · 서식지");
+        JsonNode settingBlock=null;for(var b:detail.path("blocks"))if("SETTING".equals(b.path("kind").asText()))settingBlock=b;
+        assertThat(settingBlock).isNotNull();assertThat(settingBlock.path("settingValue").asText()).isEqualTo("북부");
+        var refs=new ArrayList<String>();detail.path("basis").forEach(b->refs.add(b.path("entryRef").asText()));assertThat(refs).containsExactly("B1","B2");
+        assertThat(detail.path("basis").path(1).path("entryHash").asText()).isEqualTo(journal.hash(entries.get(1)));
         noExtraction();
     }
 
@@ -262,6 +291,38 @@ class ValidationFindingTargetIntegrationTest extends ValidationReviewFixture {
      * SQL 수. 설정 읽기는 색인 scalar 3번과 요청 주체의 id 조회뿐이라 주체가 2개든 32개든 같다.
      */
     static final long LIVE_UNIT_STATEMENTS=106;
+
+    @org.junit.jupiter.params.ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(ints={0,30})
+    @DisplayName("#381 live 상세는 저장 대상(대표 대상·근거 문장 주체)의 현재 행만 id로 한 번 읽고 후보·Fact·Job 엔티티를 읽지 않으며 SQL 수가 작품 크기와 무관하다")
+    void liveDetailReadsOnlyStoredSubjects(int extraCharacters) throws Exception {
+        ageSchema();
+        for(int i=0;i<extraCharacters;i++)em.persist(org.monitoring.catchholebackend.domain.character.entity.WorkCharacter.create(work,"추가 인물 "+i,null,30+i,1,null,null,null,null,null,null));
+        em.flush();
+        var index=liveSettings.index(work.getId());
+        var c=index.subjects().stream().filter(x->x.id().equals(character.getId())).findFirst().orElseThrow();
+        var w=index.subjects().stream().filter(x->x.id().equals(world.getId())).findFirst().orElseThrow();
+        String age=liveSlotValue(c.entryRef(),"AGE:age");
+        var report=completedWith(List.of(new Question(List.of(c.subjectRef(),w.subjectRef()),"서식지","SEVERE",List.of(settingQuote(w.entryRef(),"북"),settingQuote(c.entryRef(),age)))));
+        var finding=only(report,"SETTING");
+        em.flush();em.clear();
+        var statistics=statistics();boolean enabled=statistics.isStatisticsEnabled();statistics.setStatisticsEnabled(true);statistics.clear();
+        JsonNode detail;
+        try {
+            detail=detail(report,finding);
+            assertThat(loads(org.monitoring.catchholebackend.domain.character.entity.WorkCharacter.class)).isEqualTo(1);
+            assertThat(loads(org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting.class)).isEqualTo(1);
+            for(var forbidden:NEVER_LOADED)assertThat(loads(forbidden)).as(forbidden.getSimpleName()).isZero();
+            assertThat(statistics.getPrepareStatementCount()).as("statements of one live finding detail").isEqualTo(LIVE_DETAIL_STATEMENTS);
+        } finally {statistics.setStatisticsEnabled(enabled);}
+        var refs=new ArrayList<String>();detail.path("basis").forEach(b->refs.add(b.path("entryRef").asText()));assertThat(refs).containsExactly(w.entryRef(),c.entryRef());
+        var values=new ArrayList<String>();detail.path("blocks").forEach(b->{if("SETTING".equals(b.path("kind").asText()))values.add(b.path("settingValue").asText());});
+        assertThat(values).containsExactly("북부",age);
+    }
+    /**
+     * 상세 조회 한 번 전체(소유권·report·finding·check·판단·근거·이력·manifest·schema·APPLIED 여부 조회 포함)의 SQL 수. 현재 설정은 색인 scalar 3번과
+     * 저장 대상 id 조회(인물·세계관 각 1번과 그 부속 scalar)만 하고 basis와 근거 문장 표기가 같은 행을 쓰므로 주체가 2개든 32개든 같다.
+     */
+    static final long LIVE_DETAIL_STATEMENTS=26;
 
     @Test @DisplayName("#381 live 게시가 전체 상태로 읽을 주체가 100개를 넘으면 읽기 전에 거절하고, 100개까지는 읽어서 검증한다")
     void livePublicationNeedingMoreThanHundredSubjectsIsRejectedBeforeReading() throws Exception {

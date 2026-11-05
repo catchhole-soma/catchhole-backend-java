@@ -167,6 +167,30 @@ public class ValidationLiveSettings {
         return rows;
     }
 
+    /** 도메인(characters·worldSettings)과 id로 고른 주체. */
+    public record Key(String domain, UUID id) {}
+    /** 주체 하나의 현재 행. subject.entryRef()는 지금 색인의 B 참조이고 row는 SETTINGS·게시 검증과 같은 전체 상태 행이다. */
+    public record Row(Subject subject, ObjectNode row) {}
+
+    /**
+     * #381 검수 상세의 정정 연결(basis)·표기와 정정이 보는 주체(최대 {@value #MAX_FULL_SUBJECTS}개)의 현재 행. 색인 scalar 3번과 요청 주체의 id 조회만 한다.
+     * 색인에 없는(보관·삭제된) 주체는 결과에 없다. 결과 순서는 색인 순서다.
+     */
+    public Map<Key, Row> rows(UUID workId, Collection<Key> keys) {
+        if (keys.isEmpty()) return Map.of();
+        var index = index(workId);
+        Map<Key, Subject> found = new LinkedHashMap<>();
+        for (Subject subject : index.subjects()) {
+            var key = new Key(subject.domain(), subject.id());
+            if (keys.contains(key)) found.put(key, subject);
+        }
+        if (found.isEmpty()) return Map.of();
+        ArrayNode rows = entries(index, found.values().stream().map(Subject::entryRef).toList());
+        Map<Key, Row> result = new LinkedHashMap<>();
+        found.forEach((key, subject) -> result.put(key, new Row(subject, (ObjectNode) rows.get(subject.number() - 1))));
+        return result;
+    }
+
     private Map<UUID, ObjectNode> characterStates(UUID workId, List<Subject> subjects) {
         if (subjects.isEmpty()) return Map.of();
         Map<UUID, WorkCharacter> loaded = characters.findAllById(subjects.stream().map(Subject::id).toList()).stream()

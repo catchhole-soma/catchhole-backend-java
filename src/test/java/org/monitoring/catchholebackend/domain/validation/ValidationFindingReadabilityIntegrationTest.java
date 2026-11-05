@@ -176,6 +176,60 @@ class ValidationFindingReadabilityIntegrationTest extends ValidationReviewFixtur
         assertThat(row.path("subject").path("name").asText()).isEqualTo("합성 인물");assertThat(row.path("subject").path("type").asText()).isEqualTo("CHARACTER");
     }
 
+    void ageSchema() {
+        em.persist(CharacterSettingSchema.create(work,"age",null,"나이",CharacterFactType.AGE,SettingValueType.NUMBER,CharacterSettingValueSemantics.BASE_VALUE,
+                CharacterSettingMergePolicy.REPLACE,com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.arrayNode(),CharacterSettingSchemaSource.SYSTEM_SEED,true));em.flush();
+    }
+    JsonNode settingBlocks(JsonNode detail) {var out=com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.arrayNode();detail.path("blocks").forEach(b->{if("SETTING".equals(b.path("kind").asText()))out.add(b);});return out;}
+
+    @Test @DisplayName("#381 대표 대상이 아닌 주체를 가리킨 근거 문장도 저장 이름표로 대상·설정명을 보이고, 실행 직후에는 값 전체를 현재 설정에서 보인다")
+    void secondaryQuotedSubjectKeepsItsOwnLabel() throws Exception {
+        ageSchema();var p=planned(List.of("S1","S2"),"서식지");var age=firstFactValue(p.report(),"B1");
+        internal(path(p.job(),"/units"),p.job(),command(p,List.of("S1","S2"),"서식지",List.of(bQuote("B2","북부"),bQuote("B1",age)),List.of()),200);
+        var detail=detail(p.report(),only(p.report(),"SETTING"));
+        var quotes=detail.path("basisQuotes");assertThat(quotes.size()).isEqualTo(2);
+        assertThat(quotes.path(0).path("label").asText()).isEqualTo("설정 · 합성 종족 · 서식지");
+        assertThat(quotes.path(1).path("label").asText()).as("not the primary target").isEqualTo("설정 · 합성 인물 · 나이");
+        assertThat(quotes.path(1).path("subjectName").asText()).isEqualTo("합성 인물");
+        var blocks=settingBlocks(detail);assertThat(blocks.size()).isEqualTo(2);
+        assertThat(blocks.path(0).path("settingValue").asText()).isEqualTo("북부");assertThat(blocks.path(1).path("settingValue").asText()).isEqualTo(age);
+        var refs=new ArrayList<String>();detail.path("basis").forEach(b->refs.add(b.path("entryRef").asText()));assertThat(refs).containsExactly("B2","B1");
+    }
+
+    @Test @DisplayName("#381 회차 전체 확정(APPLIED) 뒤 설정이 바뀌면 근거 문장은 저장 이름표와 인용만 보이고 값 전체는 보이지 않는다")
+    void appliedReportShowsStoredLabelsWithoutLiveValue() throws Exception {
+        var p=planned(List.of("S2"),"서식지");
+        internal(path(p.job(),"/units"),p.job(),command(p,List.of("S2"),"서식지",List.of(bQuote("B2","북부")),List.of()),200);
+        typos(p.job());assertThat(finish(p.job(),"done")).isEqualTo("COMPLETED");
+        var finding=only(p.report(),"SETTING");
+        assertThat(settingBlocks(detail(p.report(),finding)).path(0).path("settingValue").asText()).as("valid and not applied: live == judged").isEqualTo("북부");
+        // 검토 종료와 회차 전체 확정 기록(APPLIED)을 두고, 그 뒤 설정이 바뀐 상태를 만든다(APPLIED report는 설정 변경으로 무효화되지 않는다).
+        var report=em.find(org.monitoring.catchholebackend.domain.validation.entity.ValidationReport.class,p.report());
+        var job=org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob.create(work,null,target,org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION);em.persist(job);
+        var completion=org.monitoring.catchholebackend.domain.validation.entity.ValidationReviewCompletion.complete(report,org.monitoring.catchholebackend.domain.validation.type.ValidationReviewTrigger.AUTOMATIC,null,null,job);em.persist(completion);
+        var application=org.monitoring.catchholebackend.domain.validation.entity.ValidationSettingsApplication.start(report,completion);
+        application.apply(org.monitoring.catchholebackend.domain.validation.type.ValidationReviewTrigger.AUTOMATIC,null,null,report.getVersion());em.persist(application);
+        world.updateProperty(null,"서식지",null,"서식지","남부");em.flush();
+        var detail=detail(p.report(),finding);
+        assertThat(detail.path("basisQuotes").path(0).path("label").asText()).isEqualTo("설정 · 합성 종족 · 서식지");
+        assertThat(detail.path("basisQuotes").path(0).path("quote").asText()).isEqualTo("북부");
+        var block=settingBlocks(detail).path(0);
+        assertThat(block.path("quote").asText()).isEqualTo("북부");assertThat(block.path("label").asText()).isEqualTo("설정 · 합성 종족 · 서식지");
+        assertThat(block.path("settingValue").isNull()).as("the live value changed after APPLIED").isTrue();
+    }
+
+    @Test @DisplayName("#381 이름표(quoted_subjects)가 없는 live finding은 대표 대상(V102)으로 첫 근거 문장을 표기하고 값 전체는 현재 설정에서 읽는다")
+    void liveFindingWithoutQuotedSubjectsFallsBackToTheStoredTarget() throws Exception {
+        var p=planned(List.of("S1","S2"),"서식지");
+        internal(path(p.job(),"/units"),p.job(),command(p,List.of("S1","S2"),"서식지",List.of(bQuote("B2","북부")),List.of()),200);
+        var finding=only(p.report(),"SETTING");
+        em.flush();em.createNativeQuery("update validation_findings set quoted_subjects=null where id=:id").setParameter("id",java.util.UUID.fromString(finding.path("findingId").asText())).executeUpdate();em.clear();
+        var detail=detail(p.report(),finding);
+        assertThat(detail.path("basisQuotes").path(0).path("label").asText()).isEqualTo("설정 · 합성 종족 · 서식지");
+        assertThat(settingBlocks(detail).path(0).path("settingValue").asText()).isEqualTo("북부");
+        assertThat(detail.path("basis").size()).as("primary target only").isEqualTo(1);
+    }
+
     @Test @DisplayName("내부 참조처럼 보이는 확인 항목은 topic을 비운다")
     void internalLookingTopicIsHidden() throws Exception {
         var p=planned(List.of("S2"),"E2와 서식지");

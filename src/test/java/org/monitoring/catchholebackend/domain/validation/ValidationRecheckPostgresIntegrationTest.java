@@ -70,6 +70,7 @@ class ValidationRecheckPostgresIntegrationTest {
     @Autowired AnalysisRunStateService states;
     @Autowired AnalysisStateJournal journal;
     @Autowired org.monitoring.catchholebackend.domain.validation.processor.ValidationSourceManifests sourceManifests;
+    @Autowired org.monitoring.catchholebackend.domain.validation.processor.ValidationLiveSettings liveSettings;
     @Autowired WorldSettingService worldEdits;
     @Autowired ObjectStorageService storedText;
     @MockitoBean ObjectStorage storage;
@@ -103,16 +104,16 @@ class ValidationRecheckPostgresIntegrationTest {
             return new ValidationRecheckRequest(key,report.getVersion(),episode.getContentHash(),episode.getContentS3Key(),episode.getContentS3Version(),episode.getContentRevision(),previous.baselineHash(),null);});
     }
     ValidationStagingResponse recheck(Fixture f,ValidationStagingResponse previous,ValidationRecheckRequest input) {return rechecks.recheckValidation(f.member(),f.work(),previous.reportId(),input);}
+    /** #381 live report의 정정 요청. 기준 항목은 상세 basis와 같은 현재 확정 설정 행(지금 색인 참조·현재 행 hash)이다. */
     ValidationCorrectionRequest correction(Fixture f,ValidationStagingResponse report,boolean character) {
         return tx.execute(s->{
-            var r=em.find(ValidationReport.class,report.reportId());int index=0;
-            for(var entry:r.getBaselineEntries()) {
-                index++;if(!entry.path("domain").asText().equals(character?"characters":"worldSettings"))continue;
-                return new ValidationCorrectionRequest("correction",r.getVersion(),r.getId(),r.getBaselineRevision(),r.getBaselineHash(),"B"+index,journal.hash(entry),
-                        character?new ValidationCorrectionRequest.CharacterCorrection(f.character(),0L,CharacterFactType.AGE,"age",
-                                new CharacterUpdateRequest("합성 인물",null,21,1,null,List.of(),List.of(),List.of(),List.of(),List.of())):null,
-                        character?null:new ValidationCorrectionRequest.WorldSettingCorrection(f.world(),0L,new WorldSettingPropertyUpdateRequest("서식지","서식지","남부",0L)));
-            }throw new AssertionError("missing synthetic entry");
+            var r=em.find(ValidationReport.class,report.reportId());var index=liveSettings.index(f.work());
+            var subject=index.subjects().stream().filter(x->x.id().equals(character?f.character():f.world())).findFirst().orElseThrow();
+            var entry=liveSettings.entries(index,List.of(subject.entryRef())).get(subject.number()-1);
+            return new ValidationCorrectionRequest("correction",r.getVersion(),r.getId(),r.getBaselineRevision(),r.getBaselineHash(),subject.entryRef(),journal.hash(entry),
+                    character?new ValidationCorrectionRequest.CharacterCorrection(f.character(),0L,CharacterFactType.AGE,"age",
+                            new CharacterUpdateRequest("합성 인물",null,21,1,null,List.of(),List.of(),List.of(),List.of(),List.of())):null,
+                    character?null:new ValidationCorrectionRequest.WorldSettingCorrection(f.world(),0L,new WorldSettingPropertyUpdateRequest("서식지","서식지","남부",0L)));
         });
     }
     static void await(CountDownLatch latch) {try{assertThat(latch.await(15,TimeUnit.SECONDS)).isTrue();}catch(InterruptedException e){Thread.currentThread().interrupt();throw new AssertionError(e);}}
@@ -175,7 +176,8 @@ class ValidationRecheckPostgresIntegrationTest {
         finally{jdbc.execute("drop trigger gh310_reject on validation_corrections");jdbc.execute("drop function gh310_reject_correction()");}
         assertThat(jdbc.queryForObject("select current_age from characters where id=?",Integer.class,f.character())).isEqualTo(20);
         assertThat(jdbc.queryForObject("select properties_json->>'서식지' from world_settings where id=?",String.class,f.world())).isEqualTo("북부");
-        assertThat(jdbc.queryForObject("select baseline_seed is not null and status='WAITING_FOR_ERROR_REVIEW' from validation_reports where id=?",Boolean.class,report.reportId())).isTrue();
+        // #381 live report에는 seed가 없다. 되돌려진 정정은 report를 무효화하지 않았다(baseline hash·상태 그대로).
+        assertThat(jdbc.queryForObject("select baseline_hash is not null and status='WAITING_FOR_ERROR_REVIEW' from validation_reports where id=?",Boolean.class,report.reportId())).isTrue();
         for(String table:List.of("validation_corrections","character_facts","character_snapshot_sources"))assertThat(jdbc.queryForObject("select count(*) from "+table,Integer.class)).as(table).isZero();noExtraction();
     }
     @Test void staleCorrectionRollsBackAllEdits() throws Exception {
