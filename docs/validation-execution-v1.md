@@ -8,8 +8,9 @@ GH312의 작가 판단 저장·조회(S1), 검토 종료 receipt·설정 추출 
 
 ## 이력과 버전
 
-`baselineId = reportId`를 유지한다. report마다 고정 원고와 새 기준을 캡처하며 과거 판단을 복사하지 않는다.
-원고만 바뀐 경우에도 이 구현은 접근 가능한 자료에서 새 기준을 캡처한다. 이전 복사본을 복구하지 않는다.
+`baselineId = reportId`를 유지한다. report마다 고정 원고와 새 기준을 만들며 과거 판단을 복사하지 않는다.
+#381 이후 기준은 출처 manifest와 확정 설정 버전 지문이고 확정 설정 자체는 복사하지 않는다(아래 "확정 설정 잠금과 현재 설정 읽기").
+원고만 바뀐 경우에도 이 구현은 접근 가능한 자료에서 새 기준을 만든다. 이전 기준을 복구하지 않는다.
 
 | 필드 | 의미 |
 | --- | --- |
@@ -18,8 +19,8 @@ GH312의 작가 판단 저장·조회(S1), 검토 종료 receipt·설정 추출 
 | `reportVersion` | 현재 report 상태의 CAS. 조회나 flush만으로 증가하지 않는다 |
 | `baselineRevision` | 새로 캡처한 기준 순번, 최초 1. 현재 구현은 report마다 새 기준이므로 두 순번이 함께 증가한다 |
 | `targetRevision` | report가 고정한 `Episode.contentRevision` |
-| `baselineHash` | 현재 읽을 수 있는 저장 seed hash. 무효화하면 null |
-| `baselineFingerprint` | 파기 뒤에도 비교할 수 있는 해시 식별값. 본문 접근·추출 허가가 아니다 |
+| `baselineHash` | #381 이후 report는 확정 설정 버전 지문, V119 이전 report는 저장 seed hash. 무효화하면 null |
+| `baselineFingerprint` | 파기 뒤에도 비교할 수 있는 해시 식별값. #381 이후 report는 `baselineHash`와 같은 지문이다. 본문 접근·추출 허가가 아니다 |
 | `previousReportId` | 바로 앞 report ID. 과거 응답은 요약만 제공한다 |
 | `mode` | 서버가 실제 확정/적용 이력으로 정한 BEFORE_CONFIRMATION 또는 DIAGNOSTIC_ONLY |
 
@@ -27,7 +28,7 @@ Work 잠금이 report 쓰기의 직렬화 경계다. 최초 접수·새 재검�
 정정은 Work → report → 설정 대상 순서를 따른다. PostgreSQL partial unique index는 회차당 현재 포인터 하나를,
 `(episode_id, revision)` unique index는 같은 이력 순번의 중복을 막는다. 이전 포인터를 flush한 뒤 새 report를 저장한다.
 
-report version은 seed 캡처·정규화 완료·보류·최초 무효화·현재 포인터 퇴역에서 증가한다.
+report version은 준비 완료(legacy report는 seed 캡처·정규화 완료)·보류·최초 무효화·현재 포인터 퇴역에서 증가한다.
 반복 파기와 조회는 증가시키지 않는다. 후속 실행/결과 소유자도 Work 잠금 아래 의미 있는 변경 후
 `ValidationReport.advanceVersion()`을 호출해야 한다. JPA `@Version` 대신 명시적인 version을 사용한다.
 JSON dirty checking의 flush가 내용 변화 없이 CAS를 바꾸는 현상을 실제 통합 테스트에서 확인했기 때문이다.
@@ -66,29 +67,32 @@ V91에서 이미 파기해 fingerprint가 없거나 최초 캡처 실패로 seed
 `POST /{reportId}/corrections`는 `ValidationCorrectionRequest`로 실제 설정 편집과 receipt를 한 트랜잭션에 묶는다.
 필수 공통 필드는 reportVersion, baselineId/revision/hash, `entryRef`와 `expectedEntryHash`, 멱등 키다.
 키는 정정 endpoint의 별도 작품별 namespace이며 동일 키·다른 report/입력은 409다.
-`ENTRIES` 응답의 entryHash는 저장 항목 자체의 hash이며 전송용 entryRef/entryHash를 다시 hash하지 않는다.
+entryHash는 기준 항목 행 자체의 hash다. #381 이후 report는 상세 `basis[]`가 주는 지금 확정 설정 행의 hash다(`ENTRIES` 연산은 없어졌다). 전송용 entryRef/entryHash를 다시 hash하지 않는다.
 
 `character`와 `worldSetting` 중 정확히 하나만 받는다.
 
 - 캐릭터: targetId, expectedSnapshotVersion, factType/factKey, 기존 전체 CharacterUpdateRequest를 받는다.
-  기준의 현재 전체 slot과 실제 authoritative snapshot·현재 version이 같아야 한다.
+  legacy report는 기준의 현재 전체 slot과 실제 authoritative snapshot·현재 version이 같아야 한다.
+  #381 이후 report는 기준 항목이 지금 행이므로 전체 slot 비교 대신 entryRef·entryHash와 snapshot version·이름 CAS만 본다.
   기존 CharacterService의 동일 변환/스키마/수동 Fact 경계를 사용하되 지정한 현재 slot 하나 외의
   추가·삭제·값 변경, 이름/역할/첫 등장 변경은 저장 전에 거절한다. 일반 Character PATCH의 기존 계약은 유지한다.
 - 세계관: targetId, expectedVersion과 기존 WorldSettingPropertyUpdateRequest를 받는다.
-  기준의 대상 identity·전체 properties·version과 실제 현재값을 대조하고 기존 서비스가 current scope/path,
+  기준의 대상 identity·version(legacy report는 전체 properties도)과 실제 현재값을 대조하고 기존 서비스가 current scope/path,
   목적 scope/path·충돌·수동 보호를 검증한다. 영수증은 실제 저장한 before/after와 version을 기록한다.
   old/new 경로는 편집 전후 `WorldSetting.getStoredPropertyPath`가 반환한 실제 저장 이름을 사용한다.
   공백·대소문자·NFC alias 요청 문자열을 그대로 정정 scope에 저장하거나 별도 정규화기로 다시 해석하지 않는다.
 
 현재 baseline과 일치하지 않는 과거 항목, worldHistory, 다른 대상, 모호한 범위와 stale version은
 `VALIDATION_CORRECTION_CONFLICT` 또는 report version 충돌로 거절한다. BASELINE_ONLY 철회는 지원하지 않는다.
-일반 저장은 기존 report를 무효화할 뿐 직접 정정 receipt를 생성하지 않는다.
+일반 저장은 기존 report를 무효화할 뿐 직접 정정 receipt를 생성하지 않는다. #381 잠금 기간의 일반 저장은 409 `VALIDATION_SETTINGS_LOCKED`다.
+정정은 그 리포트의 검토 단계(REVIEW) 잠금만 통과한다. 그 리포트가 실행 중이거나 다른 리포트가 잠갔으면 정정도 409다.
 DB receipt 저장이 실패하면 실제 캐릭터 Fact/snapshot/provenance·세계관 값·baseline 무효화까지 모두 롤백한다.
 
-새 seed와 해당 항목의 `state.explicitAuthorCorrections`에는 서버가 검증한 target/slot 또는 전체 scope/path,
+다음 기준의 해당 항목 `state.explicitAuthorCorrections`(SETTINGS의 `authorCorrectionProofs`)에는 서버가 검증한 target/slot 또는 전체 scope/path,
 before/after 값·entityVersion·정정 ID·기준 entry/hash/revision만 전달한다. 클라이언트가 의미 범위를 고르지 않는다.
-명시적 정정의 연속 편집은 이미 검증한 이전 정정 scope를 서버에서 연결해 보존한다.
-일반 저장이나 출처 파기 뒤에는 이 복사본으로 이전 주장을 되살리지 않는다.
+#381 이후에는 `validation_corrections` 표에서 읽고(legacy report는 seed에 복사한 값) 요청 주체의 행에만 붙인다.
+명시적 정정의 연속 편집은 이미 검증한 이전 정정 scope를 서버에서 연결해 보존한다. 이전 정정 scope도 같은 표에서 읽는다.
+일반 저장이나 출처 파기 뒤에는 정정 기록을 지우며 이전 주장을 되살리지 않는다.
 Python의 GH306 단수 `explicitAuthorCorrection`은 자유 문자열 질문 scope였으므로 실행 연결에서
 이 typed 경로 metadata를 실제 검사 항목에 매핑해야 한다. 임의의 전체 인물 예외로 확대하면 안 된다.
 
@@ -100,7 +104,7 @@ Python의 GH306 단수 `explicitAuthorCorrection`은 자유 문자열 질문 sco
 | --- | --- |
 | `expectedReportVersion` | 단건 조회 `reportVersion`(판단 저장마다 오르므로 요청 직전 값) |
 | `baselineId`, `expectedBaselineRevision`, `expectedBaselineHash` | 단건 조회 `baselineId`(=reportId), `baselineRevision`, `baselineHash` |
-| `entryRef`, `expectedEntryHash` | `basis[i].entryRef`, `basis[i].entryHash`(저장 항목 자체의 hash) |
+| `entryRef`, `expectedEntryHash` | `basis[i].entryRef`, `basis[i].entryHash`(기준 항목 행의 hash, #381 이후 report는 지금 행의 hash) |
 | `character.targetId`, `character.expectedSnapshotVersion` | `basis[i].targetId`, `basis[i].currentVersion` (`subjectType=CHARACTER`) |
 | `character.factType`, `character.factKey` | `basis[i].factType`, `basis[i].factKey`. null이면 작가가 실제로 바꾼 slot 하나 |
 | `character.edit` | 작가가 그 slot 하나만 바꾼 전체 `CharacterUpdateRequest`(현재 캐릭터 상세 기준) |
@@ -125,7 +129,8 @@ Python의 GH306 단수 `explicitAuthorCorrection`은 자유 문자열 질문 sco
 
 같은 예시와 basis·단건 조회 값의 대응은 `docs/contracts/validation-review-v1.json`의 `correctionFromFindingBasis`이고 `ValidationReviewContractTest`가 검사한다.
 정정 receipt를 받은 뒤 재검수는 `correctionReceiptId`로 접수하며 `expectedBaselineHash`는 생략하거나 정정 전 fingerprint와 같은 값을 보낸다.
-basis는 고정 기준 값이고 정정은 기준과 현재 설정이 그대로일 때만 성공한다. 그 사이 설정이 바뀌면 위 규칙대로 `VALIDATION_CORRECTION_CONFLICT`다.
+#381 이후 report의 basis는 finding에 저장한 대상(V102 대표 대상, `quoted_subjects`)의 지금 행이다. 정정은 상세를 본 뒤 그 행이 바뀌지 않았을 때(entryRef·entryHash·version 같음)만 성공한다.
+legacy report의 basis는 고정 기준 값이고 정정은 기준과 현재 설정이 그대로일 때만 성공한다. 어느 쪽이든 그 사이 설정이 바뀌면 `VALIDATION_CORRECTION_CONFLICT`다.
 
 ## 진단 재검수
 
@@ -135,17 +140,36 @@ basis는 고정 기준 값이고 정정은 기준과 현재 설정이 그대로�
 Job이 없는 legacy 캐릭터 확정도 직접 회차의 실제 후보 ID를 보존하고 null Job receipt로 진단을 보류한다.
 해당 원고/target membership의 PENDING/RUNNING 추출·비교 Job이 있으면 재검수를 거절해 진행 중 실행을 끊지 않는다.
 
-검증 가능한 확정 전 입력이 있을 때만 진단 기준을 준비한다. 현재 지원하는 이력은 hash가 일치하는
-SEALED ordered 자동 입력 또는 첫 순번 수동 runBaseState다. 현재/후행 회차 provenance가 있으면 거절한다.
-Work 잠금 안에서 그 입력에 저장한 출처 ID/hash와 실제 후보·Job의 저장 위치·현재 수명도 검증한다.
-참조 회차의 파기가 대기 중이면 retained 원문 key가 있어도 진단을 보류한다. 완료된 후행 Job의 이전 입력도
-지연 파기 때 redacted될 수 있기 때문이다. 현재 원문의 manifest로 과거 출처를 다시 연결하지 않는다.
-이 진단 전용 검증은 새 원문에서 직접 캡처한 일반 기준의 retained-key 허용을 바꾸지 않는다.
-그 입력의 실제 정정 receipt가 있다면 검증한 단일 slot/path만 순서대로 정정하며 다른 live 현재값을 섞지 않는다.
-확정 전 자료가 없거나 입력 출처가 파기되어 hash를 검증할 수 없으면
-`HELD_INCOMPLETE + DIAGNOSTIC_BASELINE_UNAVAILABLE`로 남긴다. 현재 설정 fallback이나 과거 상태 추측을 하지 않는다.
-따라서 일부 legacy 진단은 기준을 준비할 수 없다. report 자체가 없는 기존 분석 회차의 새 진단 입구도 이번 범위가 아니다.
+#381(소유자 결정 2026-11-05)부터 진단 재검수도 현재 확정 설정을 읽는다. 작가가 확정한 값이 기준이기 때문이다.
+직전 반영 Job에 기록한 반영 전 입력(SEALED ordered 자동 입력·첫 순번 수동 runBaseState)으로 기준을 만들던 경로를 없앴다.
+그 입력의 출처 수명 검증과 `HELD_INCOMPLETE + DIAGNOSTIC_BASELINE_UNAVAILABLE` 보류도 더 생기지 않는다.
+report는 직전 반영 식별값(kind·id·Job·appliedAt)을 그대로 남긴다. 진단 report는 실행 중(QUEUED·RUNNING)에만 확정 설정을 잠그고 AWAITING_REVIEW에서 멈춘다.
+report 자체가 없는 기존 분석 회차의 새 진단 입구는 이번 범위가 아니다.
 진단은 이전 확정 사실을 보존하며 새 추출·후보·확정·자동 철회를 하지 않는다.
+
+## 확정 설정 잠금과 현재 설정 읽기 (#381)
+
+결정과 버린 대안은 [ADR-0004](adr/0004-validation-live-settings-lock.md)다. 접수(`ValidationBaselineService.prepare`)는 확정 설정을 복사하지 않는다.
+출처 manifest와 확정 설정 버전 지문만 저장하고 report를 READY로 만든다. 지문은 ACTIVE 인물 (id, snapshotVersion)과 세계관 (id, version)의 hash다.
+판정 입력은 위 "초기 호출과 서버 발급 모델 입력"처럼 현재 DB에서 읽는다. 그동안 값이 바뀌지 않게 하는 것은 아래 잠금이다.
+
+| 검수 Job | 확정 전 검수(BEFORE_CONFIRMATION) | 진단(DIAGNOSTIC_ONLY) |
+| --- | --- | --- |
+| QUEUED, 마지막 상태 변경 뒤 `settings-lock-queued-timeout` 안 | 잠금 `EXECUTION` | 잠금 `EXECUTION` |
+| RUNNING, lease 유효 | 잠금 `EXECUTION` | 잠금 `EXECUTION` |
+| COMPLETED, 검토 종료 receipt 없음 | 잠금 `REVIEW` | 잠그지 않음 |
+| 대기 시간 초과·lease 만료·PARTIAL·FAILED·CANCELED·receipt 있음 | 잠그지 않음 | 잠그지 않음 |
+
+- 판정은 `processor.ValidationSettingsLock`(`ValidationJobRepository.SETTINGS_LOCK`) 하나다. 현재이고 무효화되지 않은 report만 본다. 대기 잠금 시간이 설정에 없으면 QUEUED는 잠그지 않는다.
+- 막는 쓰기: 캐릭터 수정·보관·복구, 세계관 생성·대상 수정·속성 추가·수정, 캐릭터·세계관 후보의 사람 확정·승격, 다른 회차의 회차 전체 확정 반영(READY). 응답은 409 `VALIDATION_SETTINGS_LOCKED`다.
+  `error.context`는 `{reportId, validationJobId, episodeNo, executionStatus, lockReason, leaseExpiresAt}`이고 `leaseExpiresAt`은 RUNNING일 때만 있다.
+  관계 편집·검토 대기 후보 제외·#369 종료·결정 초안 저장·보류 기록은 검수 입력을 바꾸지 않아 막지 않는다.
+- 그 리포트의 정정(`POST /{reportId}/corrections`)은 REVIEW 잠금만 통과한다. 정정은 기존 규칙대로 리포트를 무효화하므로 잠금도 끝난다.
+- 같은 작품의 SETTING_EXTRACTION·CHARACTER_FACT_COMPARISON·WORLD_SETTING_COMPARISON은 잠금 동안 claim하지 않는다(`AnalysisJobEligibility.VALIDATION_LOCK`, 후보 조회와 Work 잠금 뒤 재조회 둘 다).
+  접수 전에 이미 RUNNING인 작업은 끝나고, 그 반영이 기존처럼 리포트를 무효화한다. release Job은 검토 종료 receipt와 같은 트랜잭션에서 생겨 잠금 없이 claim된다.
+- 지문은 queue·retry, 모든 data 호출 전후, claim·heartbeat·게시·완료마다 다시 계산한다. 다르면 409 `VALIDATION_SOURCE_VERSION_CONFLICT`다. 이름만 바꾸는 쓰기는 version을 올리지 않아 지문이 잡지 못한다(사람 쓰기는 잠금이 막는다).
+- 설정: `validation.execution.settings-lock-queued-timeout`(운영 예시 `10m`)은 실행을 켠 기동의 필수값이다. 없으면 `검수 실행 제한을 명시적으로 설정해야 합니다.`로 기동이 실패하므로 새 이미지를 올리기 전에 `SPRING_APPLICATION_JSON`에 넣는다.
+- 배포: AI를 먼저 올린다. 고정 출처 검색 SQL(`app/validation/search.py`)이 seed를 요구하던 조건을 뺐기 때문이다. 그다음 Backend(V119)를 올리며, 옛·새 Backend가 동시에 검수 접수를 받지 않게 한다. seed가 있는 report는 모든 경로에서 저장 기준을 계속 읽는다.
 
 ## 조회·무효화·파기 경계
 
@@ -158,7 +182,7 @@ Work 잠금 안에서 그 입력에 저장한 출처 ID/hash와 실제 후보·J
 이력 수를 현재 검수 수로 합치거나 기존 Job 성공 수로 가장하지 않는다.
 
 `ValidationStagingEvents.ReportInvalidated(UUID workId, UUID reportId)`는 Work 잠금 안의 동기 이벤트다.
-`ValidationBaselineService`가 seed/entries/sources를 지운 뒤 발행한다. 후속 Job·checkpoint·결과·인용 소유자는
+`ValidationBaselineService`가 출처 manifest·baseline hash(legacy report는 seed/entries도)를 지운 뒤 발행한다. 후속 Job·checkpoint·결과·인용 소유자는
 같은 트랜잭션에서 이 이벤트를 소비해 무효화/본문 삭제를 연결해야 한다. source·setting 변경과 퇴역이 같은 경계를 사용한다.
 작품/회원 파기는 검토 종료 receipt → 작가 판단 이력/판단 → 결과/check history/evidence/checkpoint/publication → 검수 usage → 검수 Job → correction/baseline source/request key → report 순서로 자식을 지우고,
 receipt가 참조하는 `analysis_jobs`는 그 뒤에 지운다. 무효화 경계(`ReportInvalidated`)는 receipt를 이력으로 남긴다.
@@ -230,11 +254,11 @@ grid v4(#349 개편, `projectionVersion=2`)의 초기 순서는 순환하지 않
 4. SUBJECTS는 페이지 없이(offset/limit 무시) `{"subjects":[{"subject_ref","domain","name","aliases"}],"subjectCount","entryCount"}`를
    S 번호 순으로 준다(`ValidationDataMapper.toValidationSubjectCatalogue`). 묶음 규칙은 AI `subject_catalogue()`와 같다: 한 주체의 첫 항목이
    domain·name을 정하고 aliases는 그 주체 항목 전체의 순서 보존 합집합이다(공통 fixture `subjectCatalogueVector`).
-5. 계획 뒤 JUDGE 전에 SETTINGS를 요청 하나에 최대 100개 주체(`subjectRefs`, `S[1-9][0-9]*`, 비어 있으면 안 되고 모두 고정 기준에 있어야 함,
+5. 계획 뒤 JUDGE 전에 SETTINGS를 요청 하나에 최대 100개 주체(`subjectRefs`, `S[1-9][0-9]*`, 비어 있으면 안 되고 모두 주체 목록에 있어야 함,
    위반은 `REQUEST_VALIDATION_FAILED`)로 읽는다. 응답 `settings`는 기존 정본 projection 행(`entry_ref, subject_ref, domain, name, aliases,
    state, author_correction:null`) 중 요청 주체이면서 `domain ∈ {characters, worldSettings}`(`ValidationDataMapper.CURRENT_DOMAINS`)인 행만
    B 번호 순으로 담는다. `worldHistory` 행은 돌려주지 않는다. `authorCorrectionProofs`는 그 행들의 typed 정정 사실 전송이다.
-6. ENTRIES는 legacy 연산으로 남지만 Worker는 쓰지 않는다. VALIDATE는 그대로이며 서버가 모든 게시 안에서 호출하고 TYPO가 마지막에 쓴다.
+6. ENTRIES(저장 기준 항목 페이지) 연산은 #381에서 없앴다. 요청하면 400이다. VALIDATE는 그대로이며 서버가 모든 게시 안에서 호출하고 TYPO가 마지막에 쓴다.
 7. 각 PLANNER 단계를 검증 즉시 게시하고, 서버 v4 grid의 segments가 로컬 분할과 같은지 확인한 뒤 MERGED_PLAN의 안정 check
    ID/revision/digest를 받고 JUDGE를 시작한다.
 
@@ -244,7 +268,11 @@ projection은 기존 값·조건·시점을 보존하고 서버 ID/hash/key/toke
 이 계약에서 DB_RAW_DISAGREEMENT는 NEEDS_CONTEXT이며 #312의 작가 판단으로 검토할 수 있다.
 정확한 typed 시간·조건 대응이 입증되는 후속 계약 전에는 자동 NO_CONFLICT 승격이나 광범위한 예외를 만들지 않는다.
 
-data 요청(`ValidationDataRequest`)의 operation은 `INPUT|ENTRIES|SUBJECTS|SETTINGS|READ_SOURCE|VALIDATE`이고 마지막 필드로
+#381 이후 report의 SUBJECTS·SETTINGS는 `processor.ValidationLiveSettings`가 현재 확정 설정에서 만든다. 주체 목록은 scalar 조회 세 번이다(ACTIVE 인물은 생성 역순·같은 시각이면 id 순, 확정 인물 발견 별칭, 세계관 id 순).
+SETTINGS는 요청 주체만 id로 읽으며 후보·Fact·분석 Job 엔티티를 읽지 않는다. 주체 하나에 행 하나라서 B 번호와 S 번호가 같고, 응답 모양과 AI 모델 투영 뒤 값은 legacy seed와 같다.
+모든 data 호출은 읽기 전후 확정 설정 버전 지문을 다시 계산하고, 다르면 409 `VALIDATION_SOURCE_VERSION_CONFLICT`(Worker `INPUT_CHANGED`)다. seed가 있는 legacy report는 저장 기준 항목을 읽는다.
+
+data 요청(`ValidationDataRequest`)의 operation은 `INPUT|SUBJECTS|SETTINGS|READ_SOURCE|VALIDATE`이고(#381에서 ENTRIES 제거) 마지막 필드로
 `subjectRefs`(최대 100, SETTINGS 전용)가 추가됐다. READ_SOURCE는 더 이상 `modelClues`를 계산하거나 돌려주지 않는다(`ValidationClueCollector` 삭제).
 
 ## 의미 단계와 완료 증명
@@ -301,7 +329,7 @@ receipt intent 연산은 `{BASELINE, TARGET_CONTEXT, VECTOR}`만 허용한다(`V
 네 completion 사유만으로 완료하지 않는다. 정상 NO_CONFLICT도 완료 check/receipts를 저장한다. E-ref는 실제 source_ref로 분류한다.
 T1을 E1로 포장해도 CONFLICT/SUSPECTED_CONFLICT의 외부 비교 근거가 될 수 없고 frozen fact 또는 검증된 T1 이외의 source만 인정한다.
 
-bundle `settings[]` 행은 `{"entry_ref": "B12", "subject_ref": "S3"}`다(#349 후속). `entry_ref`는 현재 고정 기준의 항목이고
+bundle `settings[]` 행은 `{"entry_ref": "B12", "subject_ref": "S3"}`다(#349 후속). `entry_ref`는 기준 항목(#381 이후 report는 현재 확정 설정 색인의 항목)이고
 `subject_ref`는 그 항목의 canonical `subject_ref`와 같아야 하며 ref는 중복되지 않는다. 다른 키는 무시한다. bundle은 공개 응답에 나가지 않고
 서버는 ref 집합(finding 대상 계산)과 receipts만 쓰므로 내용 사본이 필요 없다(운영 캐릭터 항목 하나가 362 KB여서 전체 행 비교는 게시 상한을 넘겼다).
 
@@ -340,7 +368,9 @@ schema 이름(`validation_judge_open_v3`·`validation_judge_final_v3`)은 그대
   - 알 수 없는 ref, 못 찾은 문장, 길이 초과, 같은 `(ref, quote)` 중복, 4번째 이후는 버리고 `BASIS_QUOTES_DROPPED`로 센다. 질문 실패로 만들지 않는다.
 - 게시: `ValidationDecision.basis_quotes`(이전에 게시된 결정에는 없으며 `[]`로 읽는다). E 인용은 checkpoint의 citation 수집기가 다른 span처럼
   `citations`에 `{sourceRef, sourceHash, sourceVersion, start, end, quote}`로 보내 서버가 hash 확인한 전문을 code point로 잘라 비교한다.
-  B 인용은 원문이 아니어서 citation이 없고, 서버는 고정 기준 항목 투영(`toValidationSettings`)의 같은 leaf 규칙으로 부분 문자열인지 확인한다.
+  B 인용은 원문이 아니어서 citation이 없고, 서버는 기준 항목 투영(`toValidationSettings`)의 같은 leaf 규칙으로 부분 문자열인지 확인한다.
+  #381 이후 report의 기준 항목은 게시 검증 때 Work 잠금 아래에서 읽은 현재 확정 설정이다. 이 게시가 값을 대조하는 주체(질문 `draft.subject_refs`, `basis_quotes[].ref`, `evidence_bundle.settings[].entry_ref`)만 전체 상태로 읽고 나머지는 이름·별칭만 읽는다. 서로 다른 주체가 100개를 넘으면 `VALIDATION_RESULT_INVALID`다.
+  finding을 저장할 때 B 인용마다 대상·설정 이름표 `quoted_subjects`(V119, `{ref, subjectType, subjectId, subjectName, settingKey, settingName}` 최대 3개, 값 없음)도 남긴다.
   공통 fixture `judgeFlow.basisQuotes`(규칙·`vectors`)와 `payloadCitationPaths.basisQuotes`를 Java·Python이 같이 읽는다.
 - 작가용 문장(`app/validation/author_text.py`, fixture `judgeFlow.authorText`): Worker는 저장 전에 `reason`·`impact_reason`·`disagreements[].reason`에서
   내부 참조를 작가 말로 바꾼다. `T1`·`TSEG#`→"이번 원고", `E#`/`R#`→"N화"(설정집은 "설정집"), `B#`→"저장된 설정", `S#`→SUBJECTS의 대상 이름(없으면 "대상")이며
@@ -439,7 +469,7 @@ where (coalesce(j.required_grid -> 'SETTING' ->> 'gridVersion', '4') <> '4' or j
 
 게시 외피 전체는 1,048,576 UTF-8 bytes(#349 후속: MERGED_PLAN이 모든 구간의 질문 초안을 한 번에 담아 65개 질문이 옛 131,072 bytes를 넘겼다), citations는 1,000개, 의미 payload 깊이는 50을 넘기지 않는다.
 target_spans/spans/evidence 행/typo span과 target_context/additional_target_context라는 계약 경로의 quote/text는
-정확한 source/hash/version/code point 인용 외피가 필요하다. settings[] 행은 현재 고정 기준 항목의 entry_ref·subject_ref와
+정확한 source/hash/version/code point 인용 외피가 필요하다. settings[] 행은 기준 항목의 entry_ref·subject_ref와
 맞아야 한다. 서버 canonical projection 전체와 같은 행은 그 내부 도메인 속성 이름 text/quote를 span으로 해석하지 않고, 그 밖의 행은
 추가 키도 일반 payload처럼 검사한다. 다른 임의 payload/checkpoint 경로의
 text/quote는 거절하므로 검증되지 않은 복사본문을 추가 필드에 숨길 수 없다. canonical 설정도 깊이 상한을 지킨다.
@@ -452,8 +482,9 @@ S3/provider I/O 동안 Work를 잠그지 않는다.
 
 같은 입력 retry는 report/성공 stages/check ID를 보존하고 미완료(INCOMPLETE·미게시 질문 포함)만 새 generation으로 실행한다.
 공개 새 retry는 최신 활성 회차만 허용한다. 원래 성공한 retry key는 새 행동이 아니므로 원 summary receipt를 반환한다.
-유효 saved seed의 준비 중단은 원래 hash/fingerprint·target/source 수명을 검증하고 기존 materialize로 복구한다.
-seedless/invalidated/purged 입력을 그 경로로 복원하지 않고 Task 1의 명시적 새 baseline 접수를 사용한다.
+legacy saved seed의 준비 중단은 원래 hash/fingerprint·target/source 수명을 검증하고 기존 materialize로 복구한다.
+#381 이후 report(seed 없음)는 접수 때 READY이며 retry는 확정 설정 버전 지문과 출처 수명을 다시 확인한 뒤 그대로 queue한다.
+hash가 없는 준비 실패·invalidated·purged 입력은 그 경로로 복원하지 않고 Task 1의 명시적 새 baseline 접수를 사용한다.
 
 ReportInvalidated는 baseline과 같은 트랜잭션에서 작가 판단 이력/판단(finding보다 먼저)과 stage/check/history/finding/evidence/checkpoint/publication 및 grid의
 복사본문을 삭제하고 실제 Job을 취소한다. 원장은 원래 소유권을 유지해 늦은 실제 정산을 받을 수 있다.
@@ -462,7 +493,7 @@ Work/회원 파기는 RESERVED/UNKNOWN 호출도 기존 worker drain에 포함�
 
 ## 실행 설정과 사용량
 
-`validation.execution.enabled`는 기본 false다. 켜려면 lease-duration, max-lease-recoveries,
+`validation.execution.enabled`는 기본 false다. 켜려면 lease-duration, max-lease-recoveries, settings-lock-queued-timeout(#381),
 setting/typo의 model-calls/lookups/seconds/input-tokens/segment-chars/context-chars/search-limit와
 roles의 PLANNER·JUDGE·TYPO(`max-calls`, `max-reserved-tokens`, `output-tokens`, `model`, `reasoning-effort`)와 선택 QUERY_EMBEDDING(`max-calls`,
 `max-reserved-tokens`, 출력·모델·추론 강도 없음)을 모두 명시한다. `output-tokens`와 `catalogue-page-size`는 setting/typo에서 빠지고 출력 상한은
@@ -483,7 +514,7 @@ roles의 PLANNER·JUDGE·TYPO(`max-calls`, `max-reserved-tokens`, `output-tokens
 
 ```json
 {"validation":{"execution":{
- "lease-duration":"60s","max-lease-recoveries":2,
+ "lease-duration":"60s","max-lease-recoveries":2,"settings-lock-queued-timeout":"10m",
  "setting":{"model-calls":200,"lookups":300,"seconds":3600,"input-tokens":80000,"segment-chars":10000,"context-chars":1000,"search-limit":10},
  "typo":{"model-calls":20,"lookups":20,"seconds":900,"input-tokens":20000,"segment-chars":2000,"context-chars":100,"search-limit":10},
  "roles":{
@@ -559,7 +590,7 @@ version은 기존 chat.retrieval-embedding-version override를 snapshot하고 �
 분석 단계의 설정집 임베딩은 하지 않았다(회차도 분석 때는 검색 조각 준비만 하고 임베딩은 별도 경로다).
 
 - **범위(RAG scope).** 고정 manifest의 앞 회차(`sourceKind=EPISODE`)와, 접수 때 그 설정집의 현재 판이고 보관되지 않은 revision만이다. 서버가 접수
-  (`ValidationBaselineService.capture`)에서 SETTING_BOOK manifest 행마다 boolean `currentRevision`을 기록한다. 과거 판은 확정 Fact 출처 확인용으로만
+  (`ValidationBaselineService.prepare`)에서 SETTING_BOOK manifest 행마다 boolean `currentRevision`을 기록한다. 과거 판은 확정 Fact 출처 확인용으로만
   남고 색인·검색하지 않는다(회차도 현재 원고만 색인한다). 설정집 수정·보관은 기존처럼 그 report를 무효화하고, 그 설정집의 색인 행도 같은 트랜잭션에서
   지운다(`SettingBookRetrievalIndexCleanup`).
 - **저장.** 회차는 기존 V76 `retrieval_sources`/`retrieval_chunks`, 설정집은 V114 `retrieval_setting_book_sources`(PK revision)/

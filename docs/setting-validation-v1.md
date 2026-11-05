@@ -26,12 +26,13 @@ X-Validation-Member-Id: <인증된 실행의 회원>
 
 공통 요청: `expectedBaselineHash`, `expectedTargetHash`, `operation`, `offset >= 0`, `1 <= limit <= 100`, 선택 `subjectRefs`.
 `INPUT`은 고정 target·허용 sources·entryCount, `SUBJECTS`는 주체 카탈로그(주체당 한 행), `SETTINGS`는 요청 주체(최대 100)의
-현재값 행(`characters`·`worldSettings`만, `worldHistory` 제외)을 반환한다. `ENTRIES`(저장된 baseline_entries 페이지)는 legacy로 남는다.
+현재값 행(`characters`·`worldSettings`만, `worldHistory` 제외)을 반환한다. `ENTRIES`(저장된 baseline_entries 페이지)는 #381에서 없앴다.
+#381 이후 report의 SUBJECTS·SETTINGS는 접수 때 복사본이 아니라 현재 확정 설정에서 만든다(아래 "현재 설정 읽기와 확정 설정 잠금").
 `READ_SOURCE`는 `sourceRef`, `expectedSourceHash`, `expectedSourceVersion`, 선택적 `start/end`를 받는다.
 `VALIDATE`는 report/target/허용 출처의 현재 접근·원본 metadata를 다시 확인한다.
 응답은 기존 `CommonResponse.data` 안에 formatVersion/reportId/baselineRevision/baselineHash/targetHash/manifestHash/status를 갖는다.
 
-대상은 `T1`, 과거 회차/설정집은 `R1...`, 고정 항목은 `B1...`, 모델용 대상은 `S1...`, 실제 읽은 구간은 `E1...`다.
+대상은 `T1`, 과거 회차/설정집은 `R1...`, 기준 항목은 `B1...`, 모델용 대상은 `S1...`, 실제 읽은 구간은 `E1...`다.
 내부 JSON은 source IDs/key/hash/version을 보존하지만 모델 입력에서는 짧은 참조와 읽을 값/시점/조건만 제공한다.
 Fact 출처의 ID/hash가 manifest와 맞을 때만 원문 참조로 연결한다. 제공되지 않은 대상/설정 후보를 만들지 않는다.
 
@@ -92,6 +93,7 @@ max_output_tokens)`이다. `model_client`는 create_text_response와 exact count
 5. 질문 주체의 현재값 행을 SETTINGS로 100개씩 읽어 실행 안에 캐시한다(`SettingsCache`, 중복 요청 합침). `worldHistory` 행과 값 이력은 판정에 보내지 않는다.
 6. JUDGE를 4개씩 동시에 실행한다(`app/validation/judging.py`). 질문당 최대 3회: OPEN(DB 현재값과 앞뒤 300자로 판정, 판단할 수 없을 때만 FOLLOW_UP으로
    자연어 검색 문장 최대 3개와 T1 문맥 범위를 요청) → 요청한 검색·문맥을 읽은 뒤 FINAL(DECIDED만) → 충돌 의심이면 Worker 변화 검색 뒤 FINAL.
+   검색을 요청한 FOLLOW_UP에는 Worker가 대상 문장 검색 하나를 더 한다(아래 "판정 규칙·검색 보완").
 7. 코드가 실제 제공 참조·정확한 target 위치·성공 receipt·필수 읽기 처리를 검사한다. 모델의 true 네 개를 그대로 완료 조건으로 쓰지 않는다.
 
 판정 입력은 `{question_ref, check_revision, question, target_context, additional_target_context, settings, evidence, receipts, source_catalogue,
@@ -126,11 +128,45 @@ DB 현재값과 확보한 근거가 충분하면 검색을 생략할 수 있으�
 검색 0건 자체로 직접 모순이나 예외 부재를 증명하지 않는다. 같은 신규 회차만의 모순은 판정하지 않는다.
 
 GH341(grid v4): DECIDED SUSPECTED_CONFLICT가 호출 한도 전에 왔는데 그 질문에 성공한 `CHANGES_EXCEPTIONS` VECTOR receipt가 없으면, Worker가 ref
-`Qn-CHANGES_EXCEPTIONS`, 고정 purpose `Worker가 충돌 의심 판정 전에 요구하는 변화·예외 검색`, query = 중복 없는 비어 있지 않은 `subject_mentions` 뒤에
-`property_or_rule`(1000자 이내)인 VECTOR 검색 하나를 실행하고 FINAL로 다시 묻는다(`CHANGE_SEARCH_INSERTED`). 세 번째 호출은 이 경로로만 가므로 최종
+`Qn-CHANGES_EXCEPTIONS`, 고정 purpose `Worker가 충돌 의심 판정 전에 요구하는 변화·예외 검색`, query = 질문의 `check_intent` 뒤에 대상 span quote들(원고 순서,
+공백 묶음은 한 칸, 중복 제외, 1000자 이내, 2026-11-03부터. 이전에는 `subject_mentions` + `property_or_rule`)인 VECTOR 검색 하나를 실행하고 FINAL로 다시
+묻는다(`CHANGE_SEARCH_INSERTED`). 세 번째 호출은 이 경로로만 가므로 최종
 SUSPECTED_CONFLICT에는 항상 그 receipt가 있다. query를 만들 수 없으면 `INVALID_DECISION_CHANGE_SEARCH_MISSING`, 검색을 쓸 수 없으면 `VECTOR_NOT_READY`(채우기 실패 뒤에는 `VECTOR_INDEX_FILL_FAILED`)다.
 다시 받은 판정이 그 receipt를 인용하지 않으면 Worker가 receipt와 알려진 근거(없으면 `T1`)를 덧붙인다(`CHANGE_SEARCH_RECEIPT_FILLED`).
 모든 판정은 대상 원고 T1 문맥을 받으므로, `completion.comparison_context.evidence_refs`에 `T1`이 빠지면 Worker가 앞에 덧붙인다(`COMPARISON_CONTEXT_TARGET_FILLED`). 판정·사유·등급은 바꾸지 않는다.
+
+### 판정 규칙·검색 보완 (2026-11-03)
+
+31화 로컬 실행의 오탐은 모두 "이전 기록에 없다·못 찾았다"를 충돌로 올린 경우였다(새로 나온 규칙, 회상한 앞 장면, 처음 하는 희귀도 비교, 앞 회차의 약속).
+판정 규칙과 Worker 검사를 다음처럼 바꾼다(schema·wire는 그대로 v3).
+
+- 판정 지시(`JUDGE_SYSTEM` "판정 규칙"): CONFLICT는 특정한 이전 문장(저장된 값 또는 evidence 문장)이 같은 대상·서사 시점·조건에서 대상 문장과 함께 참일 수
+  없다고 직접 말할 때, SUSPECTED_CONFLICT는 그런 문장이 있고 변화·예외 검색에서 설명을 찾지 못했을 때만이다. 기록 없음·검색 미발견·처음 나온 설정/규칙/수치·
+  처음 하는 비교·평가·일반 서술과 양립하는 구체 서술·반대 문장 없는 추측/전해 들은 말/회상/계획은 NO_CONFLICT다. NEEDS_CONTEXT는 대상 원고 자체의 뜻이
+  모호할 때만이다. 결론 전에 받은 settings·evidence를 처음부터 끝까지(조각 끝의 대사·합의까지) 다시 읽고, 대상 문장을 뒷받침하는 이전 문장이 있으면 NO_CONFLICT다.
+  CONFLICT·SUSPECTED_CONFLICT의 `basis_quotes` 첫 항목은 그 어긋나는 이전 문장이다.
+- 규칙 검사(`judging.clear_unquoted_finding`): Worker가 받아들이는 DECIDED(변화 검색 뒤의 FINAL 포함) 중 CONFLICT·SUSPECTED_CONFLICT인데 확인된
+  `basis_quotes`(`normalize_basis_quotes`를 통과한 E·B 인용)가 하나도 없고 `disagreements`도 없으면 NO_CONFLICT/COMPATIBLE, impact·impact_reason null,
+  사유 고정 문장으로 바꾼다. 원래 결과별로 `CONFLICT_QUOTE_MISSING_CLEARED`/`SUSPECTED_CONFLICT_QUOTE_MISSING_CLEARED`를 세고 trace에 `cleared`·`cleared_impact`·`cleared_reason`(판정 원래 결과·등급·사유, 메모리 진단이며 실험 harness만 파일로 쓴다. 로그·게시 없음)을 남긴다.
+  질문 실패가 아니며 판정 검증보다 먼저 한다(외부 근거 없는 CONFLICT도 실패 대신 NO_CONFLICT). 호출 한도 전 SUSPECTED_CONFLICT의 변화 검색 → FINAL 흐름은
+  그대로라 근거 문장 없는 OPEN SUSPECTED도 변화 검색 결과를 본 FINAL에서 다시 결정한다. 인용이 의미상 "어긋나는 문장"인지는 Worker가 판단하지 않는다(지시문 몫).
+  `disagreements`가 있는 판정은 기존 DB_RAW_DISAGREEMENT → NEEDS_CONTEXT 규칙을 따른다.
+- 대상 문장 검색(`judging.target_search_query`): 검색 문장을 하나 이상 요청한 FOLLOW_UP마다 판정 검색들 뒤에 Worker가 VECTOR 검색 하나를 더 한다. intent는
+  `{ref: Qn-TARGET_VECTOR, kind: COMPARISON_CONTEXT, operation: VECTOR, purpose: "Worker가 대상 문장과 앞뒤 원고로 만든 이전 장면 의미 검색", query}`.
+  query는 각 span 앞뒤 100 code point(늘린 부분이 줄 중간에서 끝나면 그 안의 가장 가까운 줄바꿈까지 줄임, span은 자르지 않음)를 원고 순서로 합치고 겹치는
+  범위는 하나로 묶은 뒤 공백 묶음을 한 칸으로 바꾼 글이다. 1000자를 넘으면 span quote만 쓴다. 판정 검색 3개와 별도라 FOLLOW_UP 한 번에 최대 4개, 질문당
+  최대 5개(변화 검색 포함) VECTOR receipt다. 다른 검색처럼 조회 예산 1과 query embedding 1을 쓰며, 같은 실행의 같은 문장(같은 span의 다른 질문)은
+  재사용한다(`reused_from`, 예산·embedding 없음). 문맥 범위만 요청한 FOLLOW_UP과 DB로 끝난 판정에는 없다. trace의 `worker_searches`, 집계
+  `TARGET_SEARCH_INSERTED`. 키워드·원문 훑기가 아니라 대상 원고 글로 만든 의미 검색이다.
+
+### 판정 작성 제목·설명 (2026-11-03)
+
+오류 리포트 제목과 설명은 판정이 쓴다(schema·이름 v3 그대로). DECIDED 판정은 필수(nullable) `headline`에 제목 한 줄을 쓴다: CONFLICT
+`{대상}의 {항목}이 기존 설정과 달라요`(이전 회차면 `…N화와 달라요`, 설정집이면 `…설정집과 달라요`), SUSPECTED_CONFLICT `…다를 수 있어요`,
+NEEDS_CONTEXT는 무엇이 분명하지 않은지. {대상}은 저장 값·이전 문장이 실제로 어긋나는 대상이며 서술자나 이름만 나온 인물이 아니다. FOLLOW_UP·NO_CONFLICT는 null.
+CONFLICT·SUSPECTED의 `reason`은 원인→결과 두 문장(`기존 설정은 … (이)라고 해요. 그런데 31화에서는 … (이)라고 해요.`)이고 판정 입력에 `target_episode_no`가 있다.
+Worker는 headline을 `reason`과 같은 작가용 정제로 다루되 고정 대체 문장 없이 None으로 둘 수 있다(80 code point 초과·빈 값·NO_CONFLICT). 상세는
+`docs/validation-execution-v1.md` "판정 작성 제목(headline)과 원인→결과 사유", 공통 fixture `judgeFlow.headline`.
 
 모델 입력 투영(GH349 후속, grid v4에서도 유지): JUDGE의 `settings`는 `app/validation/projection.py`의 `compact_setting_row`로 만든 압축 현재값 행이다.
 행은 `entry_ref`, `subject_ref`, `domain`, `name`, `aliases`, `state`(+행에 있으면 `author_correction` 그대로)다. `state`에는 스칼라 값, 스칼라 목록,
@@ -141,7 +177,7 @@ BASELINE 확장 행(`expanded_setting_row`)과 이력 요청은 없다(#349 결�
 `current_settings`, `source_catalogue`, `CURRENT_DOMAINS`)도 두며 Job 없는 호출형·실험 fixture client가 쓰고 공통 fixture 벡터로 서버와 대조한다.
 
 legacy(grid v1~v3): 구간별 SUBJECT_RESOLUTION(RELATED_SELECTION 역할)·COVERAGE(rules/clue_checks)·기계 매칭 `segmentSubjects`·서버 `modelClues`·
-설정집 BOOK_SOURCE/BOOK_COVERAGE·키워드/직접/인접 읽기·FOLLOW_UP의 `affected_question_refs` 재개와 `/revisions`·JUDGING checkpoint는 v0043에서 제거했다.
+설정집 BOOK_SOURCE/BOOK_COVERAGE·키워드/직접/인접 읽기·FOLLOW_UP의 `affected_question_refs` 재개와 `/revisions`·JUDGING checkpoint는 v0045에서 제거했다.
 과거 규칙은 git 이력과 v0038~v0042 상세를 따른다.
 
 DB↔원문 불일치는 두 참조를 유지하고 명시 정정의 정확한 대상/항목/시점/조건 범위를 검증한다.
@@ -153,6 +189,7 @@ DB↔원문 불일치는 두 참조를 유지하고 명시 정정의 정확한 �
 `failure_stage`(`PLANNER:TSEG1`, `JUDGE:Q3` 같은 단계), `normalizations`(정규화·검색·캐시 횟수), `question_failures`, `traces`가 있다.
 원문·예외 메시지·ID는 넣지 않는다. 미완료는 정상 0건으로 집계하지 않는다. 입력/출처 변경·파기를 감지하면 이전의 게시 가능한 질문/판정/근거를 반환하지 않는다.
 최종 VALIDATE 재확인은 없다: 원고·설정이 바뀌면 서버가 report를 무효로 바꾸고 Worker의 모든 요청을 거절한다.
+#381 이후 검수 중의 확정 설정 변경은 서버 잠금이 막고, 이벤트 없이 바뀐 설정은 확정 설정 버전 지문이 409로 잡는다.
 
 ## 모델·예산·오탈자 공통 계약
 
@@ -170,6 +207,9 @@ TYPO 모델·추론 강도·출력 상한을 받는다. 오탈자 실행·작가
 
 로컬 실험 harness(`scripts/validation_experiment/`)는 같은 계획·판정·오탈자 코드를 실행 Job 없이(`checkpoint=None`, `experiment=True`) 읽기 전용 export로 만든
 fixture와 loopback 일회용 DB(`validation_experiment_*`)에서 돌린다. 유료 단계는 `--confirm-paid`가 필요하고 출력은 저장소 밖에 둔다.
+`report`는 판정 실행마다 결과 분포·지적 수(CONFLICT/SUSPECTED_CONFLICT/NEEDS_CONTEXT)와 질문별 지적 표(규칙 검사로 바뀐 질문은 원래 결과·사유),
+규칙 검사 횟수(`ruleGuard`), 질문당 검색(판정·대상 문장·변화·합계·분포·임베딩·재사용)을 쓰고, `--name`으로 보고서 폴더 이름을 정한다(기본 `report`).
+판정 결과에는 JUDGE 지시문 SHA-256(`judgePromptSha256`)이 남아 같은 로직 버전 안의 지시문 변경을 구분한다.
 
 ## 재현
 
@@ -189,6 +229,21 @@ GH306_AI_CHECKOUT/GH306_PYTHON을 함께 주면 실제 Spring HTTP→Python adap
 테스트는 합성 원고·모델 출력/HTTP provider 대역·원문 저장소 대역과 실제 DB/HTTP를 구분한다. 실제 Terra recall이나 운영 배포 검증으로 표현하지 않는다.
 
 
+## 현재 설정 읽기와 확정 설정 잠금 (#381)
+
+결정과 버린 대안은 Java 저장소의 `docs/adr/0004-validation-live-settings-lock.md`다.
+
+- 접수는 확정 설정을 복사하지 않는다(확정 전 검수·확정 뒤 진단 모두). report에는 출처 manifest(`validation_baseline_sources`)와 확정 설정 버전 지문만 남는다.
+  지문은 ACTIVE 인물 (id, snapshotVersion)과 세계관 (id, version)의 hash이고 `baselineHash`(Worker의 `expectedBaselineHash`)와 같은 값이다. `baseline_seed`·`baseline_entries`는 NULL이다.
+- Java가 SUBJECTS·SETTINGS를 현재 DB에서 만든다. 주체 하나에 행 하나라서 B 번호와 S 번호가 같다. 응답 모양, `projectionVersion=2`, AI 모델 투영 뒤의 값은 이전 복사본과 같다.
+  Worker의 읽기 코드는 바뀌지 않는다.
+- 일관성은 Java 잠금이 보장한다. 검수 Job이 대기·실행 중이거나 실행이 끝나고 검토 종료 전인 동안 사람의 확정 설정 쓰기는 409 `VALIDATION_SETTINGS_LOCKED`다.
+  같은 작품의 자동 추출·비교는 claim에서 기다린다. Worker가 죽어도 lease 만료나 대기 잠금 시간 뒤에 풀린다.
+- 모든 data 호출은 읽기 전후 지문을 다시 계산하고 다르면 기존 409다. Worker는 이를 `INPUT_CHANGED`로 받아 실행을 멈춘다.
+- `FrozenRetrievalRepository`의 report fence(`app/validation/search.py` `REPORT_FROM`)는 seed·entries 열을 보지 않는다. 소유권·현재성·`baseline_hash`·READY·원고 fingerprint·manifest 조건은 그대로다.
+  옛 fence는 seed 없는 report를 찾지 못하므로 AI를 Java보다 먼저 배포한다. 새 fence는 seed가 있는 이전 report도 그대로 찾는다.
+- seed가 있는 V119 이전 report는 Java가 저장 기준 항목을 계속 읽는다. 공통 fixture에서는 `execution.responses.dataEntries`를 지웠다.
+
 ## GH310 실행 scope와 서버 모델 projection
 
 전용 ValidationJob이 있는 report는 data 호출마다 기존 내부 key/회원 헤더에
@@ -196,10 +251,10 @@ GH306_AI_CHECKOUT/GH306_PYTHON을 함께 주면 실제 Spring HTTP→Python adap
 Job 없는 기존 callable 계약은 유지하지만 queue/running Job의 무인증 lease 우회는 허용하지 않는다.
 
 응답의 projectionVersion=2(#349 grid v4)에서 실행 Worker는 INPUT.modelSourceCatalogue, SUBJECTS의 주체 목록, SETTINGS의 현재값 행을 그대로 사용한다.
-S-ref는 전체 고정 baseline 순서에서 생성되어 요청 묶음과 무관하다(`ValidationDataMapper.toValidationSubjectCatalogue`·`toValidationCurrentSettings`,
+S-ref는 전체 기준 항목 순서(#381 이후 report는 현재 주체 색인)에서 생성되어 요청 묶음과 무관하다(`ValidationDataMapper.toValidationSubjectCatalogue`·`toValidationCurrentSettings`,
 공통 fixture `subjectCatalogueVector`). SETTINGS.authorCorrectionProofs는 반환한 행의 실제 typed 정정 사실이며 자유문자열 시점/조건 권위가 아니다.
 canonical author_correction은 null이고 DB_RAW_DISAGREEMENT는 NEEDS_CONTEXT로 남긴다. 자동 정정 범위 매핑이 구현된 것은 아니다.
-T1 전문 READ_SOURCE는 더 이상 `clueVersion`/`modelClues`(서버 기계 단서)를 주지 않고, ENTRIES.modelSettings 페이지는 legacy 응답으로만 남는다.
+T1 전문 READ_SOURCE는 더 이상 `clueVersion`/`modelClues`(서버 기계 단서)를 주지 않는다. ENTRIES 연산(modelSettings 페이지)은 #381에서 없앴다.
 별도 Job/lease·저장·재시도/예산/완료 증명과 SETTING grid v4는 `docs/validation-execution-v1.md`와 공통 fixture.execution을 따른다.
 결과의 T1 출처 E-ref는 현재 문맥이며 외부 충돌 근거가 아니다. canonical 설정 state의 정상 text/quote 속성은 그대로
 전달하고, 원문 인용은 공통 fixture.execution.payloadCitationPaths의 계약 경로와 실제 citation으로 보낸다.

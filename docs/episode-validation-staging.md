@@ -4,6 +4,8 @@
 
 > 이 문서는 #303 접수·기준 단계의 계약이다. 이후 구현된 전용 실행(#310)은 `docs/validation-execution-v1.md`, 작가 판단·검토 종료 receipt·설정 추출 release·회차 전체 확정(GH312 S1~S3)은
 > `docs/validation-review-v1.md`가 우선한다. 특히 추출 차단은 이제 "현재 report에 검토 종료 receipt가 없으면 차단"이며, 아래의 "release API 없음"·"gate를 열 수 없다" 서술은 #303 시점 기록이다.
+>
+> #381([ADR-0004](adr/0004-validation-live-settings-lock.md))부터 접수는 확정 설정을 복사하지 않는다. 출처 manifest와 확정 설정 버전 지문만 저장하고, 판정은 현재 확정 설정을 읽는다. 일관성은 접수부터 검토 종료까지의 확정 설정 잠금이 보장한다. 아래 "기준과 실패"와 "추출 차단과 수명"은 이 규칙으로 고쳤다. seed가 있는 V119 이전 report는 저장 기준을 그대로 읽는다.
 
 이번 구현은 접수, 고정 기준, 검사·검토 대기, 우회 차단, 기본 무효화/파기까지다. 실제 오류 검사 Worker/findings, 판단 저장, 검토 완료 release, 이후 추출과 확정 연결, UI 공개는 아직 구현하지 않는다. 기준 READY와 findings가 없다는 사실은 검사 완료/의심 0건을 뜻하지 않는다. 현재는 gate를 열 수 없다.
 
@@ -26,7 +28,7 @@
 
 > #314 B1: 이 접수 자격은 `processor.ValidationIntakeEligibility` 하나가 판정하며 접수 전 자격 조회(`GET /eligibility`, `getEpisodeValidationEligibility`)가 같은 판정을 읽기만 한다. 활성 회차의 확정 전 검수(`BEFORE_CONFIRMATION`) 현재 report가 APPLIED가 아닌 동안(원고 교체로 INVALIDATED인 경우 포함, 재검수 report가 APPLIED될 때까지. 회차 전체 확정 APPLIED receipt가 있는 report는 이후 무효화돼도 막지 않음) 모든 업로드 방식의 다음 회차 등록은 409 `VALIDATION_NEXT_EPISODE_BLOCKED`(쓰기 0)다. 사유 표·차단 규칙·잠금 순서는 `docs/validation-review-v1.md`의 "접수 자격 조회·다음 회차 차단 (#314 B1)"을 따르며, 아래 "새 업로드 제한 정책을 구현하지 않는다"는 #303 시점 기록이다.
 
-Work 잠금 안에서 report와 대상의 **접수 당시 batch/episodeNo/hash/key/version**을 저장하고, 기존 확정 state 캡처를 읽기 전용으로 재사용해 seed/세계관 이력/과거 source 목록과 정규화된 기준을 확보한다. `AnalysisJob`, 추출 run, 후보, provisional journal, 확정 설정/Fact/출처/서사 시점은 생성하지 않는다. 합성 Job도 만들지 않는다.
+Work 잠금 안에서 report와 대상의 **접수 당시 batch/episodeNo/hash/key/version**을 저장한다. 함께 앞선 활성 회차·설정집 revision의 출처 manifest(`validation_baseline_sources`)와 확정 설정 버전 지문을 남긴다(#381). 확정 인물·세계관·세계관 이력은 복사하지 않는다. `AnalysisJob`, 추출 run, 후보, provisional journal, 확정 설정/Fact/출처/서사 시점은 생성하지 않는다. 합성 Job도 만들지 않는다.
 
 같은 작품·키·입력은 같은 report/baseline을 반환한다. 새 키의 같은 입력도 같은 원장에 연결한다. 같은 키나 회차에 다른 입력은 `VALIDATION_IDEMPOTENCY_CONFLICT`(409)로 거절한다. 재전송 때 현재 DB로 기준을 다시 캡처하지 않는다. 원고 교체 후 새 세대 재검수 전체는 후속 범위다.
 
@@ -43,26 +45,30 @@ Work 잠금 안에서 report와 대상의 **접수 당시 batch/episodeNo/hash/k
 | `errorReviewStatus` | GH312 S1 작가 판단 진행(`NOT_STARTED`/`PENDING`/`READY`/`INVALIDATED`). READY도 추출을 시작하지 않는다. `docs/validation-review-v1.md` |
 | `baselineStatus` | `PENDING`, `READY`, `FAILED`, `INVALIDATED` |
 | `status` | `PREPARING_BASELINE`, `WAITING_FOR_ERROR_REVIEW`, `HELD_INCOMPLETE`, `INVALIDATED` |
-| `holdReason` | `BASELINE_EVIDENCE_INVALID`, `BASELINE_SOURCE_UNAVAILABLE`, `BASELINE_SEED_INVALID`, `SOURCE_EVIDENCE_PURGED` 등 |
-| `confirmedStateHash`, `baselineHash` | 고정 확정 state/기준 seed hash |
+| `holdReason` | `SOURCE_EVIDENCE_PURGED`, `BASELINE_SEED_INVALID`(V119 이전 report의 늦은 정규화) 등. #381 이후 접수는 `BASELINE_EVIDENCE_INVALID`·`BASELINE_SOURCE_UNAVAILABLE`·`DIAGNOSTIC_BASELINE_UNAVAILABLE`로 보류하지 않는다. 이 값들은 이전 report에만 남는다 |
+| `confirmedStateHash`, `baselineHash` | #381 이후 report는 둘 다 `baselineFingerprint`와 같은 확정 설정 버전 지문이다(ACTIVE 인물 id·snapshotVersion, 세계관 id·version의 hash). V119 이전 report는 고정 확정 state·기준 seed의 hash다 |
 | `sourcePreparationStatus` | `NOT_PREPARED` — 검색/원문 전체 검사 완료를 주장하지 않음. 설정집 manifest 행은 접수 시점에 그 설정집의 현재·비보관 revision인지 `currentRevision`(boolean)을 함께 고정한다(2026-11-02, 접수 때 색인 채우기의 RAG 범위, `docs/validation-execution-v1.md`) |
 | `reviewStage` | GH312 S4 파생 검수 단계. 원고 목록·배치 요약·이력과 같은 계산식(`docs/validation-review-v1.md`) |
 
 현재 JSON의 `reviewComplete`/`approved`나 빈 findings 같은 클라이언트 값은 승인 증거가 아니며 추출을 시작하지 않는다. release API도 없다. 미래 상태/버튼 이름은 아래 제품 원칙이며 현재 DTO 필드나 실행 가능한 계약으로 오해하지 않는다.
 
-## 고정 기준과 실패
+## 기준과 실패
 
-캐릭터 현재값과 과거 Fact의 효력 회차·조건/valueJson·사실/관측 서사 시점·실제 근거를 보존한다. 세계관은 현재 상태 외에 CONFIRMED 후보의 최종 값·행위·전체 경로·history-only·효력 시점·조건/비교 기록을 별도로 저장한다. 현재 경로에서 사라진 과거 값도 보존한다.
+**확정 설정은 복사하지 않는다(#381).** 판정이 읽는 인물·세계관 현재값은 데이터 API가 `processor.ValidationLiveSettings`로 지금 DB에서 읽는다. 검수 Job이 대기·실행 중이거나 실행이 끝나고 검토 종료 전인 동안에는 사람의 확정 설정 쓰기를 409 `VALIDATION_SETTINGS_LOCKED`로 막는다. 같은 작품의 자동 추출·비교는 claim에서 기다린다. 그래서 판정 중과 검토 화면에서 보는 값이 판정 때 값과 같다. 잠금 기간과 해제 규칙은 [ADR-0004](adr/0004-validation-live-settings-lock.md)와 `docs/validation-execution-v1.md` "확정 설정 잠금"을 따른다.
 
-직접 Fact 근거 유무와 관계없이 모든 접근 가능한 앞선 활성 회차의 UUID/고정 번호/hash/key/version을 허용 원문 목록에 넣는다. 대상 원고와 후속 회차, 보관/파기 대기 원문은 과거 근거 목록에서 제외한다. 대상 원고는 report의 별도 고정 fingerprint로 식별한다. 설정집은 실제 불변 revision UUID/hash/key/version/기준 시점을 보존하고 과거 근거를 최신 포인터로 바꾸지 않는다. 접근 가능한 보관 revision도 기존 출처 계약에 따라 유지한다.
+접수 때 남기는 것은 두 가지다.
+- **확정 설정 버전 지문.** ACTIVE 인물 (id, snapshotVersion)과 세계관 (id, version)의 hash다. `baselineHash`·`baselineFingerprint`·`confirmedStateHash`에 같은 값을 둔다. 데이터 읽기·실행 요청마다 다시 계산하며, 다르면 409 `VALIDATION_SOURCE_VERSION_CONFLICT`다.
+- **출처 manifest.** 직접 Fact 근거 유무와 관계없이 모든 접근 가능한 앞선 활성 회차의 UUID/고정 번호/hash/key/version을 허용 원문 목록에 넣는다. 대상 원고와 후속 회차, 보관/파기 대기 원문은 과거 근거 목록에서 제외한다. 대상 원고는 report의 별도 고정 fingerprint로 식별한다. 설정집은 실제 불변 revision UUID/hash/key/version/기준 시점을 보존하고 과거 근거를 최신 포인터로 바꾸지 않는다. 접근 가능한 보관 revision도 기존 출처 계약에 따라 유지한다.
 
-정규화는 저장한 seed만 사용한다. 과거 원문을 읽거나 hash를 검증할 수 없는 typed 실패는 report와 대상 fingerprint를 보존한 `HELD_INCOMPLETE`로 조회된다. DB 저장 오류는 정상 보류로 삼키지 않고 접수 트랜잭션을 롤백한다. 빈 확정 설정이나 근거 부족을 오류 finding으로 만들지 않으며, 실제 조회/검사 실패를 정상 0건으로 표시하지 않는다.
+접수는 원문을 읽거나 설정 근거를 검증하지 않으므로 기준 보류(`HELD_INCOMPLETE`) 없이 READY가 된다. 출처 행이 바뀌었거나 파기 대기이면 queue·retry 확인(`validateValidationBaseline`)과 실행의 `VALIDATE`가 거절한다. 원문 hash가 다르면 `READ_SOURCE`가 `SOURCE_CHANGED`로 알린다. DB 저장 오류는 정상 보류로 삼키지 않고 접수 트랜잭션을 롤백한다. 빈 확정 설정이나 근거 부족을 오류 finding으로 만들지 않으며, 실제 조회/검사 실패를 정상 0건으로 표시하지 않는다.
+
+V119 이전에 seed를 저장한 report는 그대로 읽는다. 그 report의 기준은 캐릭터 현재값과 과거 Fact 이력, 세계관 현재 상태와 CONFIRMED 후보 이력을 복사한 seed이며, 늦은 정규화는 저장 seed만 사용한다.
 
 ## 추출 차단과 수명
 
 권위는 extraction Job 존재가 아니라 검수 report의 회차다. 현재 report가 있으면 상태가 READY이거나 INVALIDATED여도 일반 create/재분석/retry로 추출을 열 수 없다. Worker claim 선정 SQL은 직접 회차와 target-only legacy 관계를 모두 제외해 다른 정상 작업을 굶기지 않는다. 늦은 lease callback, 후보 반영/신규 대상/Fact·이력·서사 시점 경로도 같은 report를 확인한다. 차단 오류는 `VALIDATION_ERROR_REVIEW_PENDING`(409)이다.
 
-추출 전 원고 수정/파일 교체는 가능하다. 변경 접수 트랜잭션에서 원고 또는 기준 출처에 의존하는 seed/entries/source 복사본을 비우고 report를 INVALIDATED로 만든다. 작가의 기존 확정 설정 직접 수정은 허용하되 기준을 무효화해 재검사를 요구한다. 실제 설정집 편집/보관도 무효화하고 동일 revision 재분석만으로는 지우지 않는다. 늦은 정규화는 같은 Work 잠금 뒤 자신의 미반영 변경을 flush하고 원장을 새로 읽어 삭제한 내용을 복원하지 않는다.
+추출 전 원고 수정/파일 교체는 가능하다. 변경 접수 트랜잭션에서 원고 또는 기준 출처에 의존하는 출처 manifest(legacy report는 seed/entries도)를 비우고 report를 INVALIDATED로 만든다. 작가의 확정 설정 직접 수정은 #381 잠금 기간 밖에서만 허용되며, 기준을 무효화해 재검사를 요구한다. 잠금 기간에는 그 리포트 안의 정정만 허용된다. 실제 설정집 편집/보관도 무효화하고 동일 revision 재분석만으로는 지우지 않는다. legacy report의 늦은 정규화는 같은 Work 잠금 뒤 자신의 미반영 변경을 flush하고 원장을 새로 읽어 삭제한 내용을 복원하지 않는다.
 
 작품 파기는 source → 요청 키 → report를 기존 부모 원고/배치보다 먼저 제거한다. 회원 탈퇴는 기존 작품 파기 coordinator를 사용한다. 원문 파기 후에도 고정 대상 fingerprint는 무효 결과를 식별하는 감사 메타데이터이며 삭제된 원문을 복원하거나 승인하는 근거로 쓰지 않는다.
 
@@ -84,7 +90,9 @@ Work 잠금 안에서 report와 대상의 **접수 당시 batch/episodeNo/hash/k
 
 오류 검사 우선 스키마는 미배포 `V91__add_validation_staging.sql`로 추가한다. 최신 main의 #304가 사용한 V89·V90은 그대로 보존하며, 과거 #303의 V89는 격리 임시 DB에만 적용되었다. 새 검증은 새 빈 DB에서 전체 Flyway/JPA validate로 실행한다. 공유 `analysis_jobs`에 candidate-first 정책 컬럼을 추가하지 않는다. Python 추출 payload/모델/기존 자동 반영 계약은 그대로다.
 
-#304의 출처 검증·진단 계약을 유지하며 일반 인용 표시는 GH323 후속 정책을 따른다. 위치가 없거나 정확히 일치하지 않는 일반 인용만 숨기고 값과 정상 근거를 보존한다. 원문 hash·출처 연결 및 별도 시점 증명의 오류는 기준 보류로 처리한다. 고정 원문 읽기 실패는 기존 `ANALYSIS_CURRENT_EVIDENCE_SOURCE_UNAVAILABLE` 코드일 때만 `BASELINE_SOURCE_UNAVAILABLE`로 보류하며, DB 오류와 다른 예외는 삼키지 않는다.
+#304의 출처 검증·진단 계약을 유지하며 일반 인용 표시는 GH323 후속 정책을 따른다. 위치가 없거나 정확히 일치하지 않는 일반 인용만 숨기고 값과 정상 근거를 보존한다. #381 전 접수는 원문 hash·출처 연결 및 별도 시점 증명의 오류를 기준 보류로 처리했다. 고정 원문 읽기 실패는 `ANALYSIS_CURRENT_EVIDENCE_SOURCE_UNAVAILABLE` 코드일 때만 `BASELINE_SOURCE_UNAVAILABLE`로 보류했다. #381 이후 접수는 확정 설정을 캡처하지 않아 이 보류가 없다. 원문 문제는 실행의 출처 확인이 거절한다. DB 오류와 다른 예외는 계속 삼키지 않는다.
+
+#381 V119는 READY report에 seed·entries를 요구하던 CHECK를 `baseline_hash`만 요구하도록 바꾸고, finding의 근거 문장 이름표 `quoted_subjects`(JSONB, 값 없음)를 더한다. seed·entries 열은 legacy report 때문에 남긴다.
 
 기본 검증은 `./gradlew test bootJar`. 실제 새 PostgreSQL은 명시적인 새 loopback DB에서만 실행한다.
 
@@ -98,11 +106,11 @@ Swagger/API 수동 확인은 별도 개발 DB와 합성 원고로 한다. 현재
 2. 회차 상세의 hash/key/version과 upload batch/episode ID로 검수 POST를 호출한다. 기준 READY, status WAITING_FOR_ERROR_REVIEW, NOT_STARTED 세 필드, null Job/후보 세대·digest를 확인한다.
 3. 같은 입력을 같은/새 idempotencyKey로 다시 보내 report/baseline ID가 같은지 확인한다.
 4. 일반 자동·수동 추출/재분석 POST가 409이고 Job/후보가 생성되지 않는지 확인한다.
-5. 추출 전 파일 교체를 호출해 성공하고 기존 report가 INVALIDATED, 복사 기준이 정리되었는지 확인한다. 원고 정정 후 새 검수 세대 전체 동선은 아직 제공하지 않는다.
+5. 추출 전 파일 교체를 호출해 성공하고 기존 report가 INVALIDATED, 출처 manifest가 정리되었는지 확인한다. 원고 정정 후 새 검수 세대 전체 동선은 아직 제공하지 않는다.
 6. 검수 report가 없는 별도 회차/작품에서 기존 설정 구축 자동·직접 검토·순차·설정집 분석이 정상인지 회귀 확인한다.
 
 이 절차는 #303 접수·차단 확인용이다. 검사 실행·작가 검토·release·회차 전체 확정까지의 확인은 `docs/validation-review-v1.md`의 "작가가 해볼 시나리오"를 따른다.
 
 ### 기존 비교 완료와 기준 변경의 직렬화
 
-접수 이후 앞 회차의 기존 singleton/batch 비교가 EXCLUDE로 끝나더라도, 검증된 대표 서사 시점을 실제 변경하면 기준이 바뀐다. 두 완료 callback은 Work → Job → Character 순서로 잠그고, 시점 변경과 같은 트랜잭션에서 검수 기준 복사본을 무효화한다. 중복 완료나 시점을 바꾸지 않는 EXCLUDE는 새 변경으로 취급하지 않는다. Job 없는 배치의 최근 활동 시각에도 원장의 무효화 시각을 포함한다.
+접수 이후 앞 회차의 기존 singleton/batch 비교가 EXCLUDE로 끝나더라도, 검증된 대표 서사 시점을 실제 변경하면 기준이 바뀐다. 두 완료 callback은 Work → Job → Character 순서로 잠그고, 시점 변경과 같은 트랜잭션에서 검수 report를 무효화한다. #381 이후 같은 작품의 비교 Job은 검수 잠금 동안 claim되지 않으므로, 이 경로는 접수 전에 이미 실행 중이던 비교에만 해당한다. 중복 완료나 시점을 바꾸지 않는 EXCLUDE는 새 변경으로 취급하지 않는다. Job 없는 배치의 최근 활동 시각에도 원장의 무효화 시각을 포함한다.

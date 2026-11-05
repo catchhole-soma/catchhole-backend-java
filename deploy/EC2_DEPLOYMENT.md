@@ -210,6 +210,8 @@ DATABASE_POOL_MINIMUM_IDLE=2
 
 접수 때 색인 채우기 배포(2026-11-02 결정): Flyway V114(`retrieval_setting_book_sources`·`retrieval_setting_book_chunks`)을 포함한 Backend와 AI 검수 Worker를 같은 release로 올린다. V114 이후 접수한 report만 설정집 manifest에 `currentRevision`이 있어 설정집이 검색 범위에 들어간다(이전 report는 회차만 채운다). AI 쪽은 읽기 전용 reader에 두 표 SELECT를 주고(`app.retrieval.bootstrap` 재실행) `worker.env`의 `VALIDATION_INDEX_DATABASE_URL`을 켠다(AI `deploy/WORKER_EC2_DEPLOYMENT.md`). 되돌릴 때는 `roles.INDEX_EMBEDDING`을 빼거나 Worker 쪽 URL을 비우면 채우기만 꺼지고 검수는 지금처럼 동작한다.
 
+검수 현재 설정 읽기와 확정 설정 잠금 배포(#381): 검수 접수가 확정 설정을 복사하지 않고 판정이 현재 확정 설정을 읽는다. 검수 접수부터 검토 종료까지는 설정 화면 수정이 409 `VALIDATION_SETTINGS_LOCKED`다. 예시 JSON에 `settings-lock-queued-timeout`(`10m`)이 추가됐고, **실행을 켠 채 이 키 없이 새 이미지를 올리면 `검수 실행 제한을 명시적으로 설정해야 합니다.`로 기동이 실패한다**. 순서: (1) AI 검수 Worker를 먼저 배포한다. 고정 출처 검색 SQL이 seed를 요구하지 않게 바뀌었다. 옛 Worker는 seed 없는 report에서 검색을 제안하지 않는다. 새 Worker는 이전 report도 그대로 찾는다. (2) 위 2~3 절차로 `api.env`의 `SPRING_APPLICATION_JSON`에 키를 넣는다(새 이미지 배포와 같은 lock 아래). (3) Backend(Flyway V119)를 올린다. 옛·새 Backend가 동시에 검수 접수를 받지 않게 한다. 옛 Backend는 seed 없는 report에 Job을 만들지 않는다. 배포 전에 접수한 report는 저장 기준으로 계속 실행된다. 결정과 잠금 규칙은 [ADR-0004](../docs/adr/0004-validation-live-settings-lock.md).
+
 끄기: 같은 lock 아래에서 `VALIDATION_EXECUTION_ENABLED=false`로 바꾸거나 두 값을 함께 지운 뒤 4~5와 같이 backend를 재생성한다. 꺼진 앱은 새 Job 생성을 하지 않고 검수 Worker의 claim과 retry를 `VALIDATION_RUNTIME_DISABLED`로 거절한다. 이미 만든 Job과 리포트는 지우지 않는다.
 
 실패 신호: 예산 JSON 없이 `true`로 켜면 기동 로그에 `검수 실행 제한을 명시적으로 설정해야 합니다.`가 남고 health가 실패한다. 일부 예산이 빠졌거나 범위를 벗어나면 `검수 실행 예산을 명시적으로 설정해야 합니다.` 또는 `검수 역할 예산이 필요합니다.`, JSON이 깨졌으면 기동 초기의 JSON 파싱 오류가 남는다. 이때는 백업한 `api.env`로 되돌리고 backend를 다시 재생성한다.
