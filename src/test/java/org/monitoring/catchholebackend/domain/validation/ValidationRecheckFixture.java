@@ -40,6 +40,8 @@ abstract class ValidationRecheckFixture {
     @Autowired MockMvc mvc;
     @Autowired AnalysisStateJournal journal;
     @Autowired ValidationBaselineService baselines;
+    @Autowired List<org.monitoring.catchholebackend.domain.analysis.service.AnalysisStateSource> stateSources;
+    @Autowired org.monitoring.catchholebackend.domain.validation.processor.ValidationSourceManifests sourceManifests;
     @MockitoBean ObjectStorage storage;
     final ObjectMapper json = new ObjectMapper();
     Member member;
@@ -70,6 +72,26 @@ abstract class ValidationRecheckFixture {
         token = tokens.generateAccessToken(member); em.flush();
     }
     String base() { return "/api/v1/works/" + work.getId() + "/episode-validations"; }
+    /**
+     * #381 이전에 접수한 legacy report를 재현한다. 접수는 더 이상 seed를 쓰지 않으므로, 같은 report에 그때 접수가 만들던 seed(저장 manifest 행을
+     * seed.sources로, 현재 확정 상태 capture를 인물·세계관으로)를 두고 실제 정규화(materialize)로 기준 항목을 만든다.
+     */
+    ValidationReport toLegacySeed(ValidationReport report) {
+        var seed = JsonNodeFactory.instance.objectNode().put("formatVersion", 1).put("workId", work.getId().toString()).put("memberId", member.getId());
+        seed.putObject("target").put("episodeId", report.getEpisode().getId().toString()).put("episodeNo", report.getSourceEpisodeNo())
+                .put("contentRevision", report.getSourceContentRevision()).put("contentHash", report.getSourceContentHash())
+                .put("contentS3Key", report.getSourceContentS3Key()).put("contentS3Version", report.getSourceContentS3Version());
+        for (var source : stateSources) if (List.of("characters", "worldSettings").contains(source.domain())) seed.set(source.domain(), source.capture(work));
+        seed.putArray("worldHistory"); seed.putArray("explicitAuthorCorrections");
+        seed.set("sources", sourceManifests.manifests(report.getId()));
+        String hash = journal.hash(seed);
+        org.springframework.test.util.ReflectionTestUtils.setField(report, "baselineSeed", seed);
+        for (String field : List.of("baselineHash", "baselineFingerprint", "confirmedStateHash")) org.springframework.test.util.ReflectionTestUtils.setField(report, field, hash);
+        org.springframework.test.util.ReflectionTestUtils.setField(report, "baselineStatus", org.monitoring.catchholebackend.domain.validation.type.ValidationPreparationStatus.PENDING);
+        em.flush(); baselines.materialize(report.getId()); em.flush();
+        assertThat(report.getBaselineEntries()).isNotNull();
+        return report;
+    }
     JsonNode start() throws Exception {
         return postOk("", Map.of("idempotencyKey", "initial", "batchId", batchId, "episodeId", target.getId(),
                 "expectedContentHash", target.getContentHash(), "expectedContentS3Key", target.getContentS3Key(), "expectedContentS3Version", target.getContentS3Version()));

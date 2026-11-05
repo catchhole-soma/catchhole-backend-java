@@ -18,11 +18,12 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Transactional;
 
 /** All numeric limits here are synthetic fixtures, not production defaults. */
-@SpringBootTest(properties="spring.config.import=") @AutoConfigureMockMvc @ActiveProfiles("test") @Transactional
+@SpringBootTest(properties={"spring.config.import=","spring.jpa.properties.hibernate.generate_statistics=true"}) @AutoConfigureMockMvc @ActiveProfiles("test") @Transactional
 @TestPropertySource(locations="classpath:validation-execution-fixture.properties")
 @DisplayName("검수 전용 API와 불변 입력·독립 분기·원장")
 class ValidationWorkerIntegrationTest extends ValidationWorkerFixture {
     @org.springframework.beans.factory.annotation.Autowired org.monitoring.catchholebackend.domain.upload.service.SettingBookService settingBooks;
+    @org.springframework.beans.factory.annotation.Autowired org.monitoring.catchholebackend.domain.validation.service.ValidationDataService data;
     @Test @DisplayName("실제 전용 Job과 서버 소유 scope를 선점하고 추출은 만들지 않는다") void claimCreatesDedicatedOwnedJobAndNoExtraction() throws Exception {
         var report=start();var job=claim();
         assertThat(job.path("jobId").isTextual()).isTrue();assertThat(job.path("scope").path("reportId")).isEqualTo(report.path("reportId"));
@@ -35,6 +36,72 @@ class ValidationWorkerIntegrationTest extends ValidationWorkerFixture {
         assertThat(job.path("budgets").path("roles").path("JUDGE").path("outputTokens").asInt()).isEqualTo(100);assertThat(job.path("budgets").path("setting").has("outputTokens")).isFalse();
         assertThat(job.path("budgets").path("setting").has("cataloguePageSize")).isFalse();
         assertThat(claim().isNull()).isTrue();noExtraction();
+    }
+    @Test @DisplayName("#381 seed 없는 report도 저장 manifest 행의 hash로 queue되고 claim·완료된다")
+    void seedlessReportQueuesClaimsAndCompletes() throws Exception {
+        source();var report=stored(start());
+        assertThat(report.getBaselineSeed()).isNull();assertThat(report.getBaselineEntries()).isNull();
+        var queued=em.createQuery("select j from ValidationJob j where j.report.id=:r",org.monitoring.catchholebackend.domain.validation.entity.ValidationJob.class).setParameter("r",report.getId()).getSingleResult();
+        assertThat(queued.getManifestHash()).isEqualTo(journal.hash(sourceManifests.manifests(report.getId())));
+        var job=claim();
+        assertThat(job.path("baselineHash").asText()).isEqualTo(report.getBaselineHash());assertThat(job.path("manifestHash").asText()).isEqualTo(queued.getManifestHash());
+        var input=data.readValidationData(member.getId(),work.getId(),report.getId(),new org.monitoring.catchholebackend.domain.validation.dto.request.ValidationDataRequest(report.getBaselineHash(),report.getSourceContentHash(),"INPUT",0,100,null,null,null,null,null,null),
+                UUID.fromString(job.path("jobId").asText()),UUID.fromString(job.path("leaseToken").asText()));
+        assertThat(input.path("manifestHash").asText()).isEqualTo(queued.getManifestHash());assertThat(input.path("sources").get(0).path("sourceRef").asText()).isEqualTo("R1");
+        assertThat(input.path("target").path("contentHash").asText()).isEqualTo(target.getContentHash());assertThat(input.path("entryCount").asInt()).isEqualTo(2);
+        prePlan(job,List.of());savePlan(job,"MERGED_PLAN","PLAN",Map.of("questions",List.of()));
+        internal(path(job,"/units"),job,unit(job,"TYPO","TSEG1","COMPLETED",typoEmpty()),200);
+        var result=internal(path(job,"/complete"),job,Map.of("scope",scope(job),"idempotencyKey","seedless-complete"),200);
+        assertThat(result.path("status").asText()).isEqualTo("COMPLETED");assertThat(result.path("extractionJobId").asText()).isEqualTo(releaseOnly().toString());
+        assertThat(stored(start()).getBaselineSeed()).isNull();
+    }
+    @org.junit.jupiter.params.ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(ints={0,30})
+    @DisplayName("#381 실행이 켜진 접수(queue·기준 검증 포함)도 설정·후보·Fact·분석 Job을 읽지 않고 조회 수가 확정 설정 크기와 무관하다")
+    void enabledIntakeWithQueueDoesNotDependOnSettingsSize(int subjects) throws Exception {
+        var priorJob=org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob.create(work,null,prior,org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION);em.persist(priorJob);
+        for(int i=0;i<subjects;i++) {
+            var owner=org.monitoring.catchholebackend.domain.character.entity.WorkCharacter.create(work,"인물"+i,null,20,1,null,null,null,null,null,null);em.persist(owner);
+            var c=org.monitoring.catchholebackend.domain.character.entity.SettingCandidate.create(work,prior,null,priorJob,org.monitoring.catchholebackend.domain.character.type.SettingEntityType.CHARACTER,owner.getName(),owner.getName(),owner.getId(),
+                    org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus.MATCHED,"직업","수리공"+i,org.monitoring.catchholebackend.domain.character.type.SettingValueType.STRING,null,
+                    com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.arrayNode(),java.math.BigDecimal.ONE,null);em.persist(c);
+            var fact=org.monitoring.catchholebackend.domain.character.entity.CharacterFact.create(owner,c,org.monitoring.catchholebackend.domain.character.type.CharacterFactType.PROFILE,"직업","수리공"+i,"수리공"+i,null,prior,null,priorJob,java.math.BigDecimal.ONE,12);em.persist(fact);
+            em.persist(org.monitoring.catchholebackend.domain.character.entity.CharacterSnapshotSource.create(owner,org.monitoring.catchholebackend.domain.character.type.CharacterFactType.PROFILE,"직업",fact,0));
+            em.persist(org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting.create(work,org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory.LOCATION,"장소"+i,"위치","북부"));
+        }
+        em.flush();em.clear();
+        var statistics=em.getEntityManagerFactory().unwrap(org.hibernate.SessionFactory.class).getStatistics();statistics.clear();
+        start();
+        for(Class<?> forbidden:List.of(org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob.class,org.monitoring.catchholebackend.domain.character.entity.SettingCandidate.class,
+                org.monitoring.catchholebackend.domain.character.entity.CharacterFact.class,org.monitoring.catchholebackend.domain.character.entity.CharacterSnapshotSource.class,
+                org.monitoring.catchholebackend.domain.character.entity.WorkCharacter.class,org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting.class))
+            assertThat(statistics.getEntityStatistics(forbidden.getName()).getLoadCount()).as(forbidden.getSimpleName()).isZero();
+        // 접수(SQL 29번 수준) + queue: 기준 검증(fingerprint scalar 2·manifest 1·원고/출처 현재 상태 scalar)·manifest hash·실행 설정·Job insert.
+        // 인물·세계관·후보 0개와 30개가 같은 49번, 엔티티 로드 6개(Member·Work·UploadBatch·UploadFile·Episode 2)다.
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(QUEUED_INTAKE_STATEMENTS);
+        assertThat(statistics.getEntityLoadCount()).isEqualTo(QUEUED_INTAKE_ENTITY_LOADS);
+    }
+    static final long QUEUED_INTAKE_STATEMENTS=49,QUEUED_INTAKE_ENTITY_LOADS=6;
+    @Test @DisplayName("#381 legacy seed report는 저장 seed 검증으로 queue되고 manifest hash는 seed.sources와 같으며 저장 기준 항목으로 자료를 읽는다")
+    void legacySeedReportIsStillServed() throws Exception {
+        source();
+        var book=org.monitoring.catchholebackend.domain.upload.entity.UploadFile.create(em.find(org.monitoring.catchholebackend.domain.upload.entity.UploadBatch.class,batchId),org.monitoring.catchholebackend.domain.upload.type.UploadFileRole.SETTING_BOOK,"book.txt","text/plain","s3://synthetic/book",30);em.persist(book);
+        for(int no=1;no<=2;no++)em.persist(org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision.create(book,no,new org.monitoring.catchholebackend.global.storage.StoredTextObject("synthetic/book-"+no,"v1",String.valueOf(no).repeat(64),3),org.monitoring.catchholebackend.domain.upload.type.SettingBookReferenceTimeKind.WORK_START,null));
+        em.flush();
+        org.mockito.Mockito.when(executionProperties.enabled()).thenReturn(false);var original=start();var report=toLegacySeed(stored(original));
+        org.mockito.Mockito.when(executionProperties.enabled()).thenReturn(true);start();
+        var queued=em.createQuery("select j from ValidationJob j where j.report.id=:r",org.monitoring.catchholebackend.domain.validation.entity.ValidationJob.class).setParameter("r",report.getId()).getSingleResult();
+        assertThat(queued.getManifestHash()).isEqualTo(journal.hash(report.getBaselineSeed().path("sources")));
+        var job=claim();assertThat(job.path("baselineHash").asText()).isEqualTo(journal.hash(report.getBaselineSeed()));
+        var lease=UUID.fromString(job.path("leaseToken").asText());var jobId=UUID.fromString(job.path("jobId").asText());
+        java.util.function.Function<String,JsonNode> read=operation->data.readValidationData(member.getId(),work.getId(),report.getId(),new org.monitoring.catchholebackend.domain.validation.dto.request.ValidationDataRequest(report.getBaselineHash(),report.getSourceContentHash(),operation,0,100,null,null,null,null,null,"SETTINGS".equals(operation)?List.of("S1"):null),jobId,lease);
+        var input=read.apply("INPUT");
+        assertThat(input.path("manifestHash").asText()).isEqualTo(queued.getManifestHash());
+        var seedRefs=new ArrayList<String>();report.getBaselineSeed().path("sources").forEach(s->seedRefs.add(s.toString()));
+        var inputRefs=new ArrayList<String>();input.path("sources").forEach(s->{var copy=s.deepCopy();((com.fasterxml.jackson.databind.node.ObjectNode)copy).remove("sourceRef");inputRefs.add(copy.toString());});
+        assertThat(inputRefs).isEqualTo(seedRefs).hasSize(3);
+        assertThat(input.path("entryCount").asInt()).isEqualTo(report.getBaselineEntries().size());
+        assertThat(read.apply("SUBJECTS").path("subjects").get(0).path("name").asText()).isEqualTo("합성 인물");
+        assertThat(read.apply("SETTINGS").path("settings").get(0).path("state").path("name").asText()).isEqualTo("합성 인물");
     }
     @Test @DisplayName("전용 Worker 경로는 내부 key 인증을 요구한다") void workerRoutesRequireInternalKey() throws Exception {
         mvc.perform(post(WORKER+"/claim").contentType(MediaType.APPLICATION_JSON).content("{}" )).andExpect(status().isUnauthorized());noExtraction();
@@ -278,8 +345,8 @@ class ValidationWorkerIntegrationTest extends ValidationWorkerFixture {
         mvc.perform(post("/api/internal/v1/works/"+otherWork.getId()+"/validation-reports/"+report.path("reportId").asText()+"/data").header("X-Internal-Api-Key",KEY).header("X-Validation-Member-Id",member.getId()).header("X-Validation-Job-Id",job.path("jobId").asText()).header("X-Worker-Lease-Token",job.path("leaseToken").asText()).contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(Map.of("expectedBaselineHash",report.path("baselineHash").asText(),"expectedTargetHash",target.getContentHash(),"operation","INPUT","offset",0,"limit",100))))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.error.code").value("VALIDATION_NOT_FOUND"));noExtraction();
     }
-    @Test @DisplayName("유효 seed는 같은 report와 기준 revision에서 준비를 복구한다") void sameInputRetryMaterializesVerifiedSavedSeedWithoutNewBaseline() throws Exception {
-        org.mockito.Mockito.when(executionProperties.enabled()).thenReturn(false);var original=start();var r=stored(original);String hash=r.getBaselineHash();r.hold("SYNTHETIC_PREPARATION_INTERRUPTED");em.flush();
+    @Test @DisplayName("legacy report의 유효 seed는 같은 report와 기준 revision에서 준비를 복구한다") void sameInputRetryMaterializesVerifiedSavedSeedWithoutNewBaseline() throws Exception {
+        org.mockito.Mockito.when(executionProperties.enabled()).thenReturn(false);var original=start();var r=toLegacySeed(stored(original));String hash=r.getBaselineHash();r.hold("SYNTHETIC_PREPARATION_INTERRUPTED");em.flush();
         org.mockito.Mockito.when(executionProperties.enabled()).thenReturn(true);var held=get(r.getId());
         var retried=postOk("/"+r.getId()+"/retries",Map.of("expectedReportVersion",held.path("reportVersion").asLong(),"idempotencyKey","restore-valid-seed"));
         assertThat(retried.path("reportId")).isEqualTo(original.path("reportId"));assertThat(retried.path("baselineRevision").asLong()).isEqualTo(1);assertThat(retried.path("baselineHash").asText()).isEqualTo(hash);assertThat(retried.path("baselineStatus").asText()).isEqualTo("READY");assertThat(retried.path("validationJobId").isTextual()).isTrue();assertThat(claim().path("scope").path("reportId")).isEqualTo(original.path("reportId"));noExtraction();
@@ -336,7 +403,7 @@ class ValidationWorkerIntegrationTest extends ValidationWorkerFixture {
         assertThat(job.path("models").path("INDEX_EMBEDDING").path("model").asText()).isEqualTo("text-embedding-3-small");
         assertThat(job.path("budgets").path("roles").path("INDEX_EMBEDDING").path("maxCalls").asInt()).isEqualTo(3);
         // Manifest order: R1 = the prior episode, then the setting-book revisions; only the current one is a RAG source.
-        var refs=new LinkedHashMap<String,JsonNode>();int index=1;for(var source:stored(report).getBaselineSeed().path("sources"))refs.put("R"+index++,source);
+        var refs=new LinkedHashMap<String,JsonNode>();int index=1;for(var source:sourceManifests.manifests(stored(report).getId()))refs.put("R"+index++,source);
         String episodeRef=null,currentRef=null,oldRef=null;
         for(var entry:refs.entrySet()) {
             var source=entry.getValue();

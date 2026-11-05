@@ -83,6 +83,9 @@ class ErrorFirstValidationPostgresIntegrationTest {
     @Autowired AnalysisRunStateService states;
     @Autowired CharacterFactComparisonWorkerService comparisons;
     @Autowired ObjectStorageService storedText;
+    @Autowired org.monitoring.catchholebackend.domain.validation.processor.ValidationLiveSettings liveSettings;
+    @Autowired org.monitoring.catchholebackend.domain.validation.processor.ValidationSourceManifests sourceManifests;
+    @Autowired org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal journal;
 
     @MockitoBean ObjectStorage storage;
     TransactionTemplate tx;
@@ -136,6 +139,14 @@ class ErrorFirstValidationPostgresIntegrationTest {
         assertThat(r.baselineStatus().name()).isEqualTo("READY"); assertNoExtraction();
         assertThatThrownBy(() -> jdbc.update("update validation_reports set status = 'APPROVED' where id = ?", r.reportId())).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
         assertThat(worker.claimAnalysisJob(claimRequest())).isEmpty(); assertNoExtraction();
+        // #381 V119: READY는 baseline_hash만 요구한다. 새 접수는 seed·entries 없이 READY이고 hash 없는 READY는 여전히 거절한다.
+        assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where version = '119' and script = 'V119__validation_live_settings.sql' and success", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select baseline_seed is null and baseline_entries is null and baseline_status = 'READY' and baseline_hash = baseline_fingerprint and baseline_hash = confirmed_state_hash from validation_reports where id = ?", Boolean.class, r.reportId())).isTrue();
+        assertThatThrownBy(() -> jdbc.update("update validation_reports set baseline_hash = null where id = ?", r.reportId())).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        assertThat(jdbc.update("update validation_reports set baseline_status = 'FAILED', baseline_hash = null where id = ?", r.reportId())).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select is_nullable from information_schema.columns where table_name = 'validation_findings' and column_name = 'quoted_subjects'", String.class)).isEqualTo("YES");
+        assertThat(jdbc.queryForObject("select data_type from information_schema.columns where table_name = 'validation_findings' and column_name = 'quoted_subjects'", String.class)).isEqualTo("jsonb");
+        assertThat(jdbc.queryForObject("select count(*) from pg_constraint where conname = 'ck_validation_reports_ready_baseline'", Integer.class)).isZero();
     }
 
     @Test @DisplayName("실제 동시 접수는 같은 원장과 기준만 만들고 Job은 만들지 않는다")
@@ -156,7 +167,10 @@ class ErrorFirstValidationPostgresIntegrationTest {
             var edit=pool.submit(() -> tx.executeWithoutResult(status -> { works.getOwnedWorkForUpdate(f.workId(),f.memberId());
                 em.find(WorldSetting.class,f.settingId()).updateProperty("서식지","서식지","동부"); em.flush(); locked.countDown(); await(release); }));
             await(locked); var admission=pool.submit(() -> start(f)); release.countDown(); edit.get(20,TimeUnit.SECONDS); var r=admission.get(20,TimeUnit.SECONDS);
-            assertThat(tx.<String>execute(status -> reports.findById(r.reportId()).orElseThrow().getBaselineSeed().path("worldSettings").toString())).contains("동부").doesNotContain("북부");
+            // #381: 복사 없이 커밋된 설정의 버전 fingerprint를 기준으로 둔다. 수정 전 버전을 읽었다면 지금 fingerprint와 다르다.
+            assertThat(r.baselineHash()).isEqualTo(tx.<String>execute(status -> liveSettings.fingerprint(f.workId())));
+            assertThat(tx.<String>execute(status -> em.find(WorldSetting.class, f.settingId()).getPropertyValue("서식지"))).isEqualTo("동부");
+            assertThat(jdbc.queryForObject("select baseline_seed is null from validation_reports where id=?", Boolean.class, r.reportId())).isTrue();
             assertNoExtraction();
         }
     }
@@ -182,9 +196,25 @@ class ErrorFirstValidationPostgresIntegrationTest {
         assertThat(jdbc.queryForObject("select count(*) from setting_candidates",Integer.class)).isZero();
     }
 
-    @Test @DisplayName("파기 전에 seed를 읽었던 정규화도 파기 커밋 뒤 복사본을 복원하지 못한다")
+    /** #381 이전 접수(legacy)의 정규화 전 상태를 재현한다. 새 접수는 seed를 쓰지 않는다. */
+    void legacySeed(UUID reportId) {
+        tx.executeWithoutResult(status -> {
+            var report = reports.findById(reportId).orElseThrow();
+            var seed = JsonNodeFactory.instance.objectNode().put("formatVersion", 1).put("workId", report.getWork().getId().toString()).put("memberId", report.getMember().getId());
+            seed.putObject("target").put("episodeId", report.getEpisode().getId().toString()).put("episodeNo", report.getSourceEpisodeNo())
+                    .put("contentRevision", report.getSourceContentRevision()).put("contentHash", report.getSourceContentHash())
+                    .put("contentS3Key", report.getSourceContentS3Key()).put("contentS3Version", report.getSourceContentS3Version());
+            seed.putObject("characters"); seed.putObject("worldSettings"); seed.putArray("worldHistory"); seed.putArray("explicitAuthorCorrections");
+            seed.set("sources", sourceManifests.manifests(reportId));
+            String hash = journal.hash(seed);
+            org.springframework.test.util.ReflectionTestUtils.setField(report, "baselineSeed", seed);
+            for (String field : List.of("baselineHash", "baselineFingerprint", "confirmedStateHash")) org.springframework.test.util.ReflectionTestUtils.setField(report, field, hash);
+            org.springframework.test.util.ReflectionTestUtils.setField(report, "baselineStatus", org.monitoring.catchholebackend.domain.validation.type.ValidationPreparationStatus.PENDING);
+        });
+    }
+    @Test @DisplayName("legacy report에서 파기 전에 seed를 읽었던 정규화도 파기 커밋 뒤 복사본을 복원하지 못한다")
     void purgeWinsAfterNormalizerReadsSeed() throws Exception {
-        var f=fixture();var r=start(f);var locked=new CountDownLatch(1);var release=new CountDownLatch(1);var read=new CountDownLatch(1);
+        var f=fixture();var r=start(f);legacySeed(r.reportId());var locked=new CountDownLatch(1);var release=new CountDownLatch(1);var read=new CountDownLatch(1);
         try(var pool=Executors.newFixedThreadPool(2)) {
             var deletion=pool.submit(() -> tx.executeWithoutResult(status -> { works.getOwnedWorkForUpdate(f.workId(),f.memberId());states.purgeSourceEvidenceForWorkForUpdate(f.workId(),f.priorId(),100);em.find(Episode.class,f.priorId()).archive();em.flush();locked.countDown();await(release);}));
             await(locked);var normalize=pool.submit(() -> tx.executeWithoutResult(status -> {assertThat(reports.findById(r.reportId()).orElseThrow().getBaselineSeed()).isNotNull();read.countDown();baselines.materialize(r.reportId());}));
@@ -285,7 +315,7 @@ class ErrorFirstValidationPostgresIntegrationTest {
         try(var pool=Executors.newFixedThreadPool(2)) {
             var admission = pool.submit(() -> tx.execute(status -> {
                 var r = start(f); assertThat(r.baselineStatus().name()).isEqualTo("READY");
-                assertThat(reports.findById(r.reportId()).orElseThrow().getBaselineSeed().toString()).doesNotContain("관측한 새 시점");
+                assertThat(reports.findById(r.reportId()).orElseThrow().getBaselineSeed()).isNull();
                 em.flush(); captured.countDown(); await(release); return r;
             }));
             await(captured);

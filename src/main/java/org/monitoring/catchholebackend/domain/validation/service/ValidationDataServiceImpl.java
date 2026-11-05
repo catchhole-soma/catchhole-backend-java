@@ -25,11 +25,15 @@ public class ValidationDataServiceImpl implements ValidationDataService {
     private final EntityManager em;
     private final org.monitoring.catchholebackend.domain.validation.processor.ValidationExecutionAccess execution;
     private final org.monitoring.catchholebackend.domain.validation.processor.ValidationSourceTexts texts;
+    private final org.monitoring.catchholebackend.domain.validation.processor.ValidationLiveSettings liveSettings;
+    private final org.monitoring.catchholebackend.domain.validation.processor.ValidationSourceManifests sourceManifests;
 
     @Override
-    public void validateSavedValidationSeed(Long memberId, UUID workId, UUID reportId) {
+    public void validateValidationBaseline(Long memberId, UUID workId, UUID reportId) {
         var r=reports.findByIdAndWorkId(reportId,workId).filter(x->x.getMember().getId().equals(memberId)).orElseThrow(()->new AppException(ValidationErrorCode.VALIDATION_NOT_FOUND));
-        execution.currentInput(r,false);var seed=r.getBaselineSeed();
+        execution.currentInput(r,false);
+        if(reports.isLiveSettingsReport(reportId)) {validateLiveBaseline(r,workId);return;}
+        var seed=r.getBaselineSeed();
         if(seed==null||r.getBaselineHash()==null||!r.getBaselineHash().equals(r.getBaselineFingerprint())||!r.getBaselineHash().equals(journal.hash(seed))
                 ||!seed.path("characters").isObject()||!seed.path("worldSettings").isObject()||!seed.path("worldHistory").isArray()||!seed.path("sources").isArray()
                 ||!workId.toString().equals(seed.path("workId").asText())||memberId.longValue()!=seed.path("memberId").asLong()
@@ -42,6 +46,18 @@ public class ValidationDataServiceImpl implements ValidationDataService {
         for(var source:mapper.toSourceReferences(r).entrySet())if(!"READY".equals(texts.status(workId,r.getSourceEpisodeNo(),source.getValue(),source.getKey().equals("T1"))))throw changed();
     }
 
+    /**
+     * #381 seed 없는 report. 세 hash 열이 같은 설정 버전 fingerprint이고 지금 다시 계산한 값과 같아야 하며(이벤트 없이 확정 설정을 바꾼 쓰기 감지),
+     * 대상 원고와 저장 manifest의 모든 출처가 지금도 같은 원문으로 읽힐 수 있어야 한다. 설정 행은 읽지 않는다.
+     */
+    private void validateLiveBaseline(ValidationReport r, UUID workId) {
+        String fingerprint=r.getBaselineHash();
+        if(fingerprint==null||!fingerprint.equals(r.getBaselineFingerprint())||!fingerprint.equals(r.getConfirmedStateHash())
+                ||!fingerprint.equals(liveSettings.fingerprint(workId)))throw changed();
+        for(var source:mapper.toSourceReferences(r,sourceManifests.manifests(r.getId())).entrySet())
+            if(!"READY".equals(texts.status(workId,r.getSourceEpisodeNo(),source.getValue(),source.getKey().equals("T1"))))throw changed();
+    }
+
     @Override
     public JsonNode readValidationData(Long memberId, UUID workId, UUID reportId, ValidationDataRequest request) {
         return readValidationData(memberId,workId,reportId,request,null,null);
@@ -52,15 +68,20 @@ public class ValidationDataServiceImpl implements ValidationDataService {
             throw new AppException(CommonErrorCode.REQUEST_VALIDATION_FAILED);
         requireCurrentReport(memberId, workId, reportId, request, jobId, leaseToken);
         ValidationReport report = reports.findById(reportId).orElseThrow(() -> new AppException(ValidationErrorCode.VALIDATION_NOT_FOUND));
-        if (report.getBaselineSeed() == null || report.getBaselineEntries() == null
-                || !Objects.equals(journal.hash(report.getBaselineSeed()), request.expectedBaselineHash())) throw changed();
-        var refs = mapper.toSourceReferences(report);
-        ObjectNode response = mapper.toResponse(report);
+        // #381: live report(seed 없음)의 baselineHash는 설정 버전 fingerprint이며 requireCurrentReport가 요청 값과 대조한다.
+        boolean live = reports.isLiveSettingsReport(reportId);
+        if (!live && (report.getBaselineSeed() == null || report.getBaselineEntries() == null
+                || !Objects.equals(journal.hash(report.getBaselineSeed()), request.expectedBaselineHash()))) throw changed();
+        var manifests = sourceManifests.manifests(reportId);
+        var refs = mapper.toSourceReferences(report, manifests);
+        ObjectNode response = mapper.toResponse(report, sourceManifests.manifestHash(manifests));
+        // 기준 항목 조회(ENTRIES·SUBJECTS·SETTINGS)의 live 경로는 다음 단계(#381 Step 6)에서 현재 확정 설정 읽기로 연결한다.
+        if (live && Set.of("ENTRIES", "SUBJECTS", "SETTINGS").contains(request.operation())) throw changed();
         switch (request.operation()) {
             case "INPUT" -> {
                 response.set("target", refs.get("T1"));
                 var sources = response.putArray("sources"); refs.forEach((ref, source) -> { if (!ref.equals("T1")) sources.add(source); });
-                response.put("entryCount", report.getBaselineEntries().size());
+                response.put("entryCount", live ? liveSettings.index(workId).subjects().size() : report.getBaselineEntries().size());
                 response.set("modelSourceCatalogue",mapper.toValidationSourceCatalogue(refs));
             }
             case "ENTRIES" -> {

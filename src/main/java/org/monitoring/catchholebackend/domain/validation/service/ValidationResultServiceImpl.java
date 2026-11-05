@@ -46,6 +46,8 @@ public class ValidationResultServiceImpl implements ValidationResultService {
     private final ValidationReviewCompletionService reviewCompletions;
     private final EntityManager em;
     private final ValidationFindingTargets targets;
+    private final ValidationLiveSettings liveSettings;
+    private final ValidationSourceManifests sourceManifests;
 
     @Override public Map<String,Object> publishValidationPlan(UUID id,UUID lease,Publish c) {
         if(c.branch()!=ValidationBranch.SETTING||c.stage()==ValidationStageKind.TYPO_SEGMENT)throw error(VALIDATION_RESULT_INVALID);
@@ -168,7 +170,7 @@ public class ValidationResultServiceImpl implements ValidationResultService {
     private Map<String,Object> publish(UUID id,UUID lease,Scope scope,String operation,String key,Object command,ValidationBranch branch,Object payload,List<Citation> citations,Publication action) {
         if(mapper.toTree(command).toString().getBytes(java.nio.charset.StandardCharsets.UTF_8).length>ValidationPublicationValidator.MAX_PAYLOAD_BYTES)throw error(VALIDATION_RESULT_INVALID);
         var replay=transaction(junk->{var j=access.running(id,lease,scope);requireCurrentUnit(j,command);return receipt(j,operation,key,command);});if(replay!=null)return replay;
-        Context context=transaction(junk->{var j=access.running(id,lease,scope);return context(j,lease);});
+        Context context=transaction(junk->{var j=access.running(id,lease,scope);return context(j,lease,command);});
         var prepared=validator.prepare(context,branch);validator.payload(prepared,mapper.toTree(payload),citations);
         return transaction(junk->{var j=access.running(id,lease,scope);requireCurrentUnit(j,command);var existing=receipt(j,operation,key,command);if(existing!=null)return existing;validator.recheck(context);
             var old=j.getRequiredGrid()==null?null:j.getRequiredGrid().get(branch.name());var extended=validator.extendGrid(prepared,old);
@@ -280,7 +282,25 @@ public class ValidationResultServiceImpl implements ValidationResultService {
     }
     private boolean overlaps(JsonNode span,JsonNode segment) {return span.path("start").asInt()<segment.path("end").asInt()&&span.path("end").asInt()>segment.path("start").asInt();}
     private ValidationCheck check(ValidationJob j,UUID id) {return results.checks(j.getReport().getId()).stream().filter(c->c.getId().equals(id)).findFirst().orElseThrow(()->error(VALIDATION_PUBLICATION_CONFLICT));}
-    private Context context(ValidationJob j,UUID lease) {var r=j.getReport();return new Context(j.getId(),lease,mapper.toScope(j),r.getMember().getId(),r.getWork().getId(),r.getBaselineHash(),r.getSourceContentHash(),j.getConfiguration().deepCopy(),r.getBaselineEntries().deepCopy(),new LinkedHashMap<>(dataMapper.toSourceReferences(r)));}
+    private Context context(ValidationJob j,UUID lease) {return context(j,lease,null);}
+    /**
+     * 게시 검증 문맥. legacy report는 저장 기준 항목·seed 출처를 쓴다. #381 live report는 현재 확정 설정을 읽는다: 게시 명령이 가리키는 주체(S·B 참조)만
+     * 전체 상태로, 나머지는 색인 행으로 읽어 번호·주체 집합은 온전하다. 출처는 저장 manifest 행이다.
+     */
+    private Context context(ValidationJob j,UUID lease,Object command) {
+        var r=j.getReport();JsonNode entries;LinkedHashMap<String,JsonNode> sources;
+        if(!reports.isLiveSettingsReport(r.getId())) {entries=r.getBaselineEntries().deepCopy();sources=new LinkedHashMap<>(dataMapper.toSourceReferences(r));}
+        else {
+            var index=liveSettings.index(r.getWork().getId());var refs=new LinkedHashSet<String>();if(command!=null)subjectRefs(mapper.toTree(command),refs);
+            if(refs.size()>ValidationLiveSettings.MAX_FULL_SUBJECTS)throw error(VALIDATION_RESULT_INVALID);
+            entries=liveSettings.entries(index,refs);sources=new LinkedHashMap<>(dataMapper.toSourceReferences(r,sourceManifests.manifests(r.getId())));
+        }
+        return new Context(j.getId(),lease,mapper.toScope(j),r.getMember().getId(),r.getWork().getId(),r.getBaselineHash(),r.getSourceContentHash(),j.getConfiguration().deepCopy(),entries,sources);
+    }
+    private static void subjectRefs(JsonNode node,Set<String> refs) {
+        if(node.isTextual()&&node.asText().matches("[SB][1-9][0-9]{0,8}"))refs.add(node.asText());
+        else if(node.isContainerNode())node.forEach(child->subjectRefs(child,refs));
+    }
     private boolean sameTextSet(JsonNode a,JsonNode b) {var x=new TreeSet<String>();var y=new TreeSet<String>();a.forEach(n->x.add(n.asText()));b.forEach(n->y.add(n.asText()));return x.equals(y);}
     private boolean containsIntent(JsonNode intents,JsonNode required) {for(var intent:intents)if(decisions.same(decisions.normalizeIntent(intent),decisions.normalizeIntent(required)))return true;return false;}
     private void requireCurrentUnit(ValidationJob job,Object command) {

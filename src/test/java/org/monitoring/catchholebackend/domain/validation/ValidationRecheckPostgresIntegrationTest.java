@@ -69,6 +69,7 @@ class ValidationRecheckPostgresIntegrationTest {
     @Autowired ValidationDataService data;
     @Autowired AnalysisRunStateService states;
     @Autowired AnalysisStateJournal journal;
+    @Autowired org.monitoring.catchholebackend.domain.validation.processor.ValidationSourceManifests sourceManifests;
     @Autowired WorldSettingService worldEdits;
     @Autowired ObjectStorageService storedText;
     @MockitoBean ObjectStorage storage;
@@ -132,8 +133,24 @@ class ValidationRecheckPostgresIntegrationTest {
         assertThat(jdbc.queryForObject("select count(*) from validation_reports where is_current",Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where version='92' and success",Integer.class)).isEqualTo(1);purged(previous.reportId());noExtraction();
     }
-    @Test void delayedMaterializationCannotRestorePurgedText() throws Exception {
-        var f=fixture();var report=start(f);tx.executeWithoutResult(s->em.find(ValidationReport.class,report.reportId()).hold("SYNTHETIC_PENDING_MATERIALIZATION"));
+    /** #381 이전 접수(legacy)의 seed를 재현한다. 새 접수는 seed를 쓰지 않으며 늦은 정규화는 legacy seed에만 있다. */
+    void legacySeed(UUID reportId) {
+        tx.executeWithoutResult(s->{
+            var report=em.find(ValidationReport.class,reportId);
+            var seed=JsonNodeFactory.instance.objectNode().put("formatVersion",1).put("workId",report.getWork().getId().toString()).put("memberId",report.getMember().getId());
+            seed.putObject("target").put("episodeId",report.getEpisode().getId().toString()).put("episodeNo",report.getSourceEpisodeNo())
+                    .put("contentRevision",report.getSourceContentRevision()).put("contentHash",report.getSourceContentHash())
+                    .put("contentS3Key",report.getSourceContentS3Key()).put("contentS3Version",report.getSourceContentS3Version());
+            seed.putObject("characters");seed.putObject("worldSettings");seed.putArray("worldHistory");seed.putArray("explicitAuthorCorrections");
+            seed.set("sources",sourceManifests.manifests(reportId));
+            String hash=journal.hash(seed);
+            org.springframework.test.util.ReflectionTestUtils.setField(report,"baselineSeed",seed);
+            for(String field:List.of("baselineHash","baselineFingerprint","confirmedStateHash"))org.springframework.test.util.ReflectionTestUtils.setField(report,field,hash);
+        });
+    }
+    @Test @org.junit.jupiter.api.DisplayName("legacy report의 늦은 정규화는 원문 파기가 먼저 커밋되면 복사본을 복원하지 못한다")
+    void delayedMaterializationCannotRestorePurgedText() throws Exception {
+        var f=fixture();var report=start(f);legacySeed(report.reportId());tx.executeWithoutResult(s->em.find(ValidationReport.class,report.reportId()).hold("SYNTHETIC_PENDING_MATERIALIZATION"));
         var locked=new CountDownLatch(1);var release=new CountDownLatch(1);var read=new CountDownLatch(1);
         try(var pool=Executors.newFixedThreadPool(2)) {
             var deletion=pool.submit(()->tx.executeWithoutResult(s->{works.getOwnedWorkForUpdate(f.work(),f.member());
@@ -179,7 +196,8 @@ class ValidationRecheckPostgresIntegrationTest {
         for(String table:List.of("validation_corrections","validation_reports","validation_request_keys","validation_baseline_sources","works","members"))assertThat(jdbc.queryForObject("select count(*) from "+table,Integer.class)).as(table).isZero();
     }
 
-    @Test void diagnosticCannotRebindPreInputDuringPriorSourceReplacement() throws Exception {
+    @Test @org.junit.jupiter.api.DisplayName("앞 회차 원고 교체 정리 중의 진단 재검수는 현재 확정 설정으로 준비되고 출처는 교체된 원고만 가리킨다")
+    void diagnosticDuringPriorSourceReplacementBindsOnlyTheReplacedSource() throws Exception {
         var f=fixture();String sourceA="앞 회차 A의 합성 확정 근거";String hashA=storedText.contentHash(sourceA);
         tx.executeWithoutResult(s->{
             works.getOwnedWorkForUpdate(f.work(),f.member());var work=em.find(Work.class,f.work());var prior=em.find(Episode.class,f.prior());
@@ -219,13 +237,14 @@ class ValidationRecheckPostgresIntegrationTest {
             } finally {allowCleanup.countDown();}
             replacement.get(20,TimeUnit.SECONDS);
         }
+        // #381 소유자 결정: 진단 재검수도 기록 입력이 아니라 현재 확정 설정을 읽으므로 보류하지 않는다. 출처 목록은 교체된 앞 회차의 현재 원고(B)만 가리키고 옛 원고 A로 되돌아가지 않는다.
         assertThat(diagnostic.mode().name()).isEqualTo("DIAGNOSTIC_ONLY");
-        assertThat(diagnostic.baselineStatus().name()).isEqualTo("FAILED");assertThat(diagnostic.holdReason()).isEqualTo("DIAGNOSTIC_BASELINE_UNAVAILABLE");
+        assertThat(diagnostic.baselineStatus().name()).isEqualTo("READY");assertThat(diagnostic.holdReason()).isNull();
         assertThat(jdbc.queryForObject("select baseline_seed is null and baseline_entries is null from validation_reports where id=?",Boolean.class,diagnostic.reportId())).isTrue();
-        assertThat(jdbc.queryForObject("select count(*) from validation_baseline_sources where report_id=?",Integer.class,diagnostic.reportId())).isZero();
-        tx.executeWithoutResult(s->assertThat(em.find(org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob.class,appliedId).getAutomaticInputState().path("sourceEvidencePurged").asBoolean()).isTrue());
-        var afterPurge=recheck(f,diagnostic,request(f,diagnostic,"after-prior-redaction"));
-        assertThat(afterPurge.holdReason()).isEqualTo("DIAGNOSTIC_BASELINE_UNAVAILABLE");assertThat(afterPurge.extractionJobId()).isNull();assertThat(afterPurge.candidateGeneration()).isNull();
+        var diagnosticId=diagnostic.reportId();var manifests=tx.execute(s->sourceManifests.manifests(diagnosticId));
+        assertThat(manifests).hasSize(1);
+        assertThat(manifests.get(0).path("contentHash").asText()).isEqualTo(storedText.contentHash("앞 회차 B의 합성 근거")).isNotEqualTo(hashA);
+        assertThat(manifests.toString()).doesNotContain("synthetic/100/A");
         assertThat(jdbc.queryForObject("select count(*) from analysis_jobs",Integer.class)).isEqualTo(2);
         assertThat(jdbc.queryForObject("select count(*) from world_setting_candidates",Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("select count(*) from setting_candidates",Integer.class)).isZero();

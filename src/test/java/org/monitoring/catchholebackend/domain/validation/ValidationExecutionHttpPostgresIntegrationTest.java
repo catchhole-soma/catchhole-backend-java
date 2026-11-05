@@ -53,6 +53,7 @@ class ValidationExecutionHttpPostgresIntegrationTest {
     @org.springframework.boot.test.web.server.LocalServerPort int port;
     @org.springframework.test.context.bean.override.mockito.MockitoSpyBean org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties executionProperties;
     @Autowired EntityManager em;
+    @Autowired org.monitoring.catchholebackend.domain.validation.processor.ValidationSourceManifests sourceManifests;
     @Autowired org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider tokens;
     @Autowired JdbcTemplate jdbc;
     @Autowired PlatformTransactionManager transactions;
@@ -194,7 +195,7 @@ class ValidationExecutionHttpPostgresIntegrationTest {
     @Test @DisplayName("설정집이 있어도 grid v4 Worker는 설정집을 읽지 않고 양쪽 분기를 완료한다")
     void actualWorkerNeverReadsSettingBooks() throws Exception {
         var f=fixture(null,List.of("첫 합성 설정집","둘째 합성 설정집"));
-        var bookKeys=tx.execute(s->java.util.stream.StreamSupport.stream(em.find(org.monitoring.catchholebackend.domain.validation.entity.ValidationReport.class,f.report()).getBaselineSeed().path("sources").spliterator(),false).filter(row->"SETTING_BOOK".equals(row.path("sourceKind").asText())).map(row->row.path("contentS3Key").asText()).toList());
+        var bookKeys=tx.execute(s->java.util.stream.StreamSupport.stream(sourceManifests.manifests(f.report()).spliterator(),false).filter(row->"SETTING_BOOK".equals(row.path("sourceKind").asText())).map(row->row.path("contentS3Key").asText()).toList());
         assertThat(bookKeys).hasSize(2);org.mockito.Mockito.clearInvocations(storage);
         var response=python("zero");assertThat(response.at("/result/status").asText()).as(response.toString()).isEqualTo("COMPLETED");
         for(var key:bookKeys)org.mockito.Mockito.verify(storage,org.mockito.Mockito.never()).getText(key);releaseOnly(f);
@@ -237,7 +238,7 @@ class ValidationExecutionHttpPostgresIntegrationTest {
     void actualWorkerFillsAnEmptyIndexAtIntakeAndCitesTheSettingBook() throws Exception {
         var f=fixture(null,List.of("첫 합성 설정집"));
         assertThat(count("select count(*) from retrieval_chunks c join retrieval_sources s on s.episode_id=c.episode_id where s.work_id=?",f.work())).isZero();
-        var manifest=tx.execute(s->em.find(org.monitoring.catchholebackend.domain.validation.entity.ValidationReport.class,f.report()).getBaselineSeed().path("sources"));
+        var manifest=tx.execute(s->sourceManifests.manifests(f.report()));
         var book=java.util.stream.StreamSupport.stream(manifest.spliterator(),false).filter(row->"SETTING_BOOK".equals(row.path("sourceKind").asText())).findFirst().orElseThrow();
         assertThat(book.path("currentRevision").asBoolean()).isTrue();
         var response=python("vector-fill-inspect");

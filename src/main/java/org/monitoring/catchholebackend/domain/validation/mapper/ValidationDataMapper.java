@@ -18,12 +18,13 @@ public class ValidationDataMapper {
         return objectMapper.convertValue(response, new com.fasterxml.jackson.core.type.TypeReference<>() {});
     }
 
-    public ObjectNode toResponse(ValidationReport report) {
+    /** manifestHash는 저장 manifest 행(ValidationSourceManifests)의 hash다. legacy seed.sources의 hash와 같다(#381). */
+    public ObjectNode toResponse(ValidationReport report, String manifestHash) {
         return JsonNodeFactory.instance.objectNode().put("formatVersion", 1)
                 .put("reportId", report.getId().toString()).put("baselineRevision", report.getBaselineRevision())
                 .put("reportRevision", report.getRevision()).put("reportVersion", report.getVersion()).put("reportMode", report.getMode().name())
                 .put("baselineHash", report.getBaselineHash()).put("targetHash", report.getSourceContentHash())
-                .put("projectionVersion", PROJECTION_VERSION).put("manifestHash", journal.hash(report.getBaselineSeed().path("sources"))).put("status", "READY");
+                .put("projectionVersion", PROJECTION_VERSION).put("manifestHash", manifestHash).put("status", "READY");
     }
     /**
      * 2(#349 grid v4): SUBJECTS·SETTINGS 조회가 있고 modelClues·clueVersion이 없으며 판정 설정은 현재값만 준다.
@@ -39,6 +40,25 @@ public class ValidationDataMapper {
         target.put("sourceKind", "EPISODE").put("sourceRef", "T1"); result.put("T1", target);
         int index = 1;
         for (JsonNode source : report.getBaselineSeed().path("sources")) {
+            ObjectNode copy = source.deepCopy(); String ref = "R" + index++;
+            copy.put("sourceRef", ref); result.put(ref, copy);
+        }
+        return result;
+    }
+
+    /**
+     * #381 report 열(T1)과 저장 manifest 행(R#, ValidationSourceManifests 순서)으로 만든 출처 참조. legacy seed의 target·sources와 같은 값·순서다
+     * (seed target은 같은 report 열을 복사했고 행은 seed 원소의 사본이다).
+     */
+    public LinkedHashMap<String, ObjectNode> toSourceReferences(ValidationReport report, JsonNode manifests) {
+        var result = new LinkedHashMap<String, ObjectNode>();
+        ObjectNode target = JsonNodeFactory.instance.objectNode().put("episodeId", report.getEpisode().getId().toString())
+                .put("episodeNo", report.getSourceEpisodeNo()).put("contentRevision", report.getSourceContentRevision())
+                .put("contentHash", report.getSourceContentHash()).put("contentS3Key", report.getSourceContentS3Key())
+                .put("contentS3Version", report.getSourceContentS3Version());
+        target.put("sourceKind", "EPISODE").put("sourceRef", "T1"); result.put("T1", target);
+        int index = 1;
+        for (JsonNode source : manifests) {
             ObjectNode copy = source.deepCopy(); String ref = "R" + index++;
             copy.put("sourceRef", ref); result.put(ref, copy);
         }

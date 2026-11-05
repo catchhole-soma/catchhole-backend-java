@@ -151,7 +151,7 @@ class ValidationLiveSettingsIntegrationTest {
         worldCandidate(elves, prior100, job100, "외형", "귀", "뾰족함", true, WorldSettingReviewStatus.CONFIRMED);
         worldCandidate(elves, prior100, job100, null, "수명", "천 년", false, WorldSettingReviewStatus.PENDING_REVIEW);
         capital = WorldSetting.create(work, WorldSettingCategory.LOCATION, "수도", "위치", "대륙 중앙"); em.persist(capital);
-        // 대상이 없는 확정 이력 행: legacy seed에서는 worldHistory 전용 주체(꼬리 S 번호)가 되며 SETTINGS로 나간 적이 없다.
+        // 대상이 없는 확정 이력 행: legacy seed에서는 worldHistory 전용 주체가 되었고 SETTINGS로 나간 적이 없다. live 행에는 나오지 않는다.
         worldCandidate(null, prior70, job70, null, "소멸", "옛 왕국", false, WorldSettingReviewStatus.CONFIRMED);
 
         report = ValidationReport.create(work, target, batch, "c".repeat(64)); em.persist(report);
@@ -247,32 +247,9 @@ class ValidationLiveSettingsIntegrationTest {
         var liveEntries = live.entries(index, allSubjectRefs(index));
 
         assertParity(legacyEntries, liveEntries, sources, index);
-    }
-
-    @Test
-    @DisplayName("현재 접수 경로(ValidationBaselineService.prepare)가 저장한 legacy 기준과도 판정 모델 입력·주체 번호·작가 정정 사실이 같다")
-    void liveSettingsMatchCurrentIntakeSeedAfterModelProjection() {
-        report = em.find(ValidationReport.class, report.getId());
-        baselines.prepare(report);
-        assertThat(report.getBaselineStatus()).as(report.getHoldReason()).isEqualTo(ValidationPreparationStatus.READY);
-        var legacyEntries = report.getBaselineEntries();
-        var sources = mapper.toSourceReferences(report);
-        assertThat(sources).containsKeys("T1", "R1", "R2");
-        // legacy seed에는 worldHistory 행(이력 전용·대상 없는 확정 후보 포함)이 있었다.
-        assertThat(StreamSupport.stream(legacyEntries.spliterator(), false).filter(row -> "worldHistory".equals(row.path("domain").asText()))).hasSize(3);
-        em.flush(); em.clear();
-
-        var index = live.index(work.getId());
-        var liveEntries = live.entries(index, allSubjectRefs(index));
-
-        assertParity(legacyEntries, liveEntries, sources, index);
-        // SUBJECTS: legacy의 인물·세계관 주체는 순서·이름·별칭까지 같고, 남는 꼬리 주체는 SETTINGS로 나간 적 없는 worldHistory 전용 주체뿐이다.
-        var legacySubjects = mapper.toValidationSubjectCatalogue(legacyEntries, sources);
-        var liveSubjects = mapper.toValidationSubjectCatalogue(live.entries(index, Set.of()), sources);
-        assertThat(liveSubjects).hasSize(4);
-        for (int i = 0; i < liveSubjects.size(); i++) assertThat(liveSubjects.get(i).toString()).isEqualTo(legacySubjects.get(i).toString());
-        for (int i = liveSubjects.size(); i < legacySubjects.size(); i++) assertThat(legacySubjects.get(i).path("domain").asText()).isEqualTo("worldHistory");
-        assertThat(legacySubjects.size()).isEqualTo(liveSubjects.size() + 1);
+        // SUBJECTS(색인만 읽는 행)도 순서·이름·별칭까지 같다.
+        assertThat(mapper.toValidationSubjectCatalogue(live.entries(index, Set.of()), sources).toString())
+                .isEqualTo(mapper.toValidationSubjectCatalogue(legacyEntries, sources).toString());
     }
 
     void assertParity(JsonNode legacyEntries, JsonNode liveEntries, Map<String, ObjectNode> sources, ValidationLiveSettings.Index index) {
