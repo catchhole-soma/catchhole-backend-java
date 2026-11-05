@@ -8,8 +8,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
 import org.monitoring.catchholebackend.domain.character.type.*;
-import org.monitoring.catchholebackend.domain.validation.mapper.ValidationDataMapper;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.context.ActiveProfiles;
@@ -24,7 +22,6 @@ import org.springframework.transaction.annotation.Transactional;
 @TestPropertySource(locations="classpath:validation-execution-fixture.properties")
 @DisplayName("오류 리포트 가독성: 판정 근거 문장 검증과 상세 표기")
 class ValidationFindingReadabilityIntegrationTest extends ValidationReviewFixture {
-    @Autowired ValidationDataMapper dataMapper;
     static final Map<String,Object> CHUNK=Map.of("ref","E1","source_ref","R1","source_kind","EPISODE","start",0,"end",7,"quote","합성 앞 원고","method","VECTOR","source_context",Map.of("episodeNo",100));
 
     Map<String,Object> priorChunkCite(int start,int end,String quote) {return Map.of("sourceRef","R1","sourceHash",priorHash,"sourceVersion",prior.getContentS3Version(),"start",start,"end",end,"quote",quote);}
@@ -57,7 +54,6 @@ class ValidationFindingReadabilityIntegrationTest extends ValidationReviewFixtur
         var citations=new ArrayList<Object>(List.of(cite(0,2,"처음"),cite(0,8,"처음 합성 원고"),priorChunkCite(0,7,"합성 앞 원고")));citations.addAll(extraCitations);command.put("citations",citations);
         return command;
     }
-    Map<String,JsonNode> modelSettings(UUID report) throws Exception {var r=stored(get(report));return dataMapper.toValidationSettings(r.getBaselineEntries(),dataMapper.toSourceReferences(r));}
     String firstFactValue(UUID report,String entryRef) throws Exception {
         for(var slot:modelSettings(report).get(entryRef).path("state").path("slots").properties())if(slot.getValue().path("factValue").isTextual())return slot.getValue().path("factValue").asText();
         throw new AssertionError("no textual factValue");

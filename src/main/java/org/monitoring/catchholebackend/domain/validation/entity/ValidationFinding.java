@@ -22,8 +22,9 @@ public class ValidationFinding extends BaseEntity {
     /** 설정 판정 payload의 영향 등급(V102, #314 B2). 목록 필터용 사본이며 오탈자와 V102 이전의 비정상 값은 null이다. */
     @Enumerated(EnumType.STRING) @Column(length=20,updatable=false) private ValidationImpact impact;
     /**
-     * 설정 finding이 가리키는 고정 기준 항목(V102, #314 B2). 저장 시점의 report 고정 기준(baselineEntries)과 질문 상태에서만 계산하며
-     * 현재 설정값을 읽지 않는다. 질문 대상이 기준 항목으로 이어지지 않으면 모두 null, 기준 항목이 실제 대상에 연결되지 않으면 subjectId만 null이다.
+     * 설정 finding이 가리키는 기준 항목(V102, #314 B2). 저장 시점의 게시 검증 기준 항목(legacy report는 고정 기준 baselineEntries, #381 live report는
+     * 잠금 아래의 현재 확정 설정)과 질문 상태에서만 한 번 계산한다. 질문 대상이 기준 항목으로 이어지지 않으면 모두 null, 기준 항목이 실제 대상에
+     * 연결되지 않으면 subjectId만 null이다.
      */
     @Enumerated(EnumType.STRING) @Column(name="subject_type",length=20,updatable=false) private ValidationSubjectType subjectType;
     @Column(name="subject_id",updatable=false) private UUID subjectId;
@@ -32,6 +33,12 @@ public class ValidationFinding extends BaseEntity {
     @Column(name="setting_key",columnDefinition="text",updatable=false) private String settingKey;
     /** settingKey의 화면 표시명. 캐릭터는 schema 표시명, 세계관은 "범위 / 설정명" 또는 "설정명". */
     @Column(name="setting_name",columnDefinition="text",updatable=false) private String settingName;
+    /**
+     * 판정 근거 문장 중 저장 설정값 인용(B 인용)마다 가리킨 주체·설정의 이름표(V119, #381). basis_quotes의 B 인용 순서대로 최대 3개
+     * {@code {ref, subjectType, subjectId, subjectName, settingKey, settingName}}이며 B 인용이 없으면 빈 배열이다. 이름·key만 담고 설정값은 담지 않는다.
+     * live report의 게시 때 한 번 쓴다. legacy(seed) report·V119 이전 finding·오탈자 finding은 null이다.
+     */
+    @JdbcTypeCode(SqlTypes.JSON) @Column(name="quoted_subjects",columnDefinition="jsonb",updatable=false) private JsonNode quotedSubjects;
     public static ValidationFinding create(ValidationReport r,ValidationBranch b,String ref,UUID check,Long revision,String outcome,JsonNode data) {
         var x=new ValidationFinding();x.report=r;x.branch=b;x.unitRef=ref;x.checkId=check;x.checkRevision=revision;x.outcome=outcome;x.payload=data.deepCopy();return x;
     }
@@ -39,5 +46,9 @@ public class ValidationFinding extends BaseEntity {
     public ValidationFinding describeTarget(ValidationImpact impact,ValidationSubjectType subjectType,UUID subjectId,String subjectName,String settingKey,String settingName) {
         this.impact=impact;this.subjectType=subjectType;this.subjectId=subjectType==null?null:subjectId;this.subjectName=subjectType==null?null:subjectName;
         this.settingKey=subjectType==null?null:settingKey;this.settingName=this.settingKey==null?null:settingName;return this;
+    }
+    /** #381 저장 직전 한 번만 기록한다. 이후 설정 변경으로 다시 계산하지 않는다. */
+    public ValidationFinding recordQuotedSubjects(JsonNode subjects) {
+        this.quotedSubjects=subjects==null?null:subjects.deepCopy();return this;
     }
 }

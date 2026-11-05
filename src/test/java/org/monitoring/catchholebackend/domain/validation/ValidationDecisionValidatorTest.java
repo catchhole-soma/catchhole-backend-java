@@ -122,6 +122,25 @@ class ValidationDecisionValidatorTest {
         var bundle=(ObjectNode)body.path("evidence_bundle");bundle.set("question",draft.deepCopy());bundle.set("settings",json.createArrayNode().addAll(List.of(rows)));
     }
     void invalid() {assertThatThrownBy(()->validator.validate(prepared,check,"NO_CONFLICT",body)).isInstanceOf(AppException.class);}
+    @Test @DisplayName("#381 live 문맥: 질문 대상 밖 주체는 색인 행(name·aliases)이어도 판정을 검증하고, 색인 행만 읽은 항목의 B 인용은 통과하지 않는다")
+    void liveIndexRowsValidateButNeverAuthorizeSettingQuotes() {
+        var entries=json.createArrayNode();
+        var full=entries.addObject().put("domain","characters").put("subjectRef","character:"+UUID.randomUUID()).putObject("state").put("name","갑");
+        full.putArray("aliases");full.putObject("slots").putObject("AGE:age").put("factType","AGE").put("factKey","age").put("factValue","20");
+        entries.addObject().put("domain","worldSettings").put("subjectRef","world:"+UUID.randomUUID()).putObject("state").put("name","을").putArray("aliases");
+        var c=prepared.context();prepared=new ValidationPublicationValidator.Prepared(new ValidationPublicationValidator.Context(c.jobId(),c.lease(),c.scope(),c.member(),c.work(),c.baselineHash(),c.targetHash(),c.configuration(),entries,c.sourceReferences()),prepared.branch(),prepared.grid(),prepared.sources(),0);
+        var draft=(ObjectNode)state.path("draft");var bundle=(ObjectNode)body.path("evidence_bundle");
+        // S1 질문: 전체 상태로 읽은 B1의 값 인용은 통과하고, 색인 행 B2는 주체 번호와 집합만 채운다.
+        draft.set("subject_refs",json.createArrayNode().add("S1"));check=ValidationCheck.create(mock(ValidationReport.class),"Q1",json.createArrayNode(),state,journal.hash(state));
+        bundle.set("question",draft.deepCopy());bundle.set("settings",json.createArrayNode().add(row("B1","S1")));body.set("basis_quotes",json.createArrayNode().add(settingQuote("B1","20")));
+        assertThatCode(()->validator.validate(prepared,check,"NO_CONFLICT",body)).doesNotThrowAnyException();
+        assertThat(validator.subjects(prepared)).containsExactlyInAnyOrder("S1","S2");
+        // 게시가 B2를 색인 행으로만 읽었다면 그 값 인용은 거절된다(이름은 값 leaf가 아니다). 읽을 주체를 빠뜨려도 잘못 통과하지 않는다.
+        draft.set("subject_refs",json.createArrayNode().add("S1").add("S2"));check=ValidationCheck.create(mock(ValidationReport.class),"Q1",json.createArrayNode(),state,journal.hash(state));
+        bundle.set("question",draft.deepCopy());bundle.set("settings",json.createArrayNode().add(row("B1","S1")).add(row("B2","S2")));body.set("basis_quotes",json.createArrayNode().add(settingQuote("B2","을")));
+        invalid();
+    }
+    ObjectNode settingQuote(String ref,String quote) {var q=json.createObjectNode().put("ref",ref);q.putNull("source_ref");q.putNull("start");q.putNull("end");return q.put("quote",quote);}
     @Test @DisplayName("판정은 현재값만 받아 같은 주체의 worldHistory 항목은 bundle settings에 들어가지 않는다")
     void worldHistoryEntriesAreNeverBundleSettings() {
         var entries=f.path("subjectCatalogueVector").path("entries");

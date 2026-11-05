@@ -178,6 +178,17 @@ class ValidationExecutionHttpPostgresIntegrationTest {
         var payload=json.readTree(jdbc.queryForObject("select payload::text from validation_findings where report_id=? and branch='SETTING'",String.class,f.report()));
         assertThat(payload.path("headline").asText()).isEqualTo("합성 대상의 확인 항목이 기존 설정과 달라요");
         assertThat(org.monitoring.catchholebackend.domain.validation.processor.ValidationFindingLabels.headline(payload)).isEqualTo("합성 대상의 확인 항목이 기존 설정과 달라요");
+        // #381: live report의 finding은 실제 Worker가 옮긴 B 인용(현재 확정 설정 값 leaf)마다 주체·설정 이름표를 이름·key로만 남긴다.
+        var settingQuotes=new ArrayList<String>();payload.path("basis_quotes").forEach(q->{if(q.path("ref").asText().matches("B[1-9][0-9]*"))settingQuotes.add(q.path("ref").asText());});
+        assertThat(settingQuotes).as("the synthetic judge quotes one stored setting value").hasSize(1);
+        var quoted=json.readTree(jdbc.queryForObject("select quoted_subjects::text from validation_findings where report_id=? and branch='SETTING'",String.class,f.report()));
+        var character=jdbc.queryForObject("select id::text from characters where work_id=?",String.class,f.work());
+        assertThat(quoted.size()).isEqualTo(1);var label=quoted.path(0);
+        assertThat(label.path("ref").asText()).isEqualTo(settingQuotes.getFirst());assertThat(label.path("subjectType").asText()).isEqualTo("CHARACTER");
+        assertThat(label.path("subjectId").asText()).isEqualTo(character);assertThat(label.path("subjectName").asText()).isEqualTo("합성 인물");
+        assertThat(label.path("settingKey").asText()).matches("(AGE|LEVEL):[a-z]+");
+        assertThat(java.util.stream.StreamSupport.stream(java.util.Spliterators.spliteratorUnknownSize(label.fieldNames(),0),false).toList())
+                .containsExactlyInAnyOrder("ref","subjectType","subjectId","subjectName","settingKey","settingName");
         org.mockito.Mockito.verify(storage,org.mockito.Mockito.never()).getText(org.mockito.ArgumentMatchers.startsWith("synthetic/prior/"));noExtraction();
     }
     @Test @DisplayName("판정 한 질문의 provider 실패는 그 질문만 INCOMPLETE로 저장하고 작가 재시도는 그 질문만 다시 판정한다(③)")

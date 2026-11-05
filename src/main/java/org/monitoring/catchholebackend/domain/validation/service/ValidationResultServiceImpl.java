@@ -97,10 +97,13 @@ public class ValidationResultServiceImpl implements ValidationResultService {
             if(!"INCOMPLETE".equals(c.outcome()))decisions.validate(p,check,c.outcome(),body);
             else incomplete(check,body);
             check.decide(c.outcome(),body);
-            // #314 B2: 대상·설정명·영향 등급은 이 revision의 질문 상태와 report 고정 기준으로 한 번만 기록한다(현재 설정값을 읽지 않는다).
-            if(!Set.of("NO_CONFLICT","INCOMPLETE").contains(c.outcome())) {var target=targets.describe(j.getReport(),check.getState(),body);
-                results.save(ValidationFinding.create(j.getReport(),ValidationBranch.SETTING,c.ref(),check.getId(),check.getRevision(),c.outcome(),body)
-                        .describeTarget(ValidationFindingTargets.impact(body),target.subjectType(),target.subjectId(),target.subjectName(),target.settingKey(),target.settingName()));}
+            // #314 B2: 대상·설정명·영향 등급은 이 revision의 질문 상태와 게시 검증 문맥의 기준 항목(legacy는 report 고정 기준, #381 live는 잠금 아래 읽은
+            // 현재 확정 설정)으로 한 번만 기록한다. #381 live report는 B 인용 이름표(quoted_subjects)도 함께 쓰고 legacy report의 finding은 null로 둔다.
+            if(!Set.of("NO_CONFLICT","INCOMPLETE").contains(c.outcome())) {var entries=p.context().entries();var target=targets.describe(entries,p.context().work(),check.getState(),body);
+                var finding=ValidationFinding.create(j.getReport(),ValidationBranch.SETTING,c.ref(),check.getId(),check.getRevision(),c.outcome(),body)
+                        .describeTarget(ValidationFindingTargets.impact(body),target.subjectType(),target.subjectId(),target.subjectName(),target.settingKey(),target.settingName());
+                if(j.getReport().getBaselineSeed()==null)finding.recordQuotedSubjects(targets.quotedSubjects(entries,p.context().work(),body));
+                results.save(finding);}
             saveEvidence(j,"CHECK:"+check.getId()+":"+check.getRevision(),c.citations());return new PublicationResult(mapper.toCheckResponse(check),true);
         });
     }
@@ -170,7 +173,7 @@ public class ValidationResultServiceImpl implements ValidationResultService {
     private Map<String,Object> publish(UUID id,UUID lease,Scope scope,String operation,String key,Object command,ValidationBranch branch,Object payload,List<Citation> citations,Publication action) {
         if(mapper.toTree(command).toString().getBytes(java.nio.charset.StandardCharsets.UTF_8).length>ValidationPublicationValidator.MAX_PAYLOAD_BYTES)throw error(VALIDATION_RESULT_INVALID);
         var replay=transaction(junk->{var j=access.running(id,lease,scope);requireCurrentUnit(j,command);return receipt(j,operation,key,command);});if(replay!=null)return replay;
-        Context context=transaction(junk->{var j=access.running(id,lease,scope);return context(j,lease,command);});
+        Context context=transaction(junk->{var j=access.running(id,lease,scope);return context(j,lease,command,mapper.toTree(payload));});
         var prepared=validator.prepare(context,branch);validator.payload(prepared,mapper.toTree(payload),citations);
         return transaction(junk->{var j=access.running(id,lease,scope);requireCurrentUnit(j,command);var existing=receipt(j,operation,key,command);if(existing!=null)return existing;validator.recheck(context);
             var old=j.getRequiredGrid()==null?null:j.getRequiredGrid().get(branch.name());var extended=validator.extendGrid(prepared,old);
@@ -282,24 +285,53 @@ public class ValidationResultServiceImpl implements ValidationResultService {
     }
     private boolean overlaps(JsonNode span,JsonNode segment) {return span.path("start").asInt()<segment.path("end").asInt()&&span.path("end").asInt()>segment.path("start").asInt();}
     private ValidationCheck check(ValidationJob j,UUID id) {return results.checks(j.getReport().getId()).stream().filter(c->c.getId().equals(id)).findFirst().orElseThrow(()->error(VALIDATION_PUBLICATION_CONFLICT));}
-    private Context context(ValidationJob j,UUID lease) {return context(j,lease,null);}
+    private Context context(ValidationJob j,UUID lease) {return context(j,lease,null,null);}
     /**
-     * 게시 검증 문맥. legacy report는 저장 기준 항목·seed 출처를 쓴다. #381 live report는 현재 확정 설정을 읽는다: 게시 명령이 가리키는 주체(S·B 참조)만
-     * 전체 상태로, 나머지는 색인 행으로 읽어 번호·주체 집합은 온전하다. 출처는 저장 manifest 행이다.
+     * 게시 검증 문맥. legacy report는 저장 기준 항목·seed 출처를 쓴다. #381 live report는 Work 잠금 아래에서 현재 확정 설정을 읽는다: 이 게시가 실제로
+     * 값을 대조하는 주체({@link #neededRefs})만 전체 상태로, 나머지는 색인 행({@code state{name, aliases}})으로 읽어 B·S 번호와 주체 집합은 온전하다.
+     * 출처는 저장 manifest 행이다. 완료(complete)의 재확인은 VALIDATE만 읽으므로 전체 상태 주체가 없다.
      */
-    private Context context(ValidationJob j,UUID lease,Object command) {
+    private Context context(ValidationJob j,UUID lease,Object command,JsonNode payload) {
         var r=j.getReport();JsonNode entries;LinkedHashMap<String,JsonNode> sources;
         if(!reports.isLiveSettingsReport(r.getId())) {entries=r.getBaselineEntries().deepCopy();sources=new LinkedHashMap<>(dataMapper.toSourceReferences(r));}
         else {
-            var index=liveSettings.index(r.getWork().getId());var refs=new LinkedHashSet<String>();if(command!=null)subjectRefs(mapper.toTree(command),refs);
-            if(refs.size()>ValidationLiveSettings.MAX_FULL_SUBJECTS)throw error(VALIDATION_RESULT_INVALID);
-            entries=liveSettings.entries(index,refs);sources=new LinkedHashMap<>(dataMapper.toSourceReferences(r,sourceManifests.manifests(r.getId())));
+            var index=liveSettings.index(r.getWork().getId());
+            entries=liveSettings.entries(index,neededRefs(j,index,command,payload));sources=new LinkedHashMap<>(dataMapper.toSourceReferences(r,sourceManifests.manifests(r.getId())));
         }
         return new Context(j.getId(),lease,mapper.toScope(j),r.getMember().getId(),r.getWork().getId(),r.getBaselineHash(),r.getSourceContentHash(),j.getConfiguration().deepCopy(),entries,sources);
     }
-    private static void subjectRefs(JsonNode node,Set<String> refs) {
-        if(node.isTextual()&&node.asText().matches("[SB][1-9][0-9]{0,8}"))refs.add(node.asText());
-        else if(node.isContainerNode())node.forEach(child->subjectRefs(child,refs));
+    /**
+     * #381 live 게시가 전체 상태로 읽어야 하는 주체 참조. 설정 판정(SETTING unit)의 질문 draft.subject_refs(저장 check 상태)와, payload 어디에서나
+     * 검증기가 값을 대조하는 basis_quotes[].ref(B 인용)·settings[].entry_ref(evidence_bundle.settings 등)다. 그 밖의 S·B 문자열(영수증·완료 근거의
+     * evidence_refs, disagreements.fact_ref)은 이 묶음 행의 부분집합이어야 검증을 통과하므로 따로 읽지 않는다. 계획·revision·checkpoint 게시는
+     * 주체 집합만 쓰므로 보통 비어 있다.
+     * <ul>
+     *   <li>저장 질문의 참조가 지금 색인에 없으면 판정 이후 주체 집합이 바뀐 것이라 409 VALIDATION_SOURCE_VERSION_CONFLICT다.</li>
+     *   <li>payload 참조가 색인에 없으면 아무것도 읽지 않는다. 그 참조를 읽는 검증기가 지금처럼 VALIDATION_RESULT_INVALID로 거절한다.</li>
+     *   <li>서로 다른 주체가 {@value ValidationLiveSettings#MAX_FULL_SUBJECTS}개를 넘으면 읽기 전에 VALIDATION_RESULT_INVALID로 거절한다(S_n과 B_n은 같은 주체다).</li>
+     * </ul>
+     */
+    private Set<String> neededRefs(ValidationJob j,ValidationLiveSettings.Index index,Object command,JsonNode payload) {
+        var refs=new LinkedHashSet<String>();
+        if(command instanceof Unit c&&c.branch()==ValidationBranch.SETTING&&c.checkId()!=null)
+            for(var ref:check(j,c.checkId()).getState().path("draft").path("subject_refs")) {
+                if(!ref.isTextual()||index.find(ref.asText()).isEmpty())throw error(VALIDATION_SOURCE_VERSION_CONFLICT);
+                refs.add(ref.asText());
+            }
+        if(payload!=null)payloadRefs(payload,refs,0);
+        var subjects=new HashSet<ValidationLiveSettings.Subject>();for(String ref:refs)index.find(ref).ifPresent(subjects::add);
+        if(subjects.size()>ValidationLiveSettings.MAX_FULL_SUBJECTS)throw error(VALIDATION_RESULT_INVALID);
+        return refs;
+    }
+    /** 검증기(깊이 50 초과 거절)보다 넉넉한 깊이까지만 내려간다. 그보다 깊은 payload는 검증기가 거절하므로 더 읽을 주체가 없다. */
+    private static void payloadRefs(JsonNode node,Set<String> refs,int depth) {
+        if(depth>200)return;
+        if(node.isObject())for(var field:node.properties()) {
+            if(field.getValue().isArray()&&"basis_quotes".equals(field.getKey())) {for(var quote:field.getValue())if(ValidationBasisQuotes.isSettingQuote(quote))refs.add(quote.path("ref").asText());}
+            else if(field.getValue().isArray()&&"settings".equals(field.getKey())) {for(var row:field.getValue())if(row.path("entry_ref").isTextual())refs.add(row.path("entry_ref").asText());}
+            payloadRefs(field.getValue(),refs,depth+1);
+        }
+        else if(node.isArray())for(var child:node)payloadRefs(child,refs,depth+1);
     }
     private boolean sameTextSet(JsonNode a,JsonNode b) {var x=new TreeSet<String>();var y=new TreeSet<String>();a.forEach(n->x.add(n.asText()));b.forEach(n->y.add(n.asText()));return x.equals(y);}
     private boolean containsIntent(JsonNode intents,JsonNode required) {for(var intent:intents)if(decisions.same(decisions.normalizeIntent(intent),decisions.normalizeIntent(required)))return true;return false;}

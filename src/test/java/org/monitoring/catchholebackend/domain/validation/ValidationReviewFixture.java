@@ -13,11 +13,31 @@ import org.springframework.http.MediaType;
 abstract class ValidationReviewFixture extends ValidationWorkerFixture {
     static final Map<String,Object> SPAN=Map.of("source_ref","T1","start",0,"end",2,"quote","처음");
     @Autowired org.monitoring.catchholebackend.domain.work.repository.WorkPurgeDataRepository workPurge;
+    @Autowired org.monitoring.catchholebackend.domain.validation.processor.ValidationLiveSettings liveSettings;
+    @Autowired org.monitoring.catchholebackend.domain.validation.mapper.ValidationDataMapper validationDataMapper;
     String priorHash;
 
     // ---- synthetic execution with real stored findings ----
     JsonNode begin() throws Exception {
         source();priorHash=sha("합성 앞 원고");prior.updateContentStorage(prior.getContentS3Key(),prior.getContentS3Version(),priorHash);em.flush();start();return claim();
+    }
+    /**
+     * #381 이전에 접수한 legacy(seed) report로 실행을 시작한다. 실행을 끈 채 접수해 그때의 seed·기준 항목을 두고({@link #toLegacySeed}),
+     * 켠 뒤 같은 접수를 다시 보내 queue한다.
+     */
+    JsonNode beginLegacy() throws Exception {
+        source();priorHash=sha("합성 앞 원고");prior.updateContentStorage(prior.getContentS3Key(),prior.getContentS3Version(),priorHash);em.flush();
+        org.mockito.Mockito.when(executionProperties.enabled()).thenReturn(false);toLegacySeed(stored(start()));
+        org.mockito.Mockito.when(executionProperties.enabled()).thenReturn(true);start();return claim();
+    }
+    /**
+     * 판정 묶음에 옮길 모델 설정 행(B 참조 → 행). legacy report는 저장 기준 항목이고, #381 live report는 게시 검증·SETTINGS와 같은 현재 확정 설정의
+     * 전체 상태(작품의 모든 주체)다. 출처는 저장 manifest 행이다.
+     */
+    Map<String,JsonNode> modelSettings(UUID reportId) throws Exception {
+        var r=stored(get(reportId));JsonNode entries=r.getBaselineEntries();
+        if(entries==null) {var index=liveSettings.index(work.getId());entries=liveSettings.entries(index,index.subjects().stream().map(s->s.entryRef()).toList());}
+        return validationDataMapper.toValidationSettings(entries,validationDataMapper.toSourceReferences(r,sourceManifests.manifests(r.getId())));
     }
     String sha(String text) throws Exception {return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(text.getBytes(java.nio.charset.StandardCharsets.UTF_8)));}
     Map<String,Object> cite(int start,int end,String quote) {return Map.of("sourceRef","T1","sourceHash",target.getContentHash(),"sourceVersion",target.getContentS3Version(),"start",start,"end",end,"quote",quote);}

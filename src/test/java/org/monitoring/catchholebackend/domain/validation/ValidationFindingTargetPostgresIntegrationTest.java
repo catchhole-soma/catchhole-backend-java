@@ -35,7 +35,8 @@ class ValidationFindingTargetPostgresIntegrationTest extends ValidationFindingTa
     @Test @DisplayName("V102는 nullable 컬럼과 CHECK를 더하고 백필은 V102 이전 행의 등급·대상을 쓰기 경로와 같게 채우며 설정명은 비워 둔다")
     void flywayV102BackfillsLegacyRows() throws Exception {
         assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where version='102' and success",Integer.class)).isEqualTo(1);
-        var report=completedWith(List.of(new Question(List.of("S1"),"age","CAUTION"),new Question(List.of("S2"),"서식지","SEVERE"),new Question(List.of(),"age","REFERENCE")));
+        // V102 이전 행은 모두 seed report의 finding이고 백필 SQL은 baseline_entries를 읽으므로 legacy(seed) report로 만든다(#381 live report에는 기준 항목 열이 없다).
+        var report=completedWith(List.of(new Question(List.of("S1"),"age","CAUTION"),new Question(List.of("S2"),"서식지","SEVERE"),new Question(List.of(),"age","REFERENCE")),true);
         em.flush();
         var written=columns(report);
         assertThat(written).hasSize(5);

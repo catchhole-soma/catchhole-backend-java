@@ -2,6 +2,9 @@ package org.monitoring.catchholebackend.domain.validation.processor;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.text.Normalizer;
 import java.util.*;
 import java.util.regex.Pattern;
@@ -22,8 +25,10 @@ import org.monitoring.catchholebackend.domain.worldsetting.processor.WorldSettin
 import org.springframework.stereotype.Component;
 
 /**
- * 설정 finding의 대상·설정명과 정정 연결 기준 항목(#314 B2). report의 고정 기준(baselineEntries)과 그 revision의 질문 상태만 읽고
- * 현재 캐릭터·세계관 값을 조회하지 않는다. 캐릭터 설정 표시명만 기존 schema 표시명 규칙(CharacterSettingDisplayNameResolver)을 쓴다.
+ * 설정 finding의 대상·설정명과 정정 연결 기준 항목(#314 B2). 기준 항목 행({@code {domain, subjectRef, state}})과 그 revision의 질문 상태만 읽고
+ * 캐릭터·세계관을 따로 조회하지 않는다. 판정 저장 때({@link #describe}·{@link #quotedSubjects})의 행은 게시 검증 문맥의 기준 항목이다:
+ * legacy report는 report 고정 기준(baselineEntries), #381 live report는 잠금 아래에서 읽은 현재 확정 설정(게시가 가리키는 주체만 전체 상태,
+ * 나머지는 색인 행)이다. 캐릭터 설정 표시명만 기존 schema 표시명 규칙(CharacterSettingDisplayNameResolver)을 쓴다.
  *
  * <ul>
  *   <li>관련 기준 항목: 질문 subject_refs의 모든 항목과 BASELINE 조회 의무의 evidence_refs. grid v4(#349 개편)의 판정은 현재값 domain(characters·worldSettings)만
@@ -46,6 +51,7 @@ public class ValidationFindingTargets {
     private final CharacterSettingSchemaRepository schemas;
     private final CharacterSettingDisplayNameResolver displayNames;
     private final AnalysisStateJournal journal;
+    private final ValidationDataMapper mapper;
 
     /** 저장 시점의 대상. 질문 대상이 고정 기준 항목으로 이어지지 않으면 모두 null이다. */
     public record Target(ValidationSubjectType subjectType, UUID subjectId, String subjectName, String settingKey, String settingName) {
@@ -69,17 +75,66 @@ public class ValidationFindingTargets {
         return null;
     }
 
-    /** 판정 저장 시점에 finding에 기록할 대상·설정. payload는 저장할 판정(basis_quotes로 대표 대상을 정한다). */
-    public Target describe(ValidationReport report, JsonNode checkState, JsonNode payload) {
-        var entries = entries(report.getBaselineEntries());
+    /**
+     * 판정 저장 시점에 finding에 기록할 대상·설정. baselineEntries는 게시 검증 문맥의 기준 항목 행, payload는 저장할 판정(basis_quotes로 대표 대상을 정한다).
+     * 대표 대상은 B 인용·질문 subject_refs·BASELINE 조회 항목에서만 고르므로 live 문맥에서는 언제나 전체 상태로 읽은 주체다.
+     */
+    public Target describe(JsonNode baselineEntries, UUID workId, JsonNode checkState, JsonNode payload) {
+        var entries = entries(baselineEntries);
         var primary = checkState == null ? Optional.<Entry>empty() : primary(entries, checkState, payload);
         if (primary.isEmpty()) return Target.NONE;
         var entry = primary.get();
         String property = text(checkState.path("draft"), "property_or_rule");
         Setting setting = property == null ? null
-                : "characters".equals(entry.domain()) ? characterSetting(entry, property, report.getWork().getId())
+                : "characters".equals(entry.domain()) ? characterSetting(entry, property, workId)
                 : "worldSettings".equals(entry.domain()) ? worldSetting(entry, property) : null;
         return new Target(type(entry), targetId(entry), name(entry), setting == null ? null : setting.key(), setting == null ? null : setting.name());
+    }
+
+    /**
+     * #381 판정 근거 문장 중 저장 설정값 인용(B 인용)마다의 이름표. basis_quotes의 B 인용 순서대로 하나씩(검증기가 근거 문장을 최대 3개로 막는다)
+     * {@code {ref, subjectType, subjectId, subjectName, settingKey, settingName}}을 만들고, B 인용이 없으면 빈 배열이다. 이름·key만 담고 설정값은 담지 않는다.
+     * <ul>
+     *   <li>설정은 인용을 그대로 담은 값 leaf({@link ValidationBasisQuotes#containing}, 검증기·상세 표기와 같은 모델 행)에서 정한다.</li>
+     *   <li>settingKey: 모든 leaf가 한 key로 모이면 그 key(캐릭터 slot key "AGE:age", 세계관 저장 경로 키 ["범위","설정명"]·[null,"설정명"]), 아니면 null.</li>
+     *   <li>settingName: 상세 label({@code ValidationFindingLabels})과 같은 규칙으로 모든 leaf의 표시명이 같을 때만 그 이름(캐릭터 schema 표시명,
+     *       세계관 "범위 / 설정명"·"설정명"), 아니면 null.</li>
+     *   <li>인용이 가리키는 정정 가능 항목을 찾지 못하면 ref만 두고 나머지는 null이다(검증을 통과한 판정에서는 생기지 않는다).</li>
+     * </ul>
+     */
+    public ArrayNode quotedSubjects(JsonNode baselineEntries, UUID workId, JsonNode payload) {
+        var result = JsonNodeFactory.instance.arrayNode();
+        if (payload == null || !payload.path("basis_quotes").isArray()) return result;
+        var entries = entries(baselineEntries);
+        Map<String, JsonNode> models = null;
+        List<CharacterSettingSchema> active = null;
+        for (var quote : payload.path("basis_quotes")) {
+            if (quote.path("start").isIntegralNumber() || !ValidationBasisQuotes.isSettingQuote(quote)) continue;
+            String ref = quote.path("ref").asText();
+            ObjectNode item = result.addObject().put("ref", ref);
+            var entry = entries.stream().filter(e -> e.ref().equals(ref)).findFirst().orElse(null);
+            if (entry == null || !entry.correctable()) {
+                item.putNull("subjectType").putNull("subjectId").putNull("subjectName").putNull("settingKey").putNull("settingName");
+                continue;
+            }
+            // 출처 목록은 값 leaf(slots.*.factValue·propertiesJson 문자열)에 source_ref를 더하지 않으므로 비워 둔다.
+            if (models == null) models = mapper.toValidationSettings(baselineEntries, Map.of());
+            var leaves = quote.path("quote").isTextual() ? ValidationBasisQuotes.containing(models.get(ref), quote.path("quote").asText()) : List.<ValidationBasisQuotes.Leaf>of();
+            Set<String> keys = new LinkedHashSet<>(), names = new LinkedHashSet<>();
+            for (var leaf : leaves) {
+                Setting setting;
+                if ("characters".equals(entry.domain())) {
+                    if (active == null) active = schemas.findAllActiveForWork(workId);
+                    setting = new Setting(leaf.path().getFirst(), slotDisplayName(entry, leaf.path().getFirst(), active));
+                } else setting = worldLeaf(leaf.path());
+                keys.add(setting.key() == null ? "" : setting.key());
+                names.add(setting.name() == null ? "" : setting.name());
+            }
+            UUID target = targetId(entry);
+            item.put("subjectType", type(entry).name()).put("subjectId", target == null ? null : target.toString()).put("subjectName", name(entry))
+                    .put("settingKey", single(keys)).put("settingName", single(names));
+        }
+        return result;
     }
 
     /** 상세 조회 시점의 정정 연결 항목. 실제 대상에 연결된 정정 가능 항목만 기준 순서로 반환한다. */
@@ -186,6 +241,33 @@ public class ValidationFindingTargets {
                     p.scopeName() == null ? p.settingName() : p.scopeName() + " / " + p.settingName()));
         }
         return matches.size() == 1 ? matches.getFirst() : null;
+    }
+
+    /** 모델 행 slot 값 leaf의 표시명. 상세 label과 같은 규칙: schema 표시명, 해석할 수 없거나 비어 있으면 factKey다. */
+    private String slotDisplayName(Entry entry, String slotKey, List<CharacterSettingSchema> active) {
+        var slot = entry.state().path("slots").path(slotKey);
+        int split = slotKey.indexOf(':');
+        String typeName = text(slot, "factType") != null ? text(slot, "factType") : split < 0 ? null : slotKey.substring(0, split);
+        String factKey = text(slot, "factKey") != null ? text(slot, "factKey") : split < 0 ? slotKey : slotKey.substring(split + 1);
+        CharacterFactType type = factType(typeName);
+        if (type == null) return factKey;
+        try {
+            String display = displayNames.resolve(type, factKey, slot.get("valueJson"), active);
+            return display == null || display.isBlank() ? factKey : display;
+        } catch (RuntimeException unreadable) {
+            return factKey;
+        }
+    }
+    /** propertiesJson 아래 값 leaf 경로의 저장 경로 키와 표시명. 표시명은 상세 label과 같고, 경로가 1·2단계가 아니면 key는 null이다. */
+    private static Setting worldLeaf(List<String> path) {
+        if (path.isEmpty()) return new Setting(null, null);
+        String key = path.size() == 1 ? WorldSettingAnalysisStateMapper.pathKey(null, path.getFirst())
+                : path.size() == 2 ? WorldSettingAnalysisStateMapper.pathKey(path.get(0), path.get(1)) : null;
+        return new Setting(key, path.size() == 1 ? path.getFirst() : path.get(0) + " / " + path.get(1));
+    }
+    /** 값이 하나로 모이고 비어 있지 않으면 그 값, 아니면 null. */
+    private static String single(Set<String> values) {
+        return values.size() == 1 && !values.iterator().next().isEmpty() ? values.iterator().next() : null;
     }
 
     private static ValidationSubjectType type(Entry entry) {
