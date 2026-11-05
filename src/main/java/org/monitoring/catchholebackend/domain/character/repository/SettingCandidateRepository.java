@@ -44,6 +44,61 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
             """)
     List<SettingCandidate> findConfirmedDiscoveries(@Param("workId") UUID workId);
 
+    /**
+     * 관계도 노드의 확정 이름(대표 이름·별칭)을 scalar로 한 번 읽는다. 후보·분석 Job 엔티티와 JSON 열을 올리지 않는다.
+     * 원문 회차가 cutoff 이하인 확정 후보만 읽으므로 미래 회차에 확정된 별칭은 과거 문맥에 들어오지 않는다.
+     */
+    @Query("""
+            select distinct candidate.entityName as entityName,
+                   candidate.matchedCharacterId as characterId
+            from SettingCandidate candidate
+            join candidate.episode episode
+            where candidate.work.id = :workId
+              and candidate.candidateKind in :kinds
+              and candidate.reviewStatus = org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.CONFIRMED
+              and candidate.matchedCharacterId is not null
+              and candidate.entityName in :names
+              and episode.episodeNo <= :cutoff
+              and episode.status <> org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.ARCHIVED
+              and exists (select character.id from WorkCharacter character
+                          where character.id = candidate.matchedCharacterId and character.work.id = :workId)
+            """)
+    List<ConfirmedCharacterIdentityRow> findConfirmedIdentities(
+            @Param("workId") UUID workId,
+            @Param("kinds") Collection<org.monitoring.catchholebackend.domain.character.type.SettingCandidateKind> kinds,
+            @Param("names") Collection<String> names,
+            @Param("cutoff") int cutoff);
+
+    /**
+     * 관계 백필의 과거 이름 조회. 후보를 만든 Job의 원문(회차·hash·key·version)이 현재 회차와 같고 파기 요청이 없는
+     * 확정 후보만 scalar로 읽는다. Job은 join 조건에만 쓰고 엔티티로 올리지 않는다.
+     */
+    @Query("""
+            select distinct candidate.entityName as entityName,
+                   candidate.matchedCharacterId as characterId
+            from SettingCandidate candidate
+            join candidate.episode episode
+            join candidate.analysisJob job
+            where candidate.work.id = :workId and job.work.id = :workId
+              and candidate.reviewStatus = org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.CONFIRMED
+              and candidate.matchedCharacterId is not null
+              and episode.episodeNo <= :cutoff
+              and episode.status <> org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.ARCHIVED
+              and job.episode.id = episode.id
+              and job.sourceEpisodeNo = episode.episodeNo
+              and ((job.sourceContentHash is null and episode.contentHash is null)
+                    or job.sourceContentHash = episode.contentHash)
+              and ((job.sourceContentS3Key is null and episode.contentS3Key is null)
+                    or job.sourceContentS3Key = episode.contentS3Key)
+              and ((job.sourceContentS3Version is null and episode.contentS3Version is null)
+                    or job.sourceContentS3Version = episode.contentS3Version)
+              and not exists (select purge.id from EpisodeSourcePurgeRequest purge where purge.episode.id = episode.id)
+              and exists (select character.id from WorkCharacter character
+                          where character.id = candidate.matchedCharacterId and character.work.id = :workId)
+            """)
+    List<ConfirmedCharacterIdentityRow> findVerifiedConfirmedIdentities(
+            @Param("workId") UUID workId, @Param("cutoff") int cutoff);
+
     @Query("""
             select min(coalesce(episode.episodeNo, 0)) from SettingCandidate candidate
             left join candidate.episode episode

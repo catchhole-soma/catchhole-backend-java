@@ -87,6 +87,8 @@ class EpisodeRelationshipGraphIntegrationTest {
     private UUID workId;
     private final UUID lease = UUID.randomUUID();
     private final String source = "아라와 보라는 함께 길을 떠났다.";
+    // Per-episode synthetic manuscripts keyed by S3 key; other episodes read the shared source.
+    private final java.util.Map<String, String> texts = new java.util.concurrent.ConcurrentHashMap<>();
 
     @BeforeEach
     void setup() {
@@ -99,7 +101,7 @@ class EpisodeRelationshipGraphIntegrationTest {
                                             TransactionSynchronizationManager
                                                     .isActualTransactionActive())
                                     .isFalse();
-                            return source;
+                            return texts.getOrDefault(invocation.<String>getArgument(0), source);
                         });
         when(leases.getRunningAnalysisJobForUpdate(any(), eq(lease)))
                 .thenAnswer(invocation -> jobs.findById(invocation.getArgument(0)).orElseThrow());
@@ -126,33 +128,15 @@ class EpisodeRelationshipGraphIntegrationTest {
     }
 
     private UUID job(int no, boolean ordered) {
+        return jobWithSource(no, source, ordered);
+    }
+
+    /** The first job of an episode fixes its manuscript; later jobs of that episode reuse it. */
+    private UUID jobWithSource(int no, String text, boolean ordered) {
         return tx.execute(
                 status -> {
                     Work work = em.find(Work.class, workId);
-                    Episode episode =
-                            em.createQuery(
-                                            "select e from Episode e where e.work.id=:work and"
-                                                    + " e.episodeNo=:no",
-                                            Episode.class)
-                                    .setParameter("work", workId)
-                                    .setParameter("no", no)
-                                    .getResultStream()
-                                    .findFirst()
-                                    .orElseGet(
-                                            () -> {
-                                                Episode e =
-                                                        Episode.create(
-                                                                work,
-                                                                null,
-                                                                no,
-                                                                no + "화",
-                                                                "source/" + UUID.randomUUID(),
-                                                                "v1",
-                                                                storage.contentHash(source),
-                                                                source.length());
-                                                em.persist(e);
-                                                return e;
-                                            });
+                    Episode episode = episode(no, text);
                     AnalysisJob job =
                             AnalysisJob.create(
                                     work, null, episode, AnalysisJobType.SETTING_EXTRACTION);
@@ -190,6 +174,702 @@ class EpisodeRelationshipGraphIntegrationTest {
                                                         source.codePointCount(0, source.length()),
                                                         source)))),
                         0));
+    }
+
+    /** Must run inside a transaction. */
+    private Episode episode(int no, String text) {
+        Work work = em.find(Work.class, workId);
+        return em.createQuery(
+                        "select e from Episode e where e.work.id=:work and e.episodeNo=:no",
+                        Episode.class)
+                .setParameter("work", workId)
+                .setParameter("no", no)
+                .getResultStream()
+                .findFirst()
+                .orElseGet(
+                        () -> {
+                            String key = "source/" + UUID.randomUUID();
+                            texts.put(key, text);
+                            Episode e =
+                                    Episode.create(
+                                            work,
+                                            null,
+                                            no,
+                                            no + "화",
+                                            key,
+                                            "v1",
+                                            storage.contentHash(text),
+                                            text.length());
+                            em.persist(e);
+                            return e;
+                        });
+    }
+
+    private Observation observation(String ref, String text, String sourceName, String targetName) {
+        return new Observation(
+                ref,
+                new Endpoint(sourceName, sourceName),
+                new Endpoint(targetName, targetName),
+                "함께 여행한다",
+                List.of(new Evidence(0, text.codePointCount(0, text.length()), text)));
+    }
+
+    private Context prepareWith(UUID id, String text, Observation... observations) {
+        return service.prepareRelationshipAnalysis(
+                id, lease, new Prepare(1, storage.contentHash(text), List.of(observations), 0));
+    }
+
+    private Decision add(Context context, String ref, Kind kind, String summary) {
+        var observation =
+                context.observations().stream().filter(o -> o.ref().equals(ref)).findFirst().orElseThrow();
+        return new Decision(
+                List.of(ref),
+                Operation.ADD,
+                null,
+                observation.sourceNodeRefs().getFirst(),
+                observation.targetNodeRefs().getFirst(),
+                Axis.SOCIAL,
+                kind,
+                "동행",
+                summary,
+                Direction.MUTUAL,
+                TemporalScope.PRESENT,
+                null);
+    }
+
+    /** A confirmed character discovery is where an alias is recorded for its profile. */
+    private void confirmDiscovery(UUID jobId, UUID characterId, String name) {
+        tx.executeWithoutResult(
+                status -> {
+                    AnalysisJob job = jobs.findById(jobId).orElseThrow();
+                    persistConfirmedDiscovery(job, characterId, name);
+                });
+    }
+
+    /** Confirms an alias on an episode through an ordinary job that has no relationship graph. */
+    private void confirmedAliasAt(int no, String text, UUID characterId, String name) {
+        tx.executeWithoutResult(
+                status -> {
+                    Episode episode = episode(no, text);
+                    AnalysisJob job =
+                            AnalysisJob.create(
+                                    episode.getWork(), null, episode, AnalysisJobType.SETTING_EXTRACTION);
+                    em.persist(job);
+                    persistConfirmedDiscovery(job, characterId, name);
+                });
+    }
+
+    private void persistConfirmedDiscovery(AnalysisJob job, UUID characterId, String name) {
+        ObjectMapper json = new ObjectMapper();
+        SettingCandidate candidate =
+                SettingCandidate.createCharacterDiscovery(
+                        job.getWork(),
+                        job.getEpisode(),
+                        UUID.randomUUID(),
+                        job,
+                        name,
+                        name,
+                        characterId,
+                        SettingCandidateMatchStatus.MATCHED,
+                        json.createArrayNode(),
+                        BigDecimal.ONE,
+                        json.createObjectNode());
+        candidate.confirm();
+        em.persist(candidate);
+    }
+
+    private long nodeCount() {
+        return tx.execute(
+                t ->
+                        em.createQuery(
+                                        "select count(n) from RelationshipGraphNode n where n.workId=:work",
+                                        Long.class)
+                                .setParameter("work", workId)
+                                .getSingleResult());
+    }
+
+    private org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.ContextNode
+            contextNode(Context context, String ref) {
+        return context.nodes().stream().filter(n -> n.ref().equals(ref)).findFirst().orElseThrow();
+    }
+
+    /** Seeds 1화 with the full name linked to a profile and returns that profile node. */
+    private UUID profileNodeAt(int no, String text, String name, String partner, UUID characterId) {
+        UUID id = jobWithSource(no, text, false);
+        Context context = prepareWith(id, text, observation("O1", text, name, partner));
+        confirmDiscovery(id, characterId, name);
+        apply(id, context, add(context, "O1", Kind.COMPANIONSHIP, "함께 여행한다"));
+        return boundNodeId(id, context.observations().getFirst().sourceNodeRefs().getFirst());
+    }
+
+    private long identityQueryExecutions(org.hibernate.stat.Statistics statistics) {
+        return java.util.Arrays.stream(statistics.getQueries())
+                .filter(query -> query.contains("SettingCandidate") && query.contains("as characterId"))
+                .mapToLong(query -> statistics.getQueryStatistics(query).getExecutionCount())
+                .sum();
+    }
+
+    @Test
+    @DisplayName("그 회차까지 확정된 별칭은 같은 프로필의 기존 노드를 다시 쓰고 저장된 이름을 문맥에 보인다")
+    void aliasConfirmedBeforeCutoffReusesProfileNode() {
+        UUID characterId = character("아라 린");
+        UUID profileNode =
+                profileNodeAt(1, "아라 린과 보라는 함께 길을 떠났다.", "아라 린", "보라", characterId);
+        confirmedAliasAt(2, "아라는 웃었다.", characterId, "아라");
+        long before = nodeCount();
+
+        String text = "아라와 보라는 다시 만났다.";
+        UUID third = jobWithSource(3, text, false);
+        Context context = prepareWith(third, text, observation("O1", text, "아라", "보라"));
+
+        String ref = context.observations().getFirst().sourceNodeRefs().getFirst();
+        assertThat(boundNodeId(third, ref)).isEqualTo(profileNode);
+        assertThat(nodeCount()).isEqualTo(before);
+        assertThat(contextNode(context, ref).name()).isEqualTo("아라 린");
+        assertThat(contextNode(context, ref).profileRegistered()).isTrue();
+        assertThat(context.relationships()).singleElement()
+                .satisfies(r -> assertThat(List.of(r.sourceNodeRef(), r.targetNodeRef())).contains(ref));
+    }
+
+    @ParameterizedTest(name = "ordered={0}")
+    @ValueSource(booleans = {false, true})
+    @DisplayName("미래 회차에 확정된 별칭과 순서 분석 입력의 별칭 문자열은 과거 회차 노드 연결에 쓰지 않는다")
+    void aliasConfirmedInFutureEpisodeIsNotUsed(boolean ordered) {
+        UUID characterId = character("아라 린");
+        UUID profileNode =
+                profileNodeAt(1, "아라 린과 보라는 함께 길을 떠났다.", "아라 린", "보라", characterId);
+        confirmedAliasAt(5, "아라는 웃었다.", characterId, "아라");
+        if (ordered) {
+            // S0 aliases have no per-alias episode; only the representative name is authoritative.
+            var input = new ObjectMapper().createObjectNode();
+            var character = input.putArray("characters").addObject()
+                    .put("name", "아라 린")
+                    .put("actualCharacterId", characterId.toString());
+            character.putArray("aliases").add("아라");
+            doReturn(input).when(runState).getInputState(any());
+        }
+
+        String text = "아라와 보라는 다시 만났다.";
+        UUID third = jobWithSource(3, text, ordered);
+        Context context = prepareWith(third, text, observation("O1", text, "아라", "보라"));
+
+        String ref = context.observations().getFirst().sourceNodeRefs().getFirst();
+        assertThat(boundNodeId(third, ref)).isNotEqualTo(profileNode);
+        assertThat(contextNode(context, ref).name()).isEqualTo("아라");
+        assertThat(contextNode(context, ref).profileRegistered()).isFalse();
+        assertThat(nodeCount()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("같은 별칭이 두 프로필에 확정되어 있으면 노드를 만들거나 연결하지 않고 보류한다")
+    void aliasMappedToTwoProfilesHolds() {
+        UUID first = character("아라 린"), second = character("아라 벨");
+        confirmedAliasAt(1, "아라는 웃었다.", first, "아라");
+        confirmedAliasAt(2, "아라는 울었다.", second, "아라");
+
+        String text = "아라와 보라는 다시 만났다.";
+        UUID third = jobWithSource(3, text, false);
+        Context context = prepareWith(third, text, observation("O1", text, "아라", "보라"));
+
+        assertThat(context.observations().getFirst().sourceNodeRefs()).isEmpty();
+        assertThat(context.nodes()).extracting(n -> n.name()).containsExactly("보라");
+        assertThat(nodeCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("뒤 회차에만 있는 프로필 노드를 별칭으로 다시 써도 그 노드의 미래 이름을 과거 문맥에 노출하지 않는다")
+    void aliasReusesFutureProfileNodeWithoutLeakingItsName() {
+        UUID characterId = character("아라 린");
+        UUID profileNode =
+                profileNodeAt(5, "아라 린과 다라는 함께 길을 떠났다.", "아라 린", "다라", characterId);
+        confirmedAliasAt(2, "아라는 웃었다.", characterId, "아라");
+
+        String text = "아라와 보라는 다시 만났다.";
+        UUID third = jobWithSource(3, text, false);
+        Context context = prepareWith(third, text, observation("O1", text, "아라", "보라"));
+
+        String ref = context.observations().getFirst().sourceNodeRefs().getFirst();
+        assertThat(boundNodeId(third, ref)).isEqualTo(profileNode);
+        assertThat(contextNode(context, ref).name()).isEqualTo("아라");
+        assertThat(contextNode(context, ref).profileRegistered()).isFalse();
+        assertThat(context.nodes()).noneMatch(n -> n.name().equals("아라 린"));
+        tx.executeWithoutResult(t -> assertThat(
+                em.find(RelationshipGraphNode.class, profileNode).getFirstEpisodeNo()).isEqualTo(5));
+        // The alias is kept as a redirect row so the profile node stays visible from 3화.
+        RelationshipGraphNode redirect = tx.execute(t -> em.createQuery(
+                        "select n from RelationshipGraphNode n where n.workId=:work and n.mergedIntoNodeId=:profile",
+                        RelationshipGraphNode.class)
+                .setParameter("work", workId).setParameter("profile", profileNode).getSingleResult());
+        assertThat(redirect.getName()).isEqualTo("아라");
+        assertThat(redirect.getFirstEpisodeNo()).isEqualTo(3);
+        assertThat(redirect.getMergedAtEpisodeNo()).isEqualTo(3);
+        assertThat(redirect.getCharacterId()).isNull();
+        apply(third, context, add(context, "O1", Kind.COMPANIONSHIP, "3화 동행"));
+
+        // 4화 mentions only the partner. Its legacy neighbor context still includes the profile
+        // node's 3화 relationship, under the alias known by then, not the 5화 full name.
+        String later = "보라와 다라는 함께 길을 떠났다.";
+        UUID fourth = jobWithSource(4, later, false);
+        Context next = prepareWith(fourth, later, observation("O1", later, "보라", "다라"));
+        assertThat(next.relationships()).singleElement().satisfies(r -> {
+            String profileRef = boundNodeId(fourth, r.sourceNodeRef()).equals(profileNode)
+                    ? r.sourceNodeRef() : r.targetNodeRef();
+            assertThat(boundNodeId(fourth, profileRef)).isEqualTo(profileNode);
+            assertThat(contextNode(next, profileRef).name()).isEqualTo("아라");
+        });
+        assertThat(next.nodes()).noneMatch(n -> n.name().equals("아라 린"));
+        assertThat(service.getRelationshipGraph(owner, workId, 3).nodes())
+                .filteredOn(n -> n.id().equals(profileNode)).singleElement()
+                .satisfies(n -> assertThat(n.profileRegistered()).isFalse());
+    }
+
+    private void assertMergedInto(UUID alias, UUID profile, int mergedAt, int aliasFirst) {
+        tx.executeWithoutResult(t -> {
+            em.clear();
+            RelationshipGraphNode node = em.find(RelationshipGraphNode.class, alias);
+            assertThat(node.getMergedIntoNodeId()).isEqualTo(profile);
+            assertThat(node.getMergedAtEpisodeNo()).isEqualTo(mergedAt);
+            assertThat(node.getCharacterId()).isNull();
+            assertThat(node.getName()).isEqualTo("아라");
+            assertThat(node.getFirstEpisodeNo()).isEqualTo(aliasFirst);
+        });
+    }
+
+    private static java.util.Set<UUID> endpoints(Edge edge) {
+        return java.util.Set.of(edge.sourceNodeId(), edge.targetNodeId());
+    }
+
+    @Test
+    @DisplayName("반영 때 같은 프로필로 확정된 별칭 노드는 프로필 노드로 합치고 모든 회차 조회에서 한 노드로 해소한다")
+    void aliasConfirmedAtFinalizeMergesExistingNode() {
+        UUID first = job(1);
+        Context initial = prepare(first);
+        apply(first, initial, action(initial, Operation.ADD, Kind.COMPANIONSHIP, "함께 여행한다"));
+        UUID alias = boundNodeId(first, initial.observations().getFirst().sourceNodeRefs().getFirst());
+        UUID bora = boundNodeId(first, initial.observations().getFirst().targetNodeRefs().getFirst());
+        UUID characterId = character("아라 린 얀델");
+        UUID profile = profileNodeAt(2, "아라 린과 다라는 함께 길을 떠났다.", "아라 린", "다라", characterId);
+
+        UUID third = job(3);
+        Context context = prepare(third);
+        confirmDiscovery(third, characterId, "아라");
+        apply(third, context, action(context, Operation.UPDATE, Kind.COMPANIONSHIP, "다시 함께 여행한다"));
+
+        assertMergedInto(alias, profile, 3, 1);
+        // The profile node's own first episode and link episode stay as recorded.
+        assertProfileLink(profile, characterId, 2, 2);
+        Graph latest = service.getRelationshipGraph(owner, workId, 3);
+        assertThat(latest.nodes()).extracting(n -> n.id()).doesNotContain(alias).contains(profile, bora);
+        assertThat(latest.nodes()).filteredOn(n -> n.id().equals(profile)).singleElement().satisfies(n -> {
+            assertThat(n.name()).isEqualTo("아라 린 얀델");
+            assertThat(n.profileRegistered()).isTrue();
+        });
+        assertThat(latest.edges()).allSatisfy(e -> assertThat(endpoints(e)).doesNotContain(alias));
+        assertThat(latest.edges()).filteredOn(e -> endpoints(e).equals(java.util.Set.of(profile, bora)))
+                .singleElement().extracting(Edge::summary).isEqualTo("다시 함께 여행한다");
+        Graph past = service.getRelationshipGraph(owner, workId, 1);
+        assertThat(past.nodes()).extracting(n -> n.id()).containsExactlyInAnyOrder(profile, bora);
+        assertThat(past.edges()).singleElement()
+                .satisfies(e -> assertThat(endpoints(e)).containsExactlyInAnyOrder(profile, bora));
+        assertThat(past.nodes()).filteredOn(n -> n.id().equals(profile)).singleElement().satisfies(n -> {
+            assertThat(n.name()).isEqualTo("아라");
+            assertThat(n.profileRegistered()).isFalse();
+        });
+
+        // The next context resolves the alias name to the profile node; no second node is made.
+        long before = nodeCount();
+        UUID fourth = job(4);
+        Context next = prepare(fourth);
+        assertThat(boundNodeId(fourth, next.observations().getFirst().sourceNodeRefs().getFirst()))
+                .isEqualTo(profile);
+        assertThat(nodeCount()).isEqualTo(before);
+
+        // V118's self-reference is NO ACTION, so the work purge's single node DELETE still passes.
+        // Same statements and order as WorkPurgeDataRepository (H2 lacks its non-entity tables).
+        tx.executeWithoutResult(t -> {
+            for (String table : List.of(
+                    "relationship_graph_events", "relationship_graph_edges", "relationship_graph_nodes"))
+                em.createNativeQuery("delete from " + table + " where work_id = ?1")
+                        .setParameter(1, workId).executeUpdate();
+        });
+        assertThat(nodeCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("합친 노드의 관계도 사용자 정정·삭제를 유지하고 재분석의 UPDATE·ADD가 되살리지 않는다")
+    void mergedNodeKeepsUserCorrectionAndSuppression() {
+        UUID first = job(1);
+        Context initial = prepare(first);
+        apply(
+                first,
+                initial,
+                action(initial, Operation.ADD, Kind.COMPANIONSHIP, "함께 여행한다"),
+                action(initial, Operation.ADD, Kind.FRIENDSHIP, "친구다"));
+        UUID alias = boundNodeId(first, initial.observations().getFirst().sourceNodeRefs().getFirst());
+        UUID bora = boundNodeId(first, initial.observations().getFirst().targetNodeRefs().getFirst());
+        Graph original = service.getRelationshipGraph(owner, workId, 1);
+        Edge companion = original.edges().stream().filter(e -> e.kind() == Kind.COMPANIONSHIP).findFirst().orElseThrow();
+        Edge friend = original.edges().stream().filter(e -> e.kind() == Kind.FRIENDSHIP).findFirst().orElseThrow();
+        service.correctRelationshipEdge(
+                owner, workId, companion.id(), new Correction(companion.version(), "사용자가 정정한 동행"));
+        service.deleteRelationshipEdge(owner, workId, friend.id(), friend.version());
+        long correctedVersion = service.getRelationshipGraph(owner, workId, 1).edges().getFirst().version();
+        UUID characterId = character("아라 린");
+        UUID profile = profileNodeAt(2, "아라 린과 다라는 함께 길을 떠났다.", "아라 린", "다라", characterId);
+
+        UUID third = job(3);
+        Context held = prepare(third);
+        confirmDiscovery(third, characterId, "아라");
+        apply(third, held, hold());
+        assertMergedInto(alias, profile, 3, 1);
+        assertThat(service.getRelationshipGraph(owner, workId, 3).edges())
+                .filteredOn(e -> endpoints(e).equals(java.util.Set.of(profile, bora)))
+                .singleElement()
+                .satisfies(e -> {
+                    assertThat(e.id()).isEqualTo(companion.id());
+                    assertThat(e.summary()).isEqualTo("사용자가 정정한 동행");
+                    // Redirecting the node is not an edge change.
+                    assertThat(e.version()).isEqualTo(correctedVersion);
+                });
+
+        UUID fourth = job(4);
+        Context again = prepare(fourth);
+        assertThat(boundNodeId(fourth, again.observations().getFirst().sourceNodeRefs().getFirst()))
+                .isEqualTo(profile);
+        assertThat(again.relationships()).noneMatch(r -> r.kind() == Kind.FRIENDSHIP);
+        apply(
+                fourth,
+                again,
+                action(again, Operation.UPDATE, Kind.COMPANIONSHIP, "자동 분석 설명"),
+                action(again, Operation.ADD, Kind.FRIENDSHIP, "다시 친구다"));
+        Graph after = service.getRelationshipGraph(owner, workId, 4);
+        assertThat(after.edges()).filteredOn(e -> endpoints(e).equals(java.util.Set.of(profile, bora)))
+                .singleElement()
+                .satisfies(e -> {
+                    assertThat(e.id()).isEqualTo(companion.id());
+                    assertThat(e.summary()).isEqualTo("사용자가 정정한 동행");
+                });
+        assertThat(after.edges()).noneMatch(e -> e.kind() == Kind.FRIENDSHIP);
+        Long friendshipEdges = tx.execute(t -> em.createQuery(
+                        "select count(e) from RelationshipGraphEdge e where e.workId=:work and e.kind=:kind", Long.class)
+                .setParameter("work", workId).setParameter("kind", Kind.FRIENDSHIP).getSingleResult());
+        assertThat(friendshipEdges).isEqualTo(1L);
+        // The update event recorded on the alias-node edge keeps both endpoint names oriented.
+        assertThat(relationshipEvents()).filteredOn(e -> e.getEpisodeNo() == 4).singleElement()
+                .satisfies(e -> assertThat(java.util.Set.of(e.getSourceName(), e.getTargetName()))
+                        .containsExactlyInAnyOrder("아라 린", "보라"));
+    }
+
+    @Test
+    @DisplayName("합친 노드와 프로필 노드 사이의 옛 관계는 숨기고 별칭 노드의 실패 쌍은 프로필 노드 쌍으로 계속 막는다")
+    void mergedNodeHidesSelfLoopAndResolvesBlockedPairs() {
+        String text = "아라와 아라 린과 보라는 함께 길을 떠났다.";
+        UUID characterId = character("아라 린");
+        UUID first = jobWithSource(1, text, false);
+        tx.executeWithoutResult(t -> jobs.findById(first).orElseThrow().enableRelationshipPartialResults());
+        Context c1 = prepareWith(first, text,
+                observation("O1", text, "아라", "아라 린"), observation("O2", text, "아라", "보라"));
+        confirmDiscovery(first, characterId, "아라 린");
+        service.completeRelationshipAnalysis(first, lease, new Complete(1, c1.contextToken(),
+                List.of(add(c1, "O1", Kind.COMPANIONSHIP, "함께 여행한다")),
+                List.of(new org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.GroupFailure(
+                        List.of("O2"), "RELATIONSHIP_ENDPOINTS_UNGROUNDED"))));
+        tx.executeWithoutResult(t -> service.finalizeRelationshipAnalysis(jobs.findById(first).orElseThrow()));
+        UUID alias = boundNodeId(first, c1.observations().getFirst().sourceNodeRefs().getFirst());
+        UUID profile = boundNodeId(first, c1.observations().getFirst().targetNodeRefs().getFirst());
+        UUID selfLoop = service.getRelationshipGraph(owner, workId, 1).edges().getFirst().id();
+
+        String text2 = "아라와 보라는 다시 만났다.";
+        UUID second = jobWithSource(2, text2, false);
+        tx.executeWithoutResult(t -> jobs.findById(second).orElseThrow().enableRelationshipPartialResults());
+        Context c2 = prepareWith(second, text2, observation("O1", text2, "아라", "보라"));
+        assertThat(c2.blockedPairs()).singleElement().extracting(b -> b.firstFailedEpisodeNo()).isEqualTo(1);
+        confirmDiscovery(second, characterId, "아라");
+        service.completeRelationshipAnalysis(second, lease, new Complete(1, c2.contextToken(), List.of(),
+                List.of(new org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.GroupFailure(
+                        List.of("O1"), "RELATIONSHIP_PREDECESSOR_INCOMPLETE"))));
+        tx.executeWithoutResult(t -> service.finalizeRelationshipAnalysis(jobs.findById(second).orElseThrow()));
+        assertMergedInto(alias, profile, 2, 1);
+
+        for (int no : List.of(1, 2)) {
+            Graph graph = service.getRelationshipGraph(owner, workId, no);
+            assertThat(graph.edges()).isEmpty();
+            assertThat(graph.totalEdgeCount()).isZero();
+            assertThatThrownBy(() -> service.getRelationshipEdge(owner, workId, selfLoop, no))
+                    .isInstanceOfSatisfying(AppException.class, failure -> assertThat(failure.getResultCode())
+                            .isEqualTo(org.monitoring.catchholebackend.domain.relationship.exception.RelationshipGraphErrorCode.RELATIONSHIP_GRAPH_NOT_FOUND));
+        }
+
+        UUID third = jobWithSource(3, text2, false);
+        tx.executeWithoutResult(t -> jobs.findById(third).orElseThrow().enableRelationshipPartialResults());
+        Context c3 = prepareWith(third, text2, observation("O1", text2, "아라", "보라"));
+        String sourceRef = c3.observations().getFirst().sourceNodeRefs().getFirst();
+        String targetRef = c3.observations().getFirst().targetNodeRefs().getFirst();
+        assertThat(boundNodeId(third, sourceRef)).isEqualTo(profile);
+        assertThat(c3.blockedPairs()).singleElement().satisfies(blocked -> {
+            assertThat(blocked.firstFailedEpisodeNo()).isEqualTo(1);
+            assertThat(java.util.Set.of(blocked.sourceNodeRef(), blocked.targetNodeRef()))
+                    .containsExactlyInAnyOrder(sourceRef, targetRef);
+        });
+        assertThat(c3.relationships()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("병합 전에 옛 노드로 동결한 문맥도 병합 뒤 충돌 없이 반영하고 조회는 프로필 노드로 보인다")
+    void staleFrozenBindingFinalizesAfterMerge() {
+        UUID first = job(1);
+        Context initial = prepare(first);
+        apply(first, initial, action(initial, Operation.ADD, Kind.COMPANIONSHIP, "함께 여행한다"));
+        UUID alias = boundNodeId(first, initial.observations().getFirst().sourceNodeRefs().getFirst());
+        UUID bora = boundNodeId(first, initial.observations().getFirst().targetNodeRefs().getFirst());
+        UUID characterId = character("아라 린");
+        UUID profile = profileNodeAt(2, "아라 린과 다라는 함께 길을 떠났다.", "아라 린", "다라", characterId);
+        UUID third = job(3);
+        Context frozen = prepare(third);
+        assertThat(boundNodeId(third, frozen.observations().getFirst().sourceNodeRefs().getFirst()))
+                .isEqualTo(alias);
+        // Frozen before any redirect: no alias dependency field, so its hashes stay as captured.
+        assertThat(analyses.findById(third).orElseThrow().getBindings().has("aliasDependencyVersion")).isFalse();
+
+        UUID fourth = job(4);
+        Context later = prepare(fourth);
+        confirmDiscovery(fourth, characterId, "아라");
+        apply(fourth, later, action(later, Operation.UPDATE, Kind.COMPANIONSHIP, "4화 동행"));
+        assertMergedInto(alias, profile, 4, 1);
+
+        apply(third, frozen, action(frozen, Operation.UPDATE, Kind.COMPANIONSHIP, "3화 동행"));
+        assertThat(analyses.findById(third).orElseThrow().getStatus()).isEqualTo(AnalysisStatus.APPLIED);
+        assertMergedInto(alias, profile, 4, 1);
+        for (int no : List.of(3, 4)) {
+            Graph graph = service.getRelationshipGraph(owner, workId, no);
+            assertThat(graph.nodes()).extracting(n -> n.id()).doesNotContain(alias);
+            assertThat(graph.edges()).filteredOn(e -> endpoints(e).equals(java.util.Set.of(profile, bora)))
+                    .singleElement().extracting(Edge::summary).isEqualTo(no + "화 동행");
+        }
+    }
+
+    @Test
+    @DisplayName("같은 반영에서 프로필로 합쳐질 별칭 노드의 ADD도 프로필 노드에서 삭제한 관계를 되살리지 않는다")
+    void addOnAliasMergedInSameFinalizeRespectsProfileDeletion() {
+        UUID characterId = character("아라 린");
+        UUID profile = profileNodeAt(1, "아라 린과 보라는 함께 길을 떠났다.", "아라 린", "보라", characterId);
+        Edge deleted = service.getRelationshipGraph(owner, workId, 1).edges().getFirst();
+        service.deleteRelationshipEdge(owner, workId, deleted.id(), deleted.version());
+
+        // 2화 prepare 때 "아라"는 아직 별칭이 아니므로 독립 노드다. 확정은 이 Job 안에서 일어난다.
+        String text = "아라와 보라는 다시 만났다.";
+        UUID second = jobWithSource(2, text, false);
+        Context context = prepareWith(second, text, observation("O1", text, "아라", "보라"));
+        UUID alias = boundNodeId(second, context.observations().getFirst().sourceNodeRefs().getFirst());
+        assertThat(alias).isNotEqualTo(profile);
+        assertThat(context.relationships()).isEmpty();
+        confirmDiscovery(second, characterId, "아라");
+        apply(second, context, add(context, "O1", Kind.COMPANIONSHIP, "다시 함께 여행한다"));
+
+        assertMergedInto(alias, profile, 2, 2);
+        assertThat(service.getRelationshipGraph(owner, workId, 2).edges()).isEmpty();
+        Long companionEdges = tx.execute(t -> em.createQuery(
+                        "select count(e) from RelationshipGraphEdge e where e.workId=:work and e.kind=:kind", Long.class)
+                .setParameter("work", workId).setParameter("kind", Kind.COMPANIONSHIP).getSingleResult());
+        assertThat(companionEdges).isEqualTo(1L);
+    }
+
+    @ParameterizedTest(name = "partial={0}")
+    @ValueSource(booleans = {false, true})
+    @DisplayName("별칭으로 프로필 노드에 묶였던 보류 관측은 대표 이름만 나오는 회차에서도 같은 인물 쌍으로 다시 제공한다")
+    void heldAliasObservationResolvesThroughItsFrozenProfileNode(boolean partial) {
+        UUID characterId = character("아라 린");
+        UUID profile = profileNodeAt(1, "아라 린과 보라는 함께 길을 떠났다.", "아라 린", "보라", characterId);
+        confirmedAliasAt(2, "아라는 웃었다.", characterId, "아라");
+
+        String aliasText = "아라와 보라는 다시 만났다.";
+        UUID third = jobWithSource(3, aliasText, false);
+        if (partial) tx.executeWithoutResult(t -> jobs.findById(third).orElseThrow().enableRelationshipPartialResults());
+        Context held = prepareWith(third, aliasText, observation("O1", aliasText, "아라", "보라"));
+        assertThat(boundNodeId(third, held.observations().getFirst().sourceNodeRefs().getFirst())).isEqualTo(profile);
+        apply(third, held, hold());
+
+        String fullText = "아라 린과 보라는 웃었다.";
+        UUID fourth = jobWithSource(4, fullText, false);
+        if (partial) tx.executeWithoutResult(t -> jobs.findById(fourth).orElseThrow().enableRelationshipPartialResults());
+        Context next = prepareWith(fourth, fullText, observation("O1", fullText, "아라 린", "보라"));
+        var current = next.observations().getFirst();
+        assertThat(boundNodeId(fourth, current.sourceNodeRefs().getFirst())).isEqualTo(profile);
+        assertThat(next.heldObservations()).singleElement().satisfies(h -> {
+            assertThat(h.source().name()).isEqualTo("아라");
+            assertThat(h.sourceNodeRefs()).isEqualTo(current.sourceNodeRefs());
+            assertThat(h.targetNodeRefs()).isEqualTo(current.targetNodeRefs());
+            assertThat(h.sourceEpisodeNo()).isEqualTo(3);
+        });
+        // The model can now resolve the held evidence together with the current observation.
+        Decision add = add(next, "O1", Kind.COMPANIONSHIP, "다시 함께 여행한다");
+        String relationship = next.relationships().getFirst().ref();
+        var r = next.relationships().getFirst();
+        apply(fourth, next, new Decision(List.of("O1", "H1"), Operation.UPDATE, relationship, r.sourceNodeRef(),
+                r.targetNodeRef(), r.axis(), r.kind(), r.label(), add.summary(), r.direction(),
+                TemporalScope.PRESENT, null));
+        assertThat(service.getRelationshipGraph(owner, workId, 4).partial()).isFalse();
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"correction", "deletion", "correction-partial", "deletion-partial"})
+    @DisplayName("병합 뒤 준비한 문맥은 프로필 노드로 투영한 별칭 노드 관계의 사용자 정정·삭제도 충돌로 거부한다")
+    void userChangeOnRedirectedEdgeAfterPrepareRejectsStaleComparison(String mutation) {
+        UUID first = job(1);
+        Context initial = prepare(first);
+        apply(first, initial, action(initial, Operation.ADD, Kind.COMPANIONSHIP, "함께 여행한다"));
+        UUID alias = boundNodeId(first, initial.observations().getFirst().sourceNodeRefs().getFirst());
+        UUID bora = boundNodeId(first, initial.observations().getFirst().targetNodeRefs().getFirst());
+        UUID characterId = character("아라 린");
+        UUID profile = profileNodeAt(2, "아라 린과 다라는 함께 길을 떠났다.", "아라 린", "다라", characterId);
+        UUID third = job(3);
+        Context merging = prepare(third);
+        confirmDiscovery(third, characterId, "아라");
+        apply(third, merging, hold());
+        assertMergedInto(alias, profile, 3, 1);
+
+        UUID fourth = job(4);
+        if (mutation.endsWith("partial"))
+            tx.executeWithoutResult(t -> jobs.findById(fourth).orElseThrow().enableRelationshipPartialResults());
+        Context frozen = prepare(fourth);
+        assertThat(boundNodeId(fourth, frozen.observations().getFirst().sourceNodeRefs().getFirst())).isEqualTo(profile);
+        // The alias-node edge is projected onto the profile node's ref.
+        var observed = frozen.observations().getFirst();
+        var pair = java.util.Set.of(observed.sourceNodeRefs().getFirst(), observed.targetNodeRefs().getFirst());
+        var projected = frozen.relationships().stream()
+                .filter(r -> java.util.Set.of(r.sourceNodeRef(), r.targetNodeRef()).equals(pair))
+                .findFirst().orElseThrow();
+        assertThat(UUID.fromString(analyses.findById(fourth).orElseThrow().getBindings()
+                .path("relationships").path(projected.ref()).asText()))
+                .isEqualTo(service.getRelationshipGraph(owner, workId, 1).edges().getFirst().id());
+        var aliasPairs = analyses.findById(fourth).orElseThrow().getBindings().path("aliasDependencyPairs");
+        assertThat(aliasPairs.isArray()).isTrue();
+        assertThat(aliasPairs).extracting(com.fasterxml.jackson.databind.JsonNode::asText)
+                .contains(org.monitoring.catchholebackend.domain.relationship.processor.RelationshipGraphRules
+                        .pair(alias.toString(), bora.toString()));
+        Decision update = new Decision(List.of("O1"), Operation.UPDATE, projected.ref(), projected.sourceNodeRef(),
+                projected.targetNodeRef(), projected.axis(), projected.kind(), projected.label(), "새 설명",
+                projected.direction(), TemporalScope.PRESENT, null);
+        Edge edge = service.getRelationshipGraph(owner, workId, 3).edges().stream()
+                .filter(e -> endpoints(e).equals(java.util.Set.of(profile, bora))).findFirst().orElseThrow();
+        if (mutation.startsWith("correction"))
+            service.correctRelationshipEdge(owner, workId, edge.id(), new Correction(edge.version(), "사용자가 바로잡은 설명"));
+        else service.deleteRelationshipEdge(owner, workId, edge.id(), edge.version());
+
+        java.util.function.Consumer<AppException> conflict = failure -> assertThat(failure.getResultCode())
+                .isEqualTo(org.monitoring.catchholebackend.domain.relationship.exception.RelationshipGraphErrorCode.RELATIONSHIP_GRAPH_CONFLICT);
+        assertThatThrownBy(() -> service.getRelationshipAnalysis(fourth, lease))
+                .isInstanceOfSatisfying(AppException.class, conflict);
+        assertThatThrownBy(() -> service.completeRelationshipAnalysis(fourth, lease,
+                new Complete(1, frozen.contextToken(), List.of(update))))
+                .isInstanceOfSatisfying(AppException.class, conflict);
+        assertThat(analyses.findById(fourth).orElseThrow().getStatus()).isEqualTo(AnalysisStatus.PREPARED);
+    }
+
+    private org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.Node graphNode(
+            int episodeNo, UUID nodeId) {
+        return service.getRelationshipGraph(owner, workId, episodeNo).nodes().stream()
+                .filter(n -> n.id().equals(nodeId)).findFirst().orElseThrow();
+    }
+
+    @Test
+    @DisplayName("등록 회차부터 노드 이름은 현재 프로필 이름을 따라가고 미등록·보관·삭제 프로필은 관측 이름으로 돌아간다")
+    void registeredNodeDisplaysProfileNameAndFollowsRename() {
+        UUID first = job(1);
+        Context initial = prepare(first);
+        apply(first, initial, action(initial, Operation.ADD, Kind.COMPANIONSHIP, "함께 여행한다"));
+        UUID nodeId = boundNodeId(first, initial.observations().getFirst().sourceNodeRefs().getFirst());
+        UUID characterId = character("아라 린");
+        UUID second = job(2);
+        Context later = prepare(second);
+        confirmDiscovery(second, characterId, "아라");
+        apply(second, later, action(later, Operation.UPDATE, Kind.COMPANIONSHIP, "함께 여행한다"));
+        assertProfileLink(nodeId, characterId, 1, 2);
+
+        assertThat(graphNode(1, nodeId)).satisfies(n -> {
+            assertThat(n.name()).isEqualTo("아라");
+            assertThat(n.profileRegistered()).isFalse();
+        });
+        var statistics = em.getEntityManagerFactory().unwrap(org.hibernate.SessionFactory.class).getStatistics();
+        boolean previouslyEnabled = statistics.isStatisticsEnabled();
+        statistics.setStatisticsEnabled(true);
+        statistics.clear();
+        Graph registered;
+        try {
+            registered = service.getRelationshipGraph(owner, workId, 2);
+            assertThat(statistics.getEntityStatistics(WorkCharacter.class.getName()).getLoadCount()).isZero();
+            assertThat(statistics.getEntityStatistics(AnalysisJob.class.getName()).getLoadCount()).isZero();
+            assertThat(java.util.Arrays.stream(statistics.getQueries())
+                    .filter(q -> q.contains("WorkCharacter") && q.contains("character.name as name"))
+                    .mapToLong(q -> statistics.getQueryStatistics(q).getExecutionCount()).sum()).isEqualTo(1);
+        } finally {
+            statistics.setStatisticsEnabled(previouslyEnabled);
+        }
+        assertThat(registered.nodes()).filteredOn(n -> n.id().equals(nodeId)).singleElement().satisfies(n -> {
+            assertThat(n.name()).isEqualTo("아라 린");
+            assertThat(n.profileRegistered()).isTrue();
+        });
+        var detail = service.getRelationshipEdge(owner, workId, registered.edges().getFirst().id(), 2);
+        assertThat(List.of(detail.sourceNode(), detail.targetNode()))
+                .filteredOn(n -> n.id().equals(nodeId)).singleElement()
+                .satisfies(n -> assertThat(n.name()).isEqualTo("아라 린"));
+
+        tx.executeWithoutResult(t -> em.find(WorkCharacter.class, characterId).updateBasicInfo("아라 린 2", null));
+        Graph renamed = service.getRelationshipGraph(owner, workId, 2);
+        assertThat(renamed.nodes()).filteredOn(n -> n.id().equals(nodeId)).singleElement()
+                .satisfies(n -> assertThat(n.name()).isEqualTo("아라 린 2"));
+        assertThat(renamed.revision()).isNotEqualTo(registered.revision());
+        assertThat(graphNode(1, nodeId).name()).isEqualTo("아라");
+
+        // An archived profile is no longer on the dashboard: fall back to the observed name.
+        tx.executeWithoutResult(t -> em.find(WorkCharacter.class, characterId).archive());
+        assertThat(graphNode(2, nodeId)).satisfies(n -> {
+            assertThat(n.name()).isEqualTo("아라");
+            assertThat(n.profileRegistered()).isTrue();
+        });
+        // Deleting a profile sets the node FK to null (ON DELETE SET NULL): unregistered again.
+        tx.executeWithoutResult(t -> {
+            em.find(WorkCharacter.class, characterId).restore();
+            em.createNativeQuery("update relationship_graph_nodes set character_id = null where id = ?1")
+                    .setParameter(1, nodeId).executeUpdate();
+        });
+        assertThat(graphNode(2, nodeId)).satisfies(n -> {
+            assertThat(n.name()).isEqualTo("아라");
+            assertThat(n.profileRegistered()).isFalse();
+        });
+        tx.executeWithoutResult(t -> assertThat(em.find(RelationshipGraphNode.class, nodeId).getName())
+                .isEqualTo("아라"));
+    }
+
+    @Test
+    @DisplayName("별칭 조회는 확정 후보가 많아도 scalar 조회 한 번이며 후보와 원 분석 Job을 적재하지 않는다")
+    void aliasLookupIsScalarAndDoesNotHydrateCandidatesOrJobs() {
+        UUID characterId = character("아라 린");
+        UUID profileNode =
+                profileNodeAt(1, "아라 린과 보라는 함께 길을 떠났다.", "아라 린", "보라", characterId);
+        for (int i = 0; i < 15; i++) {
+            confirmedAliasAt(2, "아라는 웃었다.", characterId, "아라");
+            confirmedAliasAt(2, "아라는 웃었다.", character("관측되지 않은 인물 " + i), "관측되지 않은 인물 " + i);
+        }
+        String text = "아라와 보라는 다시 만났다.";
+        UUID third = jobWithSource(3, text, false);
+
+        var statistics = em.getEntityManagerFactory().unwrap(org.hibernate.SessionFactory.class).getStatistics();
+        boolean previouslyEnabled = statistics.isStatisticsEnabled();
+        statistics.setStatisticsEnabled(true);
+        statistics.clear();
+        Context context;
+        try {
+            context = prepareWith(third, text, observation("O1", text, "아라", "보라"));
+            assertThat(statistics.getEntityStatistics(SettingCandidate.class.getName()).getLoadCount()).isZero();
+            // Only the running job itself, once per prepare transaction (S3 read happens between).
+            assertThat(statistics.getEntityStatistics(AnalysisJob.class.getName()).getLoadCount()).isEqualTo(2);
+            assertThat(identityQueryExecutions(statistics)).isEqualTo(1);
+        } finally {
+            statistics.setStatisticsEnabled(previouslyEnabled);
+        }
+        assertThat(boundNodeId(third, context.observations().getFirst().sourceNodeRefs().getFirst()))
+                .isEqualTo(profileNode);
     }
 
     private Decision action(Context context, Operation operation, Kind kind, String summary) {
@@ -808,9 +1488,12 @@ class EpisodeRelationshipGraphIntegrationTest {
         Graph latest = service.getRelationshipGraph(owner, workId, 2);
         assertThat(latest.edges().getFirst().id()).isEqualTo(firstGraph.edges().getFirst().id());
         assertThat(latest.nodes()).extracting(n -> n.id()).containsExactlyInAnyOrder(ara, bora);
-        assertThat(latest.nodes()).extracting(n -> n.name()).containsExactlyInAnyOrder("아라", "보라");
+        // GH382: from its registration episode the node shows the current profile name.
+        assertThat(latest.nodes()).extracting(n -> n.name())
+                .containsExactlyInAnyOrder("미래의 현재 프로필 이름", "보라");
         assertThat(service.getRelationshipGraph(owner, workId, 1).nodes())
-                .allSatisfy(n -> assertThat(n.profileRegistered()).isFalse());
+                .allSatisfy(n -> assertThat(n.profileRegistered()).isFalse())
+                .extracting(n -> n.name()).containsExactlyInAnyOrder("아라", "보라");
         tx.executeWithoutResult(
                 status -> {
                     em.clear();
@@ -1037,14 +1720,18 @@ class EpisodeRelationshipGraphIntegrationTest {
         assertThat(service.getRelationshipGraph(owner, workId, 1).nodes())
                 .filteredOn(n -> n.id().equals(nodeId))
                 .singleElement()
-                .satisfies(n -> assertThat(n.profileRegistered()).isFalse());
+                .satisfies(n -> {
+                    assertThat(n.profileRegistered()).isFalse();
+                    assertThat(n.name()).isEqualTo("아라");
+                });
+        // GH382: the registered node shows the current profile name, not the observed one.
         assertThat(service.getRelationshipGraph(owner, workId, 2).nodes())
                 .filteredOn(n -> n.id().equals(nodeId))
                 .singleElement()
                 .satisfies(
                         n -> {
                             assertThat(n.profileRegistered()).isTrue();
-                            assertThat(n.name()).isEqualTo("아라");
+                            assertThat(n.name()).isEqualTo("현재 프로필의 다른 이름");
                         });
     }
 

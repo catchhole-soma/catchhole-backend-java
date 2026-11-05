@@ -53,6 +53,20 @@ public interface WorkCharacterRepository extends JpaRepository<WorkCharacter, UU
 
     boolean existsByWorkIdAndName(UUID workId, String name);
 
+    /** 관계도 표시 이름용 scalar 조회. 프로필·스냅샷 jsonb 열을 가진 엔티티를 올리지 않는다. */
+    @Query("""
+            select character.id as id, character.name as name
+            from WorkCharacter character
+            where character.work.id = :workId
+              and character.status = :status
+              and character.id in :ids
+            """)
+    List<WorkCharacterNameRow> findNamesByWorkIdAndStatusAndIdIn(
+            @Param("workId") UUID workId,
+            @Param("status") CharacterStatus status,
+            @Param("ids") java.util.Collection<UUID> ids
+    );
+
     List<WorkCharacter> findAllByWorkIdAndStatusOrderByCreatedAtDesc(
             UUID workId,
             CharacterStatus status
