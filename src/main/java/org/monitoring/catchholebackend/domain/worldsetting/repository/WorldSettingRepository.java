@@ -18,6 +18,16 @@ public interface WorldSettingRepository extends JpaRepository<WorldSetting, UUID
 
     List<WorldSetting> findAllByWorkIdOrderByIdAsc(UUID workId);
 
+    /** #381 검수 live 설정 색인 순서(id)의 id·대상 이름·version. */
+    @Query("""
+            select new org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingVersion(
+                worldSetting.id, worldSetting.subjectName, worldSetting.version)
+            from WorldSetting worldSetting
+            where worldSetting.work.id = :workId
+            order by worldSetting.id
+            """)
+    List<WorldSettingVersion> findSettingVersions(@Param("workId") UUID workId);
+
     long countByWorkId(UUID workId);
 
     Optional<WorldSetting> findByIdAndWorkId(UUID id, UUID workId);

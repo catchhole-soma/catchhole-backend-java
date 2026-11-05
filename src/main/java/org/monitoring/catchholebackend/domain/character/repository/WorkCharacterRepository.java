@@ -74,6 +74,20 @@ public interface WorkCharacterRepository extends JpaRepository<WorkCharacter, UU
 
     List<WorkCharacter> findAllByWorkIdOrderByCreatedAtDesc(UUID workId);
 
+    /** #381 검수 live 설정 색인 순서(생성 역순, 같은 시각이면 id)의 id·이름·snapshotVersion. */
+    @Query("""
+            select new org.monitoring.catchholebackend.domain.character.repository.CharacterSettingVersion(
+                character.id, character.name, character.snapshotVersion)
+            from WorkCharacter character
+            where character.work.id = :workId
+              and character.status = :status
+            order by character.createdAt desc, character.id
+            """)
+    List<CharacterSettingVersion> findSettingVersions(
+            @Param("workId") UUID workId,
+            @Param("status") CharacterStatus status
+    );
+
     Page<WorkCharacter> findAllByWorkIdAndStatusOrderByUpdatedAtDescIdDesc(
             UUID workId,
             CharacterStatus status,

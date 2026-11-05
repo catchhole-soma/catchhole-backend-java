@@ -61,6 +61,31 @@ public class CharacterAnalysisStateMapper {
         return state;
     }
 
+    /**
+     * #381 검수 live 설정 행. {@link #toState}와 같은 key 순서·slot 값이지만 provenance·근거·이력은 넣지 않는다
+     * (후보·Fact·Job을 읽지 않기 위함이며 AI 모델 투영이 버리는 값이다).
+     */
+    public ObjectNode toCurrentValueState(WorkCharacter character, List<String> aliases,
+            Map<CharacterSnapshotSlot, CharacterSnapshotEntry> entries) {
+        ObjectNode state = identity(character.getName(), character.getSnapshotVersion());
+        state.set("currentNarrativeTime", copy(character.getCurrentNarrativeTime()));
+        state.put("actualCharacterId", character.getId().toString());
+        state.putNull("provisionalSubjectKey");
+        state.set("protectedSlots", character.getManuallyEditedSlots().deepCopy());
+        state.remove("historyFacts");
+        ArrayNode names = state.putArray("aliases");
+        aliases.forEach(names::add);
+        ObjectNode slots = state.withObject("slots");
+        entries.values().stream()
+                .sorted(Comparator.comparing(entry -> slotKey(entry.slot())))
+                .forEach(entry -> {
+                    ObjectNode slot = toSlot(entry, "CONFIRMED", null, List.of());
+                    slot.remove("provenance");
+                    slots.set(slotKey(entry.slot()), slot);
+                });
+        return state;
+    }
+
     public static ObjectNode currentProvenance(WorkCharacter character, CharacterSnapshotEntry entry, List<CharacterFact> sources) {
         return currentProvenance(character, entry, sources, null);
     }

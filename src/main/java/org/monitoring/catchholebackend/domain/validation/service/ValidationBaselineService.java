@@ -45,6 +45,7 @@ public class ValidationBaselineService {
     private final ApplicationEventPublisher events;
     private final ValidationSettingsApplicationRepository applications;
     private final AnalysisJobSourceRepository sourceJobs;
+    private final org.monitoring.catchholebackend.domain.validation.processor.ValidationLiveSettings liveSettings;
 
     public void prepare(ValidationReport report) {
         if (!report.isCurrent() || report.getBaselineSeed() != null || report.getStatus() == ValidationReportStatus.INVALIDATED) return;
@@ -89,7 +90,7 @@ public class ValidationBaselineService {
         seed.set("worldSettings", confirmed.path("worldSettings").deepCopy());
         seed.set("worldHistory", captureWorldHistory(report, views));
         var authorCorrections = seed.putArray("explicitAuthorCorrections");
-        authorCorrections.addAll(correctionScopes(report));
+        authorCorrections.addAll(liveSettings.correctionScopes(report.getWork().getId()));
         ArrayNode manifests = seed.putArray("sources");
         for (var episode : episodes.findAllByWorkIdAndStatusNotOrderByEpisodeNoDesc(report.getWork().getId(), EpisodeStatus.ARCHIVED)) {
             if (episode.getEpisodeNo() >= report.getSourceEpisodeNo() || episode.getContentHash() == null
@@ -246,7 +247,7 @@ public class ValidationBaselineService {
 
     /** 실제 편집 영수증의 단일 slot/path만 확정 전 입력에 정정한다. 다른 live 현재값을 혼합하지 않는다. */
     private boolean applyDiagnosticCorrections(ObjectNode confirmed, ValidationReport report) {
-        for (var scope : correctionScopes(report)) {
+        for (var scope : liveSettings.correctionScopes(report.getWork().getId())) {
             String domain = scope.path("domain").asText();
             String ref = (domain.equals("characters") ? "character:" : "world:") + scope.path("targetId").asText();
             JsonNode value = confirmed.path(domain).path(ref);
@@ -284,18 +285,6 @@ public class ValidationBaselineService {
             } else return false;
         }
         return true;
-    }
-    private ArrayNode correctionScopes(ValidationReport report) {
-        var scopes = new LinkedHashMap<String, JsonNode>();
-        for (var correction : corrections.findAllByWorkIdOrderByCreatedAtAscIdAsc(report.getWork().getId())) {
-            ObjectNode scope = correction.getScope().deepCopy();
-            for (var prior : scope.path("priorCorrections")) scopes.putIfAbsent(prior.path("correctionId").asText(), prior.deepCopy());
-            scope.remove("priorCorrections");
-            scope.put("kind", "AUTHOR_CORRECTION").put("correctionId", correction.getId().toString()).put("baselineId", correction.getReport().getId().toString())
-                    .put("baselineRevision", correction.getBaselineRevision()).put("entryRef", correction.getEntryRef()).put("entryHash", correction.getEntryHash());
-            scopes.put(correction.getId().toString(), scope);
-        }
-        var result = JsonNodeFactory.instance.arrayNode(); scopes.values().forEach(result::add); return result;
     }
     private ObjectNode manualCorrectionProvenance() {
         var value = JsonNodeFactory.instance.objectNode().put("confirmationStatus", "CONFIRMED").put("reviewSource", "HUMAN").put("currentValueProtected", true);
