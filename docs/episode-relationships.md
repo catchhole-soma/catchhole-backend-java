@@ -187,7 +187,7 @@ PATCH 입력은 `{expectedVersion,summary}`이며 summary는 앞뒤 공백 없�
 
 Flyway V101이 `relationship_graph_analyses/nodes/edges/events`와 `analysis_jobs.relationship_analysis_enabled`를 추가한다. 관계 event는 analysis+edge마다 하나이며 회차별 읽기는 최신 유효 분석만 사용한다. 관계 edge와 node는 재분석 후에도 ID를 보존해 사용자 수정과 삭제를 유지한다.
 
-Flyway V119(GH382)는 `relationship_graph_nodes`에 `merged_into_node_id`(같은 표의 자기참조 FK, NO ACTION)와 `merged_at_episode_no`, 자기 자신·프로필 연결 노드의 병합을 막는 CHECK, `(work_id, character_id)` 부분 색인을 추가한다. 운영의 분리 데이터가 위반하므로 unique 제약은 1회 정리 뒤로 미룬다.
+Flyway V118(GH382)는 `relationship_graph_nodes`에 `merged_into_node_id`(같은 표의 자기참조 FK, NO ACTION)와 `merged_at_episode_no`, 자기 자신·프로필 연결 노드의 병합을 막는 CHECK, `(work_id, character_id)` 부분 색인을 추가한다. 운영의 분리 데이터가 위반하므로 unique 제약은 1회 정리 뒤로 미룬다.
 
 작품 파기는 관계 event→edge→node→analysis 순서로 삭제한다. 노드는 작품 단위 단일 DELETE라 자기참조 FK가 있어도 순서는 바뀌지 않는다. 회차 원문 파기는 해당 회차 이후의 동결 Context/decision/failure/binding과 복사된 인용을 지우고 후행 결과를 무효화한다. 캐릭터 삭제는 노드의 profile FK만 null로 만들고 관계 이력을 보존한다. 그 노드는 미등록으로 돌아가 표시 이름도 관측 이름으로 돌아간다. 병합된 노드는 `character_id`가 null이라 영향이 없다.
 

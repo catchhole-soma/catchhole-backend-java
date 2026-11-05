@@ -484,7 +484,7 @@ class EpisodeRelationshipGraphIntegrationTest {
                 .isEqualTo(profile);
         assertThat(nodeCount()).isEqualTo(before);
 
-        // V119's self-reference is NO ACTION, so the work purge's single node DELETE still passes.
+        // V118's self-reference is NO ACTION, so the work purge's single node DELETE still passes.
         // Same statements and order as WorkPurgeDataRepository (H2 lacks its non-entity tables).
         tx.executeWithoutResult(t -> {
             for (String table : List.of(
