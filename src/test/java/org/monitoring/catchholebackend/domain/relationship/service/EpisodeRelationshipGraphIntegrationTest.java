@@ -646,6 +646,32 @@ class EpisodeRelationshipGraphIntegrationTest {
         }
     }
 
+    @Test
+    @DisplayName("같은 반영에서 프로필로 합쳐질 별칭 노드의 ADD도 프로필 노드에서 삭제한 관계를 되살리지 않는다")
+    void addOnAliasMergedInSameFinalizeRespectsProfileDeletion() {
+        UUID characterId = character("아라 린");
+        UUID profile = profileNodeAt(1, "아라 린과 보라는 함께 길을 떠났다.", "아라 린", "보라", characterId);
+        Edge deleted = service.getRelationshipGraph(owner, workId, 1).edges().getFirst();
+        service.deleteRelationshipEdge(owner, workId, deleted.id(), deleted.version());
+
+        // 2화 prepare 때 "아라"는 아직 별칭이 아니므로 독립 노드다. 확정은 이 Job 안에서 일어난다.
+        String text = "아라와 보라는 다시 만났다.";
+        UUID second = jobWithSource(2, text, false);
+        Context context = prepareWith(second, text, observation("O1", text, "아라", "보라"));
+        UUID alias = boundNodeId(second, context.observations().getFirst().sourceNodeRefs().getFirst());
+        assertThat(alias).isNotEqualTo(profile);
+        assertThat(context.relationships()).isEmpty();
+        confirmDiscovery(second, characterId, "아라");
+        apply(second, context, add(context, "O1", Kind.COMPANIONSHIP, "다시 함께 여행한다"));
+
+        assertMergedInto(alias, profile, 2, 2);
+        assertThat(service.getRelationshipGraph(owner, workId, 2).edges()).isEmpty();
+        Long companionEdges = tx.execute(t -> em.createQuery(
+                        "select count(e) from RelationshipGraphEdge e where e.workId=:work and e.kind=:kind", Long.class)
+                .setParameter("work", workId).setParameter("kind", Kind.COMPANIONSHIP).getSingleResult());
+        assertThat(companionEdges).isEqualTo(1L);
+    }
+
     private org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.Node graphNode(
             int episodeNo, UUID nodeId) {
         return service.getRelationshipGraph(owner, workId, episodeNo).nodes().stream()

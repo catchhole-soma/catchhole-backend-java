@@ -444,6 +444,10 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         // One node load serves event-name orientation, alias-slot suppression and profile linking.
         NodeIndex index =
                 new NodeIndex(nodes.findAllByWorkIdOrderByFirstEpisodeNoAscIdAsc(job.getWork().getId()));
+        // Apply this job's confirmed links/merges before its decisions. Linking reads only the
+        // frozen context and node rows, never edges, so the outcome is unchanged; but an ADD on a
+        // node that this job merges into a profile must already see that profile's deletions.
+        linkConfirmedCharacters(job, analysis, context, index);
         Set<String> suppressedKeys = null;
         Map<String, ContextNode> contextNodes =
                 context.nodes().stream().collect(Collectors.toMap(ContextNode::ref, n -> n));
@@ -548,7 +552,6 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                             evidence));
             edge.changed();
         }
-        linkConfirmedCharacters(job, analysis, context, index);
         analysis.apply();
         // A late ordinary episode adds its own dated event. Later PRESENT decisions (including
         // MERGE) remain the decisions made for their episodes, not materialized predecessor state.
