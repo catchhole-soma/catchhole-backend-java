@@ -46,4 +46,13 @@ public interface WorldSettingService {
             UUID worldSettingId,
             WorldSettingPropertyUpdateRequest request
     );
+
+    /** 검수 리포트 자신의 정정 전용 설정 수정. updateWorldSettingProperty와 같지만 그 리포트의 검토 단계 설정 잠금만 통과한다(#381). */
+    WorldSettingDetailResponse correctWorldSettingProperty(
+            Long memberId,
+            UUID workId,
+            UUID worldSettingId,
+            WorldSettingPropertyUpdateRequest request,
+            UUID reportId
+    );
 }

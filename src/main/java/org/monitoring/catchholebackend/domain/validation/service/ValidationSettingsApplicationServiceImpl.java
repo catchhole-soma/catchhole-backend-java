@@ -93,7 +93,7 @@ public class ValidationSettingsApplicationServiceImpl implements ValidationSetti
             case NOT_READY->throw error(VALIDATION_APPLICATION_NOT_READY);
             case HELD->hold(receipt,ValidationReviewTrigger.EXPLICIT,request.idempotencyKey(),hash,decision.reasons(),null);
             case READY->{
-                // #381: 작가의 회차 전체 확정은 다른 회차의 검수가 실행 중이면 확정 설정을 쓰지 않는다. 보류 기록(HELD)은 설정을 쓰지 않아 막지 않는다.
+                // #381: 작가의 회차 전체 확정은 다른 회차의 검수가 확정 설정을 잠근 동안 쓰지 않는다. 보류 기록(HELD)은 설정을 쓰지 않아 막지 않는다.
                 settingsLock.assertUnlocked(workId);
                 yield applyPlan(receipt,decision,ValidationReviewTrigger.EXPLICIT,request.idempotencyKey(),hash);
             }

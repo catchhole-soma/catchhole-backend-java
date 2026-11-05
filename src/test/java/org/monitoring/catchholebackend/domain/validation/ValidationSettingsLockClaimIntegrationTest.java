@@ -23,11 +23,11 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Transactional;
 
-/** #381: 검수 실행이 확정 설정을 잠근 동안 같은 작품의 자동 확정 설정 writer는 claim되지 않는다. 다른 작품과 다른 Job 종류는 그대로다. */
+/** #381: 검수가 접수부터 검토 종료까지 확정 설정을 잠근 동안 같은 작품의 자동 확정 설정 writer는 claim되지 않는다. 다른 작품과 다른 Job 종류, 검토 종료가 만든 release는 그대로다. */
 @SpringBootTest(properties="spring.config.import=") @AutoConfigureMockMvc @ActiveProfiles("test") @Transactional
 @TestPropertySource(locations="classpath:validation-execution-fixture.properties")
-@DisplayName("#381 검수 실행 중 자동 설정 작업의 claim 보류")
-class ValidationSettingsLockClaimIntegrationTest extends ValidationWorkerFixture {
+@DisplayName("#381 검수 접수부터 검토 종료까지 자동 설정 작업의 claim 보류")
+class ValidationSettingsLockClaimIntegrationTest extends ValidationReviewFixture {
     @Autowired AnalysisJobClaimRepository claims;
 
     @ParameterizedTest(name="{0}")
@@ -45,6 +45,32 @@ class ValidationSettingsLockClaimIntegrationTest extends ValidationWorkerFixture
         internal(path(job,"/complete"),job,Map.of("scope",scope(job),"idempotencyKey","stop","failureCode","MODEL_CALL_FAILED"),200);
         assertThat(claimable(type)).as("검수 실행 종료 뒤").contains(own);
         assertThat(em.createNativeQuery("select status from validation_jobs where id=?1").setParameter(1,jobId).getSingleResult()).isEqualTo("FAILED");
+    }
+
+    @ParameterizedTest(name="{0}")
+    @EnumSource(value=AnalysisJobType.class,names={"SETTING_EXTRACTION","CHARACTER_FACT_COMPARISON","WORLD_SETTING_COMPARISON"})
+    @DisplayName("실행이 끝나도 검토 종료 전에는 같은 작품의 추출·비교 Job을 claim하지 않고 검토를 마치면 claim한다")
+    void settingWritersWaitUntilReviewCompletion(AnalysisJobType type) throws Exception {
+        UUID report=UUID.fromString(typoReviewPending().path("reportId").asText());
+        UUID own=pending(type,em.find(Work.class,work.getId()),em.find(Episode.class,prior.getId()));
+        assertThat(claimable(type)).as("검토 단계").isEmpty();
+        completeReviewKeepingTypos(report);
+        assertThat(claimable(type)).as("검토 종료 뒤").contains(own);
+    }
+
+    @Test @DisplayName("작가의 검토 종료가 같은 트랜잭션에서 만든 release 추출 Job은 잠금에 막히지 않고 claim된다")
+    void releaseJobCreatedAtExplicitReviewCompletionIsClaimable() throws Exception {
+        UUID report=UUID.fromString(typoReviewPending().path("reportId").asText());
+        assertThat(claimableRelease()).as("검토 종료 전에는 release Job이 없다").isEmpty();
+        UUID release=completeReviewKeepingTypos(report);
+        assertThat(claimableRelease()).contains(release);
+    }
+
+    @Test @DisplayName("판단할 항목이 없어 /complete가 자동으로 검토를 종료하면 그 release 추출 Job도 claim된다")
+    void releaseJobCreatedAtAutomaticReviewCompletionIsClaimable() throws Exception {
+        UUID report=zeroFindingCompletion();
+        UUID release=(UUID)em.createQuery("select c.extractionJob.id from ValidationReviewCompletion c where c.report.id=:r").setParameter("r",report).getSingleResult();
+        assertThat(claimableRelease()).contains(release);
     }
 
     @Test @DisplayName("대기 잠금 시간이 지난 QUEUED 검수는 추출을 막지 않는다")
@@ -66,6 +92,13 @@ class ValidationSettingsLockClaimIntegrationTest extends ValidationWorkerFixture
     Optional<UUID> claimable(AnalysisJobType type) {
         em.flush();
         return claims.findClaimableJob(new WorkerAnalysisJobClaimRequest("synthetic-no-llm",null,Set.of(type),null,null,null,null,null,null,null,null)).map(AnalysisJob::getId);
+    }
+    /** 검토 종료 release는 순차 자동 분석이라 그 모드를 지원하는 claim만 가져간다(ValidationReviewCompletionIntegrationTest와 같은 요청). */
+    Optional<UUID> claimableRelease() {
+        em.flush();
+        return claims.findClaimableJob(new WorkerAnalysisJobClaimRequest("synthetic-no-llm","검토 종료 release",Set.of(AnalysisJobType.SETTING_EXTRACTION),
+                Set.of(org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode.CONFIRMED_ONLY,org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode.ORDERED_PROVISIONAL),
+                true,Set.of(org.monitoring.catchholebackend.domain.analysis.type.AnalysisSourceKind.EPISODE),true,true,true)).map(AnalysisJob::getId);
     }
     UUID pending(AnalysisJobType type,Work owner,Episode episode) {
         var batch=em.createQuery("select b from UploadBatch b where b.work.id=:w order by b.createdAt",UploadBatch.class).setParameter("w",owner.getId()).setMaxResults(1).getResultList();

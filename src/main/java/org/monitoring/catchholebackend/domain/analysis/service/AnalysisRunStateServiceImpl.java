@@ -436,6 +436,12 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
     }
 
     @Override
+    public void assertReportCorrectionAllowed(UUID workId, UUID reportId) {
+        assertSettingMutationAllowed(workId);
+        settingsLock.assertUnlockedForCorrection(workId, reportId);
+    }
+
+    @Override
     @Transactional
     public void invalidateRunsForEpisodeChangeForUpdate(UUID workId, UUID episodeId, int firstAffectedEpisodeNo, String reason) {
         requireInvalidationReason(reason);

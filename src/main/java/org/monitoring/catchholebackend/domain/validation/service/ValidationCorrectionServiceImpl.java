@@ -64,8 +64,8 @@ public class ValidationCorrectionServiceImpl implements ValidationCorrectionServ
         if(entry==null || !journal.hash(entry).equals(request.expectedEntryHash())) throw conflict();
         JsonNode priorScopes=report.getBaselineSeed().path("explicitAuthorCorrections").deepCopy();
         ObjectNode scope;
-        if(request.character()!=null) scope=correctCharacter(memberId,workId,entry,request.character());
-        else scope=correctWorldSetting(memberId,workId,entry,request.worldSetting());
+        if(request.character()!=null) scope=correctCharacter(memberId,workId,reportId,entry,request.character());
+        else scope=correctWorldSetting(memberId,workId,reportId,entry,request.worldSetting());
         scope.put("sourceKind","AUTHOR_MANUAL_EDIT").put("scopeKind","CURRENT_VALUE");
         if(priorScopes.isArray() && !priorScopes.isEmpty()) scope.set("priorCorrections",priorScopes);
         // Existing edit services synchronously invalidate the baseline. This receipt is saved only after that real edit succeeds.
@@ -75,7 +75,7 @@ public class ValidationCorrectionServiceImpl implements ValidationCorrectionServ
         em.flush(); return ValidationCorrectionReceipt.from(correction);
     }
 
-    private ObjectNode correctCharacter(Long memberId,UUID workId,JsonNode entry,ValidationCorrectionRequest.CharacterCorrection command) {
+    private ObjectNode correctCharacter(Long memberId,UUID workId,UUID reportId,JsonNode entry,ValidationCorrectionRequest.CharacterCorrection command) {
         if(!"characters".equals(entry.path("domain").asText()) || !entry.path("subjectRef").asText().equals("character:"+command.targetId())) throw conflict();
         var character=characters.findByIdAndWorkIdAndStatusForUpdate(command.targetId(),workId,CharacterStatus.ACTIVE).orElseThrow(this::conflict);
         em.refresh(character);
@@ -90,7 +90,7 @@ public class ValidationCorrectionServiceImpl implements ValidationCorrectionServ
         }
         var key=new CharacterSnapshotSlot(command.factType(),command.factKey());
         var before=current.get(key); if(before==null) throw conflict();
-        characterEdits.correctCharacterSetting(memberId,workId,command.targetId(),command.edit(),command.expectedSnapshotVersion(),command.factType(),command.factKey());
+        characterEdits.correctCharacterSetting(memberId,workId,command.targetId(),command.edit(),command.expectedSnapshotVersion(),command.factType(),command.factKey(),reportId);
         var after=snapshots.read(character,snapshotSources.findSourceFactsBySlot(character)).get(key);
         var scope=JsonNodeFactory.instance.objectNode().put("domain","characters").put("targetId",command.targetId().toString())
                 .put("factType",command.factType().name()).put("factKey",command.factKey()).put("entityVersion",character.getSnapshotVersion())
@@ -98,7 +98,7 @@ public class ValidationCorrectionServiceImpl implements ValidationCorrectionServ
         scope.set("beforeValueJson",value(before.valueJson())); scope.set("afterValueJson",after==null?NullNode.instance:value(after.valueJson())); return scope;
     }
 
-    private ObjectNode correctWorldSetting(Long memberId,UUID workId,JsonNode entry,ValidationCorrectionRequest.WorldSettingCorrection command) {
+    private ObjectNode correctWorldSetting(Long memberId,UUID workId,UUID reportId,JsonNode entry,ValidationCorrectionRequest.WorldSettingCorrection command) {
         if(!"worldSettings".equals(entry.path("domain").asText()) || !entry.path("subjectRef").asText().equals("world:"+command.targetId())) throw conflict();
         var setting=worldSettings.findByIdAndWorkIdForUpdate(command.targetId(),workId).orElseThrow(this::conflict);
         em.refresh(setting);
@@ -109,7 +109,8 @@ public class ValidationCorrectionServiceImpl implements ValidationCorrectionServ
         var beforePath=setting.getStoredPropertyPath(edit.currentScopeName(),edit.currentSettingName()); if(beforePath==null) throw conflict();
         String before=setting.getPropertyValue(beforePath.scopeName(),beforePath.settingName());
         var original=setting.getPropertiesJson().deepCopy();
-        worldEdits.updateWorldSettingProperty(memberId,workId,command.targetId(),edit);
+        // #381: 이 리포트의 검토 단계 설정 잠금만 통과하는 정정 전용 경로. 실행 중이거나 다른 리포트가 잠갔으면 409다.
+        worldEdits.correctWorldSettingProperty(memberId,workId,command.targetId(),edit,reportId);
         if(original.equals(setting.getPropertiesJson())) throw conflict();
         var afterPath=setting.getStoredPropertyPath(edit.scopeName(),edit.settingName()); if(afterPath==null) throw conflict();
         return JsonNodeFactory.instance.objectNode().put("domain","worldSettings").put("targetId",command.targetId().toString())

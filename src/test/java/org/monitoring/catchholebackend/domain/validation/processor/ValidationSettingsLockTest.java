@@ -20,7 +20,7 @@ import org.monitoring.catchholebackend.domain.validation.type.ValidationExecutio
 import org.monitoring.catchholebackend.global.config.validation.ValidationExecutionProperties;
 import org.monitoring.catchholebackend.global.exception.AppException;
 
-@DisplayName("#381 검수 실행 중 확정 설정 잠금 판정")
+@DisplayName("#381 검수 접수부터 검토 종료까지 확정 설정 잠금 판정")
 class ValidationSettingsLockTest {
     static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
     static final Instant NOW = Instant.parse("2026-11-05T03:00:00Z");
@@ -65,10 +65,10 @@ class ValidationSettingsLockTest {
         assertThatThrownBy(() -> lock.assertUnlocked(work)).isInstanceOfSatisfying(AppException.class, e -> {
             assertThat(e.getResultCode().getCode()).isEqualTo("VALIDATION_SETTINGS_LOCKED");
             assertThat(e.getResultCode().getStatus().value()).isEqualTo(409);
-            assertThat(e.getMessage()).isEqualTo("오류 리포트 검사가 진행 중이에요. 검사가 끝난 뒤 다시 저장해 주세요.");
+            assertThat(e.getMessage()).isEqualTo("오류 리포트 검수가 끝나지 않아 설정을 바꿀 수 없어요. 오류 리포트에서 수정하거나 검토를 마친 뒤 저장해 주세요.");
             assertThat(e.getErrorContext()).isEqualTo(Map.of("reportId", running.reportId().toString(),
                     "validationJobId", running.validationJobId().toString(), "episodeNo", 101,
-                    "executionStatus", "RUNNING", "leaseExpiresAt", "2026-11-05T03:01:00Z"));
+                    "executionStatus", "RUNNING", "lockReason", "EXECUTION", "leaseExpiresAt", "2026-11-05T03:01:00Z"));
         });
     }
 
@@ -79,6 +79,37 @@ class ValidationSettingsLockTest {
         when(jobs.findSettingsLocks(eq(work), any(), any())).thenReturn(List.of(queued));
         assertThatThrownBy(() -> lock.assertUnlocked(work)).isInstanceOfSatisfying(AppException.class, e ->
                 assertThat(e.getErrorContext()).containsEntry("executionStatus", "QUEUED").containsEntry("episodeNo", 7)
+                        .containsEntry("lockReason", "EXECUTION").doesNotContainKey("leaseExpiresAt"));
+    }
+
+    @Test
+    @DisplayName("검토 종료 전 COMPLETED 잠금은 lockReason REVIEW이고 남은 마지막 lease는 내보내지 않으며 일반 쓰기를 막는다")
+    void reviewLockRejectsOrdinaryWrites() {
+        var review = new ValidationSettingsLockState(UUID.randomUUID(), UUID.randomUUID(), 101, ValidationExecutionStatus.COMPLETED, NOW.minusSeconds(5));
+        when(jobs.findSettingsLocks(eq(work), any(), any())).thenReturn(List.of(review));
+        assertThatThrownBy(() -> lock.assertUnlocked(work)).isInstanceOfSatisfying(AppException.class, e ->
+                assertThat(e.getErrorContext()).containsEntry("lockReason", "REVIEW").containsEntry("executionStatus", "COMPLETED")
                         .doesNotContainKey("leaseExpiresAt"));
+    }
+
+    @Test
+    @DisplayName("정정은 그 리포트의 검토 단계 잠금만 통과하고 그 리포트의 실행 단계·다른 리포트의 잠금은 막는다")
+    void correctionPassesOnlyItsOwnReviewLock() {
+        UUID report = UUID.randomUUID();
+        var ownReview = new ValidationSettingsLockState(report, UUID.randomUUID(), 101, ValidationExecutionStatus.COMPLETED, null);
+        var ownRunning = new ValidationSettingsLockState(report, UUID.randomUUID(), 101, ValidationExecutionStatus.RUNNING, NOW.plusSeconds(60));
+        var otherReview = new ValidationSettingsLockState(UUID.randomUUID(), UUID.randomUUID(), 100, ValidationExecutionStatus.COMPLETED, null);
+        var otherQueued = new ValidationSettingsLockState(UUID.randomUUID(), UUID.randomUUID(), 100, ValidationExecutionStatus.QUEUED, null);
+
+        when(jobs.findSettingsLocks(eq(work), any(), any())).thenReturn(List.of());
+        assertThatCode(() -> lock.assertUnlockedForCorrection(work, report)).as("잠금 없음").doesNotThrowAnyException();
+        when(jobs.findSettingsLocks(eq(work), any(), any())).thenReturn(List.of(ownReview));
+        assertThatCode(() -> lock.assertUnlockedForCorrection(work, report)).as("자기 검토 단계").doesNotThrowAnyException();
+        for (var blocking : List.of(ownRunning, otherReview, otherQueued)) {
+            when(jobs.findSettingsLocks(eq(work), any(), any())).thenReturn(blocking == otherQueued ? List.of(ownReview, otherQueued) : List.of(blocking));
+            assertThatThrownBy(() -> lock.assertUnlockedForCorrection(work, report)).as(blocking.toString())
+                    .isInstanceOfSatisfying(AppException.class, e -> assertThat(e.getErrorContext())
+                            .containsEntry("reportId", blocking.reportId().toString()).containsEntry("lockReason", blocking.reason().name()));
+        }
     }
 }

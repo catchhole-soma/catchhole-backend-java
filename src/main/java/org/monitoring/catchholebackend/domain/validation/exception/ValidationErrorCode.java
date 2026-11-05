@@ -36,8 +36,11 @@ public enum ValidationErrorCode implements ResultCode {
     VALIDATION_APPLICATION_ROLLED_BACK(HttpStatus.CONFLICT, "회차 전체 반영을 끝내지 못해 이번 반영을 모두 되돌렸습니다. 보류 사유를 확인한 뒤 다시 반영해 주세요."),
     /** #314 B1: 활성 회차의 확정 전 검수(BEFORE_CONFIRMATION) 현재 report가 APPLIED가 아닌 동안(INVALIDATED 포함) 새 회차 등록. context: reportId, episodeId, episodeNo, reviewStage */
     VALIDATION_NEXT_EPISODE_BLOCKED(HttpStatus.CONFLICT, "이 회차의 검토와 설정 저장을 마친 뒤 다음 회차를 등록할 수 있어요."),
-    /** #381: 같은 작품의 검수 실행이 설정을 읽는 동안(대기 잠금 시간 안의 QUEUED, lease가 남은 RUNNING) 사람의 확정 설정 쓰기. context: reportId, validationJobId, episodeNo, executionStatus, leaseExpiresAt(RUNNING만) */
-    VALIDATION_SETTINGS_LOCKED(HttpStatus.CONFLICT, "오류 리포트 검사가 진행 중이에요. 검사가 끝난 뒤 다시 저장해 주세요."),
+    /**
+     * #381: 같은 작품의 확정 전 검수가 접수부터 검토 종료까지(실행 단계: 대기 잠금 시간 안의 QUEUED·lease가 남은 RUNNING, 검토 단계: 검토 종료 receipt 없는 COMPLETED)
+     * 사람의 확정 설정 쓰기. 검토 단계에서는 그 리포트의 정정만 허용한다. context: reportId, validationJobId, episodeNo, executionStatus, lockReason(EXECUTION·REVIEW), leaseExpiresAt(RUNNING만)
+     */
+    VALIDATION_SETTINGS_LOCKED(HttpStatus.CONFLICT, "오류 리포트 검수가 끝나지 않아 설정을 바꿀 수 없어요. 오류 리포트에서 수정하거나 검토를 마친 뒤 저장해 주세요."),
     VALIDATION_NOT_FOUND(HttpStatus.NOT_FOUND, "검수 요청을 찾을 수 없습니다.");
     private final HttpStatus status;
     private final String message;

@@ -63,6 +63,17 @@ abstract class ValidationReviewFixture extends ValidationWorkerFixture {
     JsonNode diagnosticStart() throws Exception {
         source();start();var job=claim();em.createNativeQuery("update validation_reports set mode='DIAGNOSTIC_ONLY' where id=:r").setParameter("r",reportId(job)).executeUpdate();em.clear();return job;
     }
+    /** #381 검토 단계: 오탈자 제안 두 건으로 실행을 COMPLETED로 끝낸다. 판단할 항목이 남아 자동 검토 종료가 없다. 현재 staging을 반환한다. */
+    JsonNode typoReviewPending() throws Exception {
+        source();var report=start();var job=claim();prePlan(job,List.of());savePlan(job,"MERGED_PLAN","PLAN",Map.of("questions",List.of()));typos(job);
+        assertThat(finish(job,"review-pending")).isEqualTo("COMPLETED");return get(UUID.fromString(report.path("reportId").asText()));
+    }
+    /** 모든 오탈자 제안을 원문 유지로 판단하고 검토를 종료한다. 검토 종료가 만든 release 추출 Job을 반환한다. */
+    UUID completeReviewKeepingTypos(UUID report) throws Exception {
+        for(var finding:findings(report,"?size=100").path("content"))judge(report,finding,"KEEP_ORIGINAL");
+        var completed=postOk("/"+report+"/review-completion",Map.of("expectedReportVersion",get(report).path("reportVersion").asLong(),"idempotencyKey","review-done"));
+        return UUID.fromString(completed.path("extractionJobId").asText());
+    }
     UUID zeroFindingCompletion() throws Exception {
         source();start();var job=claim();prePlan(job,List.of());savePlan(job,"MERGED_PLAN","PLAN",Map.of("questions",List.of()));
         internal(path(job,"/units"),job,unit(job,"TYPO","TSEG1","COMPLETED",typoEmpty()),200);assertThat(finish(job,"empty")).isEqualTo("COMPLETED");return reportId(job);
