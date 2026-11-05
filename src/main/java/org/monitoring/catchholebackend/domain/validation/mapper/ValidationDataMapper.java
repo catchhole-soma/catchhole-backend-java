@@ -3,14 +3,11 @@ package org.monitoring.catchholebackend.domain.validation.mapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.*;
 import java.util.*;
-import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal;
 import org.monitoring.catchholebackend.domain.validation.entity.ValidationReport;
 import org.springframework.stereotype.Component;
-import lombok.RequiredArgsConstructor;
 
-@Component @RequiredArgsConstructor
+@Component
 public class ValidationDataMapper {
-    private final AnalysisStateJournal journal;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
 
     /** Spring Boot 4의 Jackson 3 경계에 Jackson 2 tree 객체 대신 표준 JSON 값을 전달한다. */

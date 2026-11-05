@@ -41,7 +41,7 @@ class ValidationExecutionContractTest {
     }
     static String caseText(JsonNode example) {var repeat=example.path("targetRepeat");return repeat.isObject()?repeat.path("unit").asText().repeat(repeat.path("count").asInt()):example.path("target").asText();}
     @Test @DisplayName("원문 길이에서 계산한 SETTING grid v4·TYPO grid v1이 공통 fixture(Python split_setting_segments)와 같다") void serverDerivesTheSharedGridVectors() throws Exception {
-        var f=fixture();var mapping=new ValidationDataMapper(journal);var decision=new ValidationDecisionValidator(mapping,journal);int v4=0;
+        var f=fixture();var mapping=new ValidationDataMapper();var decision=new ValidationDecisionValidator(mapping,journal);int v4=0;
         for(var example:f.path("gridCases")) {
             var service=mock(ValidationDataService.class);String hash="a".repeat(64),target=caseText(example);UUID job=UUID.randomUUID(),report=UUID.randomUUID(),lease=UUID.randomUUID(),work=UUID.randomUUID();
             var context=new ValidationPublicationValidator.Context(job,lease,new Scope(1,report,1,hash),1L,work,hash,hash,example.path("configuration"),example.has("baselineEntries")?example.path("baselineEntries"):json.createArrayNode(),Map.of());
@@ -61,7 +61,7 @@ class ValidationExecutionContractTest {
     }
     @Test @DisplayName("서버 projection은 페이지와 무관한 S 참조와 원문 ref를 보존한다") void canonicalProjectionHasStableSubjectAndSourceRefs() throws Exception {
         var f=fixture().path("projectionVector");var sources=new LinkedHashMap<String,JsonNode>();f.path("sources").properties().forEach(e->sources.put(e.getKey(),e.getValue()));
-        var mapper=new ValidationDataMapper(journal);assertThat(json.<JsonNode>valueToTree(mapper.toValidationSettings(f.path("entries"),sources))).isEqualTo(f.path("expected"));
+        var mapper=new ValidationDataMapper();assertThat(json.<JsonNode>valueToTree(mapper.toValidationSettings(f.path("entries"),sources))).isEqualTo(f.path("expected"));
         assertThat(mapper.toValidationSourceCatalogue(sources)).isEqualTo(f.path("sourceCatalogue"));
     }
     @Test @DisplayName("정상 세계관의 text와 quote 속성은 원문 인용 필드로 오인하지 않는다")
@@ -69,7 +69,7 @@ class ValidationExecutionContractTest {
         var f=fixture();var entries=f.path("projectionVector").path("entries").deepCopy();
         var properties=(com.fasterxml.jackson.databind.node.ObjectNode)entries.path(1).path("state").path("propertiesJson");
         properties.put("text","합성 세계 설정 값").put("quote","합성 이름 속성");
-        var mapper=new ValidationDataMapper(journal);var settings=mapper.toValidationSettings(entries,Map.of());
+        var mapper=new ValidationDataMapper();var settings=mapper.toValidationSettings(entries,Map.of());
         var payload=(com.fasterxml.jackson.databind.node.ObjectNode)f.path("requests").path("settingUnit").path("payload").deepCopy();
         ((com.fasterxml.jackson.databind.node.ObjectNode)payload.path("evidence_bundle")).set("settings",json.valueToTree(settings.values()));
         var validator=payloadValidator();var prepared=payloadContext(entries);var citations=payloadCitations();
@@ -98,7 +98,7 @@ class ValidationExecutionContractTest {
     }
     ValidationPublicationValidator payloadValidator() {
         var data=mock(ValidationDataService.class);when(data.readValidationData(anyLong(),any(),any(),any(),any(),any())).thenAnswer(call->{var request=call.getArgument(3,org.monitoring.catchholebackend.domain.validation.dto.request.ValidationDataRequest.class);String text="😀가😀가";int start=request.start()==null?0:request.start(),end=request.end()==null?4:request.end();return json.createObjectNode().put("status","READY").put("start",start).put("end",end).put("text",text.substring(text.offsetByCodePoints(0,start),text.offsetByCodePoints(0,end)));});
-        var mapper=new ValidationDataMapper(journal);return new ValidationPublicationValidator(data,new ValidationDecisionValidator(mapper,journal),mapper);
+        var mapper=new ValidationDataMapper();return new ValidationPublicationValidator(data,new ValidationDecisionValidator(mapper,journal),mapper);
     }
     ValidationPublicationValidator.Prepared payloadContext(JsonNode entries) throws Exception {
         var citations=payloadCitations();String hash=citations.getFirst().sourceHash();
@@ -109,7 +109,7 @@ class ValidationExecutionContractTest {
     List<Citation> payloadCitations() throws Exception {return json.convertValue(fixture().path("requests").path("settingUnit").path("citations"),new com.fasterxml.jackson.core.type.TypeReference<>(){});}
     @Test @DisplayName("인용은 이미 검증한 전체 원문을 code point로 잘라 비교하고 범위마다 저장소를 다시 읽지 않는다")
     void citationsSliceTheVerifiedFullTextWithoutRangedReads() throws Exception {
-        var data=mock(ValidationDataService.class);var mapper=new ValidationDataMapper(journal);var validator=new ValidationPublicationValidator(data,new ValidationDecisionValidator(mapper,journal),mapper);
+        var data=mock(ValidationDataService.class);var mapper=new ValidationDataMapper();var validator=new ValidationPublicationValidator(data,new ValidationDecisionValidator(mapper,journal),mapper);
         var payload=(com.fasterxml.jackson.databind.node.ObjectNode)fixture().path("requests").path("settingUnit").path("payload").deepCopy();
         var prepared=payloadContext(json.createArrayNode());var citations=payloadCitations();
         assertThatCode(()->validator.payload(prepared,payload,citations)).doesNotThrowAnyException();

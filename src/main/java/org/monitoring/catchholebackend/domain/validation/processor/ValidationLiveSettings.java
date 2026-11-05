@@ -123,10 +123,6 @@ public class ValidationLiveSettings {
         return journal.hash(fingerprintState(subjects));
     }
 
-    public String fingerprint(Index index) {
-        return journal.hash(fingerprintState(index.subjects()));
-    }
-
     /** {"fingerprintVersion":1,"characters":[[id,version]…],"worldSettings":[[id,version]…]}, 각 목록은 id 문자열 순(조회 순서와 무관). */
     static ObjectNode fingerprintState(Collection<Subject> subjects) {
         ObjectNode state = JsonNodeFactory.instance.objectNode().put("fingerprintVersion", 1);

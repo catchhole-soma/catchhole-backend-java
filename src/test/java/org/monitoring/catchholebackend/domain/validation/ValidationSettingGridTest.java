@@ -19,7 +19,7 @@ import org.monitoring.catchholebackend.global.exception.AppException;
 /** 모든 원고·설정은 합성 값이다. #349 개편 SETTING grid v4의 구간 계산과 PLANNER 단계 검증 규칙만 본다. */
 @DisplayName("검수 SETTING grid v4의 구간 나누기와 PLANNER 단계 검증 (#349 개편)")
 class ValidationSettingGridTest {
-    final ObjectMapper json=new ObjectMapper();final AnalysisStateJournal journal=new AnalysisStateJournal();final ValidationDataMapper mapper=new ValidationDataMapper(journal);
+    final ObjectMapper json=new ObjectMapper();final AnalysisStateJournal journal=new AnalysisStateJournal();final ValidationDataMapper mapper=new ValidationDataMapper();
     final ValidationPublicationValidator validator=new ValidationPublicationValidator(data(),new ValidationDecisionValidator(mapper,journal),mapper);
     String text;
 

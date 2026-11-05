@@ -16,7 +16,7 @@ import org.monitoring.catchholebackend.global.exception.AppException;
 
 @DisplayName("현재 질문의 실제 bundle과 정상 완료 영수증 검증")
 class ValidationDecisionValidatorTest {
-    final ObjectMapper json=new ObjectMapper();final AnalysisStateJournal journal=new AnalysisStateJournal();final ValidationDataMapper mapper=new ValidationDataMapper(journal);final ValidationDecisionValidator validator=new ValidationDecisionValidator(mapper,journal);
+    final ObjectMapper json=new ObjectMapper();final AnalysisStateJournal journal=new AnalysisStateJournal();final ValidationDataMapper mapper=new ValidationDataMapper();final ValidationDecisionValidator validator=new ValidationDecisionValidator(mapper,journal);
     JsonNode f;ObjectNode state;ObjectNode body;ValidationCheck check;ValidationPublicationValidator.Prepared prepared;
     @BeforeEach void fixture() throws Exception {
         f=json.readTree(Path.of("docs/contracts/validation-execution-v1.json").toFile()).path("execution");state=f.path("requests").path("mergedPlan").path("payload").path("questions").path(0).path("state").deepCopy();body=f.path("requests").path("settingUnit").path("payload").deepCopy();
