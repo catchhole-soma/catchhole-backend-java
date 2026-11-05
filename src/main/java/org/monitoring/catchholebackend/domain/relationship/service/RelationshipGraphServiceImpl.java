@@ -39,8 +39,10 @@ import org.monitoring.catchholebackend.domain.analysis.service.AnalysisCandidate
 import org.monitoring.catchholebackend.domain.analysis.service.AnalysisJobLeaseService;
 import org.monitoring.catchholebackend.domain.analysis.service.AnalysisRunStateService;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
+import org.monitoring.catchholebackend.domain.character.repository.ConfirmedCharacterIdentityRow;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
+import org.monitoring.catchholebackend.domain.character.type.SettingCandidateKind;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeRepository;
@@ -602,61 +604,25 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                 nodes.findAllByWorkIdOrderByFirstEpisodeNoAscIdAsc(workId);
         Map<String, List<RelationshipGraphNode>> allByName =
                 allNodes.stream().collect(Collectors.groupingBy(RelationshipGraphNode::getName));
+        List<RelationshipGraphNode> workNodes = new ArrayList<>(allNodes);
         List<RelationshipGraphNode> existing =
                 allNodes.stream().filter(n -> n.getFirstEpisodeNo() <= cutoff).toList();
         Map<String, List<RelationshipGraphNode>> byName = new LinkedHashMap<>();
         existing.forEach(n -> byName.computeIfAbsent(n.getName(), x -> new ArrayList<>()).add(n));
         JsonNode input =
                 job.isOrderedProvisional() ? runState.getInputState(job) : mapper.toJson(Map.of());
+        // Ordered input contributes only representative names. Its alias strings carry no
+        // per-alias episode, so aliases always come from the cutoff-bounded database query.
         Map<String, List<UUID>> known = new HashMap<>();
         for (JsonNode character : input.path("characters")) {
             if (character.path("actualCharacterId").isTextual())
                 known.computeIfAbsent(character.path("name").asText(), x -> new ArrayList<>())
                         .add(UUID.fromString(character.path("actualCharacterId").asText()));
         }
-        if (job.getJobType() == AnalysisJobType.RELATIONSHIP_EXTRACTION) {
-            // Only episode-provenance names known by the selected reader cutoff. Current names,
-            // book facts with unknown narrative time, and future chapters never enter this input.
-            var historical =
-                    entityManager
-                            .createQuery(
-                                    "select c from SettingCandidate c join fetch c.episode e where"
-                                        + " c.work.id=:work and c.reviewStatus=:confirmed and"
-                                        + " c.matchedCharacterId is not null and"
-                                        + " e.episodeNo<=:cutoff and e.status<>:archived and exists"
-                                        + " (select ch.id from WorkCharacter ch where"
-                                        + " ch.id=c.matchedCharacterId and ch.work.id=:work)",
-                                    org.monitoring.catchholebackend.domain.character.entity
-                                            .SettingCandidate.class)
-                            .setParameter("work", workId)
-                            .setParameter("confirmed", SettingCandidateReviewStatus.CONFIRMED)
-                            .setParameter("cutoff", cutoff)
-                            .setParameter("archived", EpisodeStatus.ARCHIVED)
-                            .getResultList();
-            for (var candidate : historical) {
-                if (candidate.getAnalysisJob() == null
-                        || candidate.getEntityName() == null
-                        || candidate.getAnalysisJob().getEpisode() == null
-                        || !Objects.equals(candidate.getAnalysisJob().getWork().getId(), workId)
-                        || !Objects.equals(
-                                candidate.getAnalysisJob().getEpisode().getId(),
-                                candidate.getEpisode().getId())
-                        || !Objects.equals(
-                                candidate.getAnalysisJob().getSourceEpisodeNo(),
-                                candidate.getEpisode().getEpisodeNo())
-                        || !Objects.equals(
-                                candidate.getAnalysisJob().getSourceContentHash(),
-                                candidate.getEpisode().getContentHash())
-                        || !Objects.equals(
-                                candidate.getAnalysisJob().getSourceContentS3Key(),
-                                candidate.getEpisode().getContentS3Key())
-                        || !Objects.equals(
-                                candidate.getAnalysisJob().getSourceContentS3Version(),
-                                candidate.getEpisode().getContentS3Version())
-                        || purges.existsByEpisodeId(candidate.getEpisode().getId())) continue;
-                known.computeIfAbsent(candidate.getEntityName(), x -> new ArrayList<>())
-                        .add(candidate.getMatchedCharacterId());
-            }
+        for (var identity : confirmedIdentities(job, request, cutoff)) {
+            if (identity.getEntityName() != null)
+                known.computeIfAbsent(identity.getEntityName(), x -> new ArrayList<>())
+                        .add(identity.getCharacterId());
         }
         known.forEach(
                 (name, identities) -> {
@@ -664,6 +630,9 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                     if (conflictsWithKnownIdentity(byName.getOrDefault(name, List.of()), distinct))
                         byName.put(name, List.of());
                 });
+        // A node reused under another confirmed name keeps that observed name in this context
+        // until its own stored name is cutoff-safe. Stored node names are never rewritten.
+        Map<UUID, String> contextNames = new HashMap<>();
         // 새 이름은 현재 원문에서 확인한 것만 독립 도형 후보가 된다. 역할/대명사는 생성하지 않는다.
         for (Observation observation : request.observations())
             for (Endpoint endpoint : List.of(observation.source(), observation.target())) {
@@ -673,6 +642,27 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                 if (identities.size() > 1) {
                     byName.put(endpoint.name(), List.of());
                     continue;
+                }
+                if (identities.size() == 1) {
+                    // A name confirmed for exactly one profile by this cutoff (representative
+                    // name or alias) reuses that profile's node instead of starting another one.
+                    List<RelationshipGraphNode> profile =
+                            workNodes.stream()
+                                    .filter(n -> identities.getFirst().equals(n.getCharacterId()))
+                                    .toList();
+                    if (profile.size() > 1) {
+                        // Already split data is not guessed into one node here.
+                        byName.put(endpoint.name(), List.of());
+                        continue;
+                    }
+                    if (profile.size() == 1) {
+                        RelationshipGraphNode node = profile.getFirst();
+                        if (persistNodes && node.getName().equals(endpoint.name()))
+                            node.observeAt(cutoff);
+                        contextNames.putIfAbsent(node.getId(), endpoint.name());
+                        byName.put(endpoint.name(), List.of(node));
+                        continue;
+                    }
                 }
                 // An earlier manual job may see a name first prepared by a later job. Reuse
                 // only that explicitly observed name, without exposing other future identities
@@ -686,6 +676,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                     }
                     RelationshipGraphNode node = future.getFirst();
                     if (persistNodes) node.observeAt(cutoff);
+                    contextNames.putIfAbsent(node.getId(), endpoint.name());
                     byName.put(endpoint.name(), List.of(node));
                     continue;
                 }
@@ -697,31 +688,45 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                                 endpoint.name(),
                                 cutoff);
                 if (persistNodes) node = nodes.save(node);
+                workNodes.add(node);
                 byName.put(endpoint.name(), List.of(node));
             }
         Map<UUID, String> refs = new LinkedHashMap<>();
         Map<String, ContextNode> contextNodes = new LinkedHashMap<>();
         ObjectNode bindings = (ObjectNode) mapper.toJson(Map.of());
         ObjectNode nodeBindings = bindings.putObject("nodes");
-        for (var group : byName.values())
-            for (var node : group) {
-                String ref = "N" + (refs.size() + 1);
-                refs.put(node.getId(), ref);
-                contextNodes.put(
-                        ref,
-                        new ContextNode(
-                                ref,
-                                node.getName(),
-                                node.getCharacterId() != null
-                                        && node.getCharacterLinkedEpisodeNo() != null
-                                        && node.getCharacterLinkedEpisodeNo() <= cutoff));
-                ObjectNode binding = nodeBindings.putObject(ref);
-                binding.put("id", node.getId().toString());
+        Map<String, Set<UUID>> knownByRef = new LinkedHashMap<>();
+        for (var group : byName.entrySet())
+            for (var node : group.getValue()) {
+                // A profile node can be reached through several confirmed names; it gets one ref.
+                String ref = refs.get(node.getId());
+                if (ref == null) {
+                    ref = "N" + (contextNodes.size() + 1);
+                    refs.put(node.getId(), ref);
+                    contextNodes.put(
+                            ref,
+                            new ContextNode(
+                                    ref,
+                                    node.getFirstEpisodeNo() <= cutoff
+                                            ? node.getName()
+                                            : contextNames.getOrDefault(node.getId(), node.getName()),
+                                    node.getCharacterId() != null
+                                            && node.getCharacterLinkedEpisodeNo() != null
+                                            && node.getCharacterLinkedEpisodeNo() <= cutoff));
+                    nodeBindings.putObject(ref).put("id", node.getId().toString());
+                }
                 List<UUID> identities =
-                        known.getOrDefault(node.getName(), List.of()).stream().distinct().toList();
-                if (group.size() == 1 && identities.size() == 1)
-                    binding.put("knownCharacterId", identities.getFirst().toString());
+                        known.getOrDefault(group.getKey(), List.of()).stream().distinct().toList();
+                if (group.getValue().size() == 1 && identities.size() == 1)
+                    knownByRef.computeIfAbsent(ref, x -> new java.util.LinkedHashSet<>())
+                            .add(identities.getFirst());
             }
+        knownByRef.forEach(
+                (ref, identities) -> {
+                    if (identities.size() == 1)
+                        ((ObjectNode) nodeBindings.get(ref))
+                                .put("knownCharacterId", identities.iterator().next().toString());
+                });
         List<ContextObservation> observations =
                 request.observations().stream()
                         .map(o -> contextObservation(o.ref(), o, byName, refs, cutoff))
@@ -887,6 +892,26 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
             sourceDependencies.stream().sorted().forEach(id -> sourceIds.add(id.toString()));
         }
         return new BuiltContext(context, bindings);
+    }
+
+    /**
+     * Confirmed name-to-profile decisions known by the reader cutoff, read as scalars once.
+     * Ordinary analysis reads only character-discovery names observed in this request, without
+     * per-candidate job/purge hydration. Relationship backfill keeps its historical meaning:
+     * every confirmed kind, but only when the creating job's source still matches the episode.
+     */
+    private List<ConfirmedCharacterIdentityRow> confirmedIdentities(
+            AnalysisJob job, Prepare request, int cutoff) {
+        UUID workId = job.getWork().getId();
+        if (job.getJobType() == AnalysisJobType.RELATIONSHIP_EXTRACTION)
+            return candidates.findVerifiedConfirmedIdentities(workId, cutoff);
+        Set<String> names = new java.util.LinkedHashSet<>();
+        for (Observation observation : request.observations())
+            for (Endpoint endpoint : List.of(observation.source(), observation.target()))
+                if (endpoint.name() != null) names.add(endpoint.name());
+        if (names.isEmpty()) return List.of();
+        return candidates.findConfirmedIdentities(
+                workId, List.of(SettingCandidateKind.CHARACTER_DISCOVERY), names, cutoff);
     }
 
     /** Persisted N refs are local to a context. Cross-episode dependencies use actual node IDs. */

@@ -582,6 +582,41 @@ class RelationshipBackfillIntegrationTest {
     }
 
     @Test
+    @DisplayName("백필의 과거 이름 조회는 확정 후보와 원 분석 Job을 적재하지 않고 scalar 조회 한 번으로 끝낸다")
+    void backfillHistoricalIdentityDoesNotHydrateAnalysisJobs() {
+        UUID one = episode(1), two = episode(2);
+        confirmedName(one, "아라", "현재의 아라");
+        confirmedName(one, "보라", "현재의 보라");
+        confirmedName(one, "다라", "현재의 다라");
+        confirmedName(two, "마라", "미래의 마라");
+        coordinator.bootstrapRelationshipBackfill();
+        var first = claim();
+        var statistics = em.getEntityManagerFactory()
+                .unwrap(org.hibernate.SessionFactory.class).getStatistics();
+        boolean previouslyEnabled = statistics.isStatisticsEnabled();
+        statistics.setStatisticsEnabled(true);
+        statistics.clear();
+        Context context;
+        try {
+            context = prepare(first);
+            assertThat(statistics.getEntityStatistics(
+                    org.monitoring.catchholebackend.domain.character.entity.SettingCandidate.class.getName())
+                    .getLoadCount()).isZero();
+            // Only the claimed relationship job, once per prepare transaction; never a source core job.
+            assertThat(statistics.getEntityStatistics(AnalysisJob.class.getName()).getLoadCount())
+                    .isEqualTo(2);
+            long identityQueries = Arrays.stream(statistics.getQueries())
+                    .filter(q -> q.contains("SettingCandidate") && q.contains("as characterId"))
+                    .mapToLong(q -> statistics.getQueryStatistics(q).getExecutionCount()).sum();
+            assertThat(identityQueries).isEqualTo(1);
+        } finally {
+            statistics.setStatisticsEnabled(previouslyEnabled);
+        }
+        assertThat(context.nodes()).extracting(n -> n.name()).containsExactlyInAnyOrder("아라", "보라");
+        assertThat(context.nodes()).allSatisfy(n -> assertThat(n.profileRegistered()).isTrue());
+    }
+
+    @Test
     @DisplayName("고정 회원의 선택 시점 원고만 한 번 접수하고 관계 작업은 회차 상태를 바꾸지 않는다")
     void fixedScopeAndNoCoreMutation() {
         UUID one = episode(1), two = episode(2);
