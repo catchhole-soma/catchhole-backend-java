@@ -57,7 +57,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
-@SpringBootTest(properties = "spring.config.import=")
+@SpringBootTest(properties = {"spring.config.import=", "spring.jpa.properties.hibernate.generate_statistics=true"})
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Transactional
@@ -320,6 +320,77 @@ class ErrorFirstValidationIntegrationTest {
         var history = captured.getBaselineSeed().path("characters").elements().next().path("historyFacts").get(0);
         assertThat(history.path("effectiveFromEpisodeNo").asInt()).isEqualTo(12);
         assertThat(history.path("supportingSource").path("source").path("episodeNo").asInt()).isEqualTo(70);
+    }
+    @Test
+    @DisplayName("기준 준비는 과거 분석 Job을 엔티티로 읽지 않고 출처 메타데이터만 조회한다")
+    void baselineCaptureChecksPriorSourcesWithoutLoadingAnalysisJobEntities() throws Exception {
+        prepare();
+        var owner = org.monitoring.catchholebackend.domain.character.entity.WorkCharacter.create(work, "기존 인물", null, null, null,
+                JsonNodeFactory.instance.objectNode(), JsonNodeFactory.instance.objectNode(), JsonNodeFactory.instance.objectNode(), JsonNodeFactory.instance.objectNode(), JsonNodeFactory.instance.objectNode(), null);
+        em.persist(owner);
+        var priorEpisode = em.createQuery("select e from Episode e where e.work = :work and e.episodeNo = 70", Episode.class).setParameter("work", work).getSingleResult();
+        var priorJob = AnalysisJob.create(work, null, priorEpisode, AnalysisJobType.SETTING_EXTRACTION);
+        // 운영의 큰 Job처럼 출처 확인과 무관한 입력 JSON을 채운다.
+        ReflectionTestUtils.setField(priorJob, "automaticInputState", JsonNodeFactory.instance.objectNode().put("payload", "x".repeat(200_000)));
+        em.persist(priorJob);
+        var c = SettingCandidate.create(work, priorEpisode, null, priorJob, SettingEntityType.CHARACTER, "기존 인물", "기존 인물", owner.getId(), SettingCandidateMatchStatus.MATCHED,
+                "직업", "수리공", SettingValueType.STRING, null, JsonNodeFactory.instance.arrayNode(), BigDecimal.ONE, null);
+        em.persist(c); ReflectionTestUtils.setField(c, "reviewStatus", SettingCandidateReviewStatus.CONFIRMED);
+        em.persist(CharacterFact.create(owner, c, CharacterFactType.PROFILE, "직업", "수리공", "수리공", null, priorEpisode, null, priorJob, BigDecimal.ONE, 12));
+        var current = WorldSetting.create(work, WorldSettingCategory.RACE, "기존 종족", "서식지", "남부"); em.persist(current);
+        var history = WorldSettingCandidate.create(work, priorEpisode, priorJob, WorldSettingCategory.RACE, "기존 종족", "서식지", "남부",
+                JsonNodeFactory.instance.arrayNode().add(JsonNodeFactory.instance.objectNode().put("quote", "남부에 산다")), BigDecimal.ONE, null);
+        ReflectionTestUtils.setField(history, "targetWorldSetting", current); ReflectionTestUtils.setField(history, "reviewStatus", WorldSettingReviewStatus.CONFIRMED);
+        ReflectionTestUtils.setField(history, "finalCategory", WorldSettingCategory.RACE); ReflectionTestUtils.setField(history, "finalSubjectName", "기존 종족");
+        ReflectionTestUtils.setField(history, "finalSettingName", "서식지"); ReflectionTestUtils.setField(history, "finalValue", "남부");
+        ReflectionTestUtils.setField(history, "finalOperation", WorldSettingOperation.ADD);
+        em.persist(history);
+        em.flush(); em.clear();
+        var statistics = em.getEntityManagerFactory().unwrap(org.hibernate.SessionFactory.class).getStatistics();
+        statistics.clear();
+
+        var receipt = start("source-metadata-only");
+
+        assertThat(statistics.getEntityStatistics(AnalysisJob.class.getName()).getLoadCount()).isZero();
+        var seed = em.find(ValidationReport.class, UUID.fromString(receipt.path("reportId").asText())).getBaselineSeed();
+        var world = seed.path("worldHistory").get(0);
+        assertThat(world.path("sourceAvailability").asText()).isEqualTo("AVAILABLE");
+        assertThat(world.path("sourceEpisodeNo").asInt()).isEqualTo(70);
+        assertThat(world.path("sourceEpisodeId").asText()).isEqualTo(priorEpisode.getId().toString());
+        assertThat(world.path("evidenceSpans").toString()).contains("남부에 산다");
+        var fact = seed.path("characters").elements().next().path("historyFacts").get(0);
+        assertThat(fact.path("supportingSource").path("source").path("episodeNo").asInt()).isEqualTo(70);
+        assertThat(seed.toString()).doesNotContain("SOURCE_EVIDENCE_PURGED");
+    }
+    @Test
+    @DisplayName("기준 준비의 파기 대기 확인은 이력 수가 아니라 출처 수만큼만 조회한다")
+    void baselineCaptureChecksPurgeOncePerSourceInsteadOfPerHistoryRow() throws Exception {
+        prepare();
+        var priorEpisode = em.createQuery("select e from Episode e where e.work = :work and e.episodeNo = 70", Episode.class).setParameter("work", work).getSingleResult();
+        var priorJob = AnalysisJob.create(work, null, priorEpisode, AnalysisJobType.SETTING_EXTRACTION); em.persist(priorJob);
+        var current = WorldSetting.create(work, WorldSettingCategory.RACE, "기존 종족", "서식지", "남부"); em.persist(current);
+        for (String value : List.of("남부", "북부", "동부", "서부", "중부", "해안")) {
+            var c = WorldSettingCandidate.create(work, priorEpisode, priorJob, WorldSettingCategory.RACE, "기존 종족", "서식지", value,
+                    JsonNodeFactory.instance.arrayNode().add(JsonNodeFactory.instance.objectNode().put("quote", value)), BigDecimal.ONE, null);
+            ReflectionTestUtils.setField(c, "targetWorldSetting", current); ReflectionTestUtils.setField(c, "reviewStatus", WorldSettingReviewStatus.CONFIRMED);
+            ReflectionTestUtils.setField(c, "finalCategory", WorldSettingCategory.RACE); ReflectionTestUtils.setField(c, "finalSubjectName", "기존 종족");
+            ReflectionTestUtils.setField(c, "finalSettingName", "서식지"); ReflectionTestUtils.setField(c, "finalValue", value);
+            ReflectionTestUtils.setField(c, "finalOperation", WorldSettingOperation.UPDATE);
+            em.persist(c);
+        }
+        em.flush(); em.clear();
+        var statistics = em.getEntityManagerFactory().unwrap(org.hibernate.SessionFactory.class).getStatistics();
+        statistics.clear();
+
+        var receipt = start("purge-check-once");
+
+        // 앞 회차 원고 2개(70·100화)와 과거 Job 출처 1개뿐이므로 이력 6행이 늘어도 파기 대기 확인은 최대 3번이다.
+        long purgeChecks = java.util.Arrays.stream(statistics.getQueries())
+                .filter(query -> query.contains("EpisodeSourcePurgeRequest") && query.contains("retainedContentKey"))
+                .mapToLong(query -> statistics.getQueryStatistics(query).getExecutionCount()).sum();
+        assertThat(purgeChecks).isBetween(1L, 3L);
+        var seed = em.find(ValidationReport.class, UUID.fromString(receipt.path("reportId").asText())).getBaselineSeed();
+        assertThat(seed.path("worldHistory").findValuesAsText("sourceAvailability")).hasSize(6).containsOnly("AVAILABLE");
     }
     @ParameterizedTest
     @ValueSource(booleans = {false, true})

@@ -9,6 +9,8 @@ import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
 import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal;
 import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisSourceMetadata;
 import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisCurrentSourceTimeMapper;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceRepository;
+import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceView;
 import org.monitoring.catchholebackend.domain.analysis.service.AnalysisStateSource;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.episode.repository.*;
@@ -42,6 +44,7 @@ public class ValidationBaselineService {
     private final ValidationCorrectionRepository corrections;
     private final ApplicationEventPublisher events;
     private final ValidationSettingsApplicationRepository applications;
+    private final AnalysisJobSourceRepository sourceJobs;
 
     public void prepare(ValidationReport report) {
         if (!report.isCurrent() || report.getBaselineSeed() != null || report.getStatus() == ValidationReportStatus.INVALIDATED) return;
@@ -60,8 +63,9 @@ public class ValidationBaselineService {
     private void capture(ValidationReport report) {
         var confirmed = journal.emptyState();
         Set<String> captured = new HashSet<>();
+        var views = new SourceViews(report.getWork().getId());
         if (report.getMode() == ValidationReportMode.DIAGNOSTIC_ONLY) {
-            JsonNode recorded = diagnosticInput(report);
+            JsonNode recorded = diagnosticInput(report, views);
             if (recorded == null) { report.hold("DIAGNOSTIC_BASELINE_UNAVAILABLE"); return; }
             for (String domain : List.of("characters", "worldSettings")) { confirmed.set(domain, recorded.path(domain).deepCopy()); captured.add(domain); }
             if (!applyDiagnosticCorrections(confirmed, report)) { report.hold("DIAGNOSTIC_BASELINE_UNAVAILABLE"); return; }
@@ -81,15 +85,15 @@ public class ValidationBaselineService {
                 .put("contentRevision", report.getSourceContentRevision())
                 .put("contentHash", report.getSourceContentHash()).put("contentS3Key", report.getSourceContentS3Key())
                 .put("contentS3Version", report.getSourceContentS3Version());
-        seed.set("characters", sanitizeEvidence(confirmed.path("characters"), report));
+        seed.set("characters", sanitizeEvidence(confirmed.path("characters"), report, views));
         seed.set("worldSettings", confirmed.path("worldSettings").deepCopy());
-        seed.set("worldHistory", captureWorldHistory(report));
+        seed.set("worldHistory", captureWorldHistory(report, views));
         var authorCorrections = seed.putArray("explicitAuthorCorrections");
         authorCorrections.addAll(correctionScopes(report));
         ArrayNode manifests = seed.putArray("sources");
         for (var episode : episodes.findAllByWorkIdAndStatusNotOrderByEpisodeNoDesc(report.getWork().getId(), EpisodeStatus.ARCHIVED)) {
             if (episode.getEpisodeNo() >= report.getSourceEpisodeNo() || episode.getContentHash() == null
-                    || episode.getContentS3Key() == null || purges.blocksSource(episode.getId(),episode.getContentS3Key())) continue;
+                    || episode.getContentS3Key() == null || views.blocksSource(episode.getId(), episode.getContentS3Key())) continue;
             var manifest = manifests.addObject().put("sourceKind", "EPISODE").put("episodeId", episode.getId().toString())
                     .put("episodeNo", episode.getEpisodeNo()).put("contentHash", episode.getContentHash())
                     .put("contentRevision", episode.getContentRevision())
@@ -116,9 +120,39 @@ public class ValidationBaselineService {
         report.captureSeed(seed, journal.hash(seed), journal.hash(confirmed));
     }
 
+    /**
+     * 접수 한 번 동안 쓰는 과거 분석 Job의 출처 메타데이터. 출처 확인에는 회차·설정집 상태와 원고 hash/key/version만
+     * 필요하므로 scalar view로 읽고, Job 엔티티의 큰 JSON 열(입력·기준 상태·journal)을 영속성 컨텍스트에 올리지 않는다.
+     */
+    private final class SourceViews {
+        private final Map<UUID, Optional<AnalysisJobSourceView>> byId = new HashMap<>();
+        private final Map<List<Object>, Boolean> blocked = new HashMap<>();
+
+        SourceViews(UUID workId) {
+            sourceJobs.findExtractionSourcesForWork(workId).forEach(view -> byId.put(view.getId(), Optional.of(view)));
+        }
+
+        /** 지연 proxy의 식별자만 읽는다. */
+        AnalysisJobSourceView of(AnalysisJob job) { return job == null ? null : byId(job.getId()); }
+
+        AnalysisJobSourceView byId(UUID id) {
+            return id == null ? null : byId.computeIfAbsent(id, sourceJobs::findSourceById).orElse(null);
+        }
+
+        /**
+         * 파기 대기 여부는 같은 (회차, 원고 key)마다 한 번만 묻는다. 쿼리마다 Hibernate가 영속성 컨텍스트의 엔티티 수천 개를
+         * dirty check하므로, 세계관 이력·인물 근거마다 다시 물으면 접수 시간이 출처 수가 아니라 이력 수에 비례해 늘어난다.
+         * 접수는 Work 잠금 아래라 이 사이에 파기 요청이 바뀌지 않는다.
+         */
+        boolean blocksSource(UUID episodeId, String contentKey) {
+            return blocked.computeIfAbsent(Arrays.asList(episodeId, contentKey), key -> purges.blocksSource(episodeId, contentKey));
+        }
+    }
+
     /** 확정 전 불변 입력을 입증할 수 없는 legacy 기록에 live 현재값을 대신 사용하지 않는다. */
-    private JsonNode diagnosticInput(ValidationReport report) {
+    private JsonNode diagnosticInput(ValidationReport report, SourceViews views) {
         if (report.getPreviousApplicationJobId() == null) return null;
+        // 진단은 이 Job에 저장한 확정 전 입력 JSON 자체가 필요하므로 엔티티로 읽는다(한 건).
         var job = em.find(AnalysisJob.class, report.getPreviousApplicationJobId());
         if (job == null || !job.getWork().getId().equals(report.getWork().getId()) || !job.isOrderedProvisional()
                 || job.getJournalStatus() != org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.SEALED) return null;
@@ -127,20 +161,20 @@ public class ValidationBaselineService {
         if (recorded == null || !recorded.path("characters").isObject() || !recorded.path("worldSettings").isObject()
                 || !Objects.equals(job.getInputStateHash(), journal.hash(recorded)) || hasTargetEvidence(recorded.path("characters"), report.getSourceEpisodeNo())
                 || hasTargetEvidence(recorded.path("worldSettings"), report.getSourceEpisodeNo())
-                || !recordedSourcesAvailable(recorded.path("characters"), "characters", report)
-                || !recordedSourcesAvailable(recorded.path("worldSettings"), "worldSettings", report)) return null;
+                || !recordedSourcesAvailable(recorded.path("characters"), "characters", report, views)
+                || !recordedSourcesAvailable(recorded.path("worldSettings"), "worldSettings", report, views)) return null;
         return recorded;
     }
 
     /** Work 잠금 아래 과거 입력 자체의 출처를 확인한다. 현재 manifest로 옛 출처를 재연결하지 않는다. */
-    private boolean recordedSourcesAvailable(JsonNode node, String domain, ValidationReport report) {
+    private boolean recordedSourcesAvailable(JsonNode node, String domain, ValidationReport report, SourceViews views) {
         if (node == null || !node.isContainerNode()) return true;
         if (node.isObject()) {
             try {
                 if (node.path("sourceAnalysisJobId").isTextual()
-                        && !recordedJobAvailable(em.find(AnalysisJob.class, UUID.fromString(node.path("sourceAnalysisJobId").asText())), report)) return false;
-                if (node.path("sourceCandidateId").isTextual() && !recordedCandidateAvailable(node.path("sourceCandidateId").asText(), domain, report)) return false;
-                for (JsonNode id : node.path("sourceCandidateIds")) if (!id.isTextual() || !recordedCandidateAvailable(id.asText(), domain, report)) return false;
+                        && !recordedJobAvailable(views.byId(UUID.fromString(node.path("sourceAnalysisJobId").asText())), report)) return false;
+                if (node.path("sourceCandidateId").isTextual() && !recordedCandidateAvailable(node.path("sourceCandidateId").asText(), domain, report, views)) return false;
+                for (JsonNode id : node.path("sourceCandidateIds")) if (!id.isTextual() || !recordedCandidateAvailable(id.asText(), domain, report, views)) return false;
                 if (node.path("sourceKind").isTextual() && (node.has("sourceHash") || node.has("contentHash") || node.has("sourceEpisodeId")
                         || node.has("episodeId") || node.has("sourceSettingBookRevisionId") || node.has("revisionId"))
                         && !recordedSourceAvailable(node, report)) return false;
@@ -149,13 +183,13 @@ public class ValidationBaselineService {
             while (fields.hasNext()) {
                 var field = fields.next();
                 // 작품 설정의 임의 JSON key를 서버 provenance로 해석하지 않는다.
-                if (!List.of("valueJson", "propertiesJson").contains(field.getKey()) && !recordedSourcesAvailable(field.getValue(), domain, report)) return false;
+                if (!List.of("valueJson", "propertiesJson").contains(field.getKey()) && !recordedSourcesAvailable(field.getValue(), domain, report, views)) return false;
             }
-        } else for (JsonNode child : node) if (!recordedSourcesAvailable(child, domain, report)) return false;
+        } else for (JsonNode child : node) if (!recordedSourcesAvailable(child, domain, report, views)) return false;
         return true;
     }
 
-    private boolean recordedCandidateAvailable(String id, String domain, ValidationReport report) {
+    private boolean recordedCandidateAvailable(String id, String domain, ValidationReport report, SourceViews views) {
         AnalysisJob source;
         if (domain.equals("characters")) {
             var candidate = characters.findByIdAndWorkId(UUID.fromString(id), report.getWork().getId()).orElse(null);
@@ -164,12 +198,12 @@ public class ValidationBaselineService {
             var candidate = em.find(WorldSettingCandidate.class, UUID.fromString(id));
             source = candidate == null || !candidate.getWork().getId().equals(report.getWork().getId()) ? null : candidate.getAnalysisJob();
         }
-        return recordedJobAvailable(source, report);
+        return recordedJobAvailable(views.of(source), report);
     }
 
-    private boolean recordedJobAvailable(AnalysisJob source, ValidationReport report) {
-        if (source == null || !source.getWork().getId().equals(report.getWork().getId()) || source.getSourceContentS3Key() == null
-                || source.isSettingBookSource() && (source.getSourceSettingBook() == null || source.getSourceSettingBookRevision() == null)) return false;
+    private boolean recordedJobAvailable(AnalysisJobSourceView source, ValidationReport report) {
+        if (source == null || !report.getWork().getId().equals(source.getWorkId()) || source.getSourceContentS3Key() == null
+                || source.isSettingBookSource() && (source.getSourceSettingBookId() == null || source.getSourceSettingBookRevisionId() == null)) return false;
         var identity = JsonNodeFactory.instance.objectNode(); AnalysisSourceMetadata.put(identity, source);
         identity.put("contentS3Key", source.getSourceContentS3Key()).put("contentS3Version", source.getSourceContentS3Version());
         return recordedSourceAvailable(identity, report);
@@ -269,13 +303,15 @@ public class ValidationBaselineService {
     }
     private String nullableText(JsonNode node, String field) { return node.path(field).isTextual() ? node.path(field).asText() : null; }
 
-    private ArrayNode captureWorldHistory(ValidationReport report) {
+    private ArrayNode captureWorldHistory(ValidationReport report, SourceViews views) {
         var result = JsonNodeFactory.instance.arrayNode();
         for (var candidate : em.createQuery("select c from WorldSettingCandidate c where c.work.id = :id and c.reviewStatus = 'CONFIRMED' order by c.reviewedAt, c.id", WorldSettingCandidate.class)
                 .setParameter("id", report.getWork().getId()).getResultList()) {
-            var source = candidate.getAnalysisJob();
+            var source = views.of(candidate.getAnalysisJob());
             if (source != null && !source.isSettingBookSource() && source.getSourceEpisodeNo() != null
                     && source.getSourceEpisodeNo() >= report.getSourceEpisodeNo()) continue;
+            // 인자 없는 getTemporalScope()는 Job proxy를 초기화하므로 view의 출처 종류를 넘긴다.
+            var temporalScope = candidate.getTemporalScope(source != null && source.isSettingBookSource());
             var row = result.addObject().put("candidateId", candidate.getId().toString())
                     .put("targetWorldSettingId", candidate.getTargetWorldSetting() == null ? null : candidate.getTargetWorldSetting().getId().toString())
                     .put("category", candidate.getFinalCategory() == null ? null : candidate.getFinalCategory().name())
@@ -283,61 +319,62 @@ public class ValidationBaselineService {
                     .put("settingName", candidate.getFinalSettingName()).put("value", candidate.getFinalValue())
                     .put("operation", candidate.getFinalOperation() == null ? null : candidate.getFinalOperation().name())
                     .put("historyOnly", candidate.isHistoryOnly()).put("effectiveFromEpisodeNo", candidate.getEffectiveFromEpisodeNo())
-                    .put("temporalScope", candidate.getTemporalScope() == null ? null : candidate.getTemporalScope().name());
-            boolean available = accessible(source, report);
+                    .put("temporalScope", temporalScope == null ? null : temporalScope.name());
+            boolean available = accessible(source, report, views);
             row.put("sourceAvailability", available ? "AVAILABLE" : "UNAVAILABLE");
             row.set("evidenceSpans", available ? copy(candidate.getEvidenceSpans()) : JsonNodeFactory.instance.arrayNode());
             row.set("comparison", available ? copy(candidate.getRawComparisonJson()) : NullNode.instance);
-            row.set("narrativeTime", AnalysisCurrentSourceTimeMapper.toJson(AnalysisCurrentSourceTimeMapper.from(source,
-                    candidate.getEffectiveFromEpisodeNo(), candidate.getTemporalScope())));
+            row.set("narrativeTime", AnalysisCurrentSourceTimeMapper.toJson(AnalysisCurrentSourceTimeMapper.fromSource(source,
+                    candidate.getEffectiveFromEpisodeNo(), temporalScope)));
             AnalysisSourceMetadata.put(row, source);
         }
         return result;
     }
 
-    private boolean accessible(AnalysisJob source, ValidationReport target) {
-        if (source == null || !source.getWork().getId().equals(target.getWork().getId())) return false;
+    /** 과거 출처가 지금도 같은 원고·설정집 revision을 가리키고 대상 회차보다 앞서는지 scalar 값만으로 확인한다. */
+    private boolean accessible(AnalysisJobSourceView source, ValidationReport target, SourceViews views) {
+        if (source == null || !target.getWork().getId().equals(source.getWorkId())) return false;
         if (source.isSettingBookSource()) {
-            var revision = source.getSourceSettingBookRevision();
-            return revision != null && Objects.equals(source.getSourceContentHash(), revision.getContentHash())
-                    && Objects.equals(source.getSourceContentS3Key(), revision.getContentS3Key())
-                    && Objects.equals(source.getSourceContentS3Version(), revision.getContentS3Version())
-                    && (revision.getReferenceTimeKind() != SettingBookReferenceTimeKind.EPISODE
-                        || revision.getReferenceEpisodeNo() < target.getSourceEpisodeNo());
+            return source.getSourceSettingBookRevisionId() != null
+                    && Objects.equals(source.getSourceContentHash(), source.getRevisionContentHash())
+                    && Objects.equals(source.getSourceContentS3Key(), source.getRevisionContentS3Key())
+                    && Objects.equals(source.getSourceContentS3Version(), source.getRevisionContentS3Version())
+                    && (source.getSourceReferenceTimeKind() != SettingBookReferenceTimeKind.EPISODE
+                        || source.getSourceReferenceEpisodeNo() < target.getSourceEpisodeNo());
         }
-        var episode = source.getEpisode();
-        return episode != null && episode.getStatus() != EpisodeStatus.ARCHIVED && !purges.blocksSource(episode.getId(),source.getSourceContentS3Key())
+        return source.getEpisodeId() != null && source.getEpisodeStatus() != EpisodeStatus.ARCHIVED
+                && !views.blocksSource(source.getEpisodeId(), source.getSourceContentS3Key())
                 && source.getSourceEpisodeNo() != null && source.getSourceEpisodeNo() < target.getSourceEpisodeNo()
-                && Objects.equals(source.getSourceContentHash(), episode.getContentHash())
-                && Objects.equals(source.getSourceContentS3Key(), episode.getContentS3Key())
-                && Objects.equals(source.getSourceContentS3Version(), episode.getContentS3Version());
+                && Objects.equals(source.getSourceContentHash(), source.getEpisodeContentHash())
+                && Objects.equals(source.getSourceContentS3Key(), source.getEpisodeContentS3Key())
+                && Objects.equals(source.getSourceContentS3Version(), source.getEpisodeContentS3Version());
     }
 
     /** 이미 파기 접수된 앞 회차는 후속 비동기 정리 전에도 seed에 인용/저장 위치를 복사하지 않는다. */
-    private JsonNode sanitizeEvidence(JsonNode node, ValidationReport target) {
+    private JsonNode sanitizeEvidence(JsonNode node, ValidationReport target, SourceViews views) {
         if (node == null || !node.isContainerNode()) return copy(node);
         JsonNode result = node.deepCopy();
         if (result.isObject()) {
             ObjectNode object = (ObjectNode) result;
             if (object.has("availability") && object.path("source").isObject()
                     && object.path("sourceAnalysisJobId").isTextual()) {
-                var source = em.find(AnalysisJob.class, UUID.fromString(object.path("sourceAnalysisJobId").asText()));
-                if (!accessible(source, target)) return org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.purgeEvidence(object);
+                var source = views.byId(UUID.fromString(object.path("sourceAnalysisJobId").asText()));
+                if (!accessible(source, target, views)) return org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.purgeEvidence(object);
             }
             var fields = new ArrayList<String>(); object.fieldNames().forEachRemaining(fields::add);
-            for (String field : fields) object.set(field, sanitizeEvidence(object.get(field), target));
+            for (String field : fields) object.set(field, sanitizeEvidence(object.get(field), target, views));
             if ("SOURCE_EVIDENCE_PURGED".equals(object.path("supportingSource").path("unavailableReason").asText())) {
                 return org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.purgeEvidence(object);
             }
             if (object.has("identityEvidence")) {
                 for (JsonNode id : object.path("provenance").path("sourceCandidateIds")) {
                     var candidate = characters.findByIdAndWorkId(UUID.fromString(id.asText()), target.getWork().getId()).orElse(null);
-                    if (candidate == null || !accessible(candidate.getAnalysisJob(), target)) { object.remove("identityEvidence"); break; }
+                    if (candidate == null || !accessible(views.of(candidate.getAnalysisJob()), target, views)) { object.remove("identityEvidence"); break; }
                 }
             }
         } else {
             ArrayNode array = (ArrayNode) result;
-            for (int i = 0; i < array.size(); i++) array.set(i, sanitizeEvidence(array.get(i), target));
+            for (int i = 0; i < array.size(); i++) array.set(i, sanitizeEvidence(array.get(i), target, views));
         }
         return result;
     }
