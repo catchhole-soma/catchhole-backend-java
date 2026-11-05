@@ -1010,6 +1010,11 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - `AnalysisStateJournal.hash`는 기존 canonical UTF-8를 버퍼로 SHA-256에 전달한다. 객체 key 정렬, 배열·유니코드, 숫자 표현과 v1/v2 hash 계약은 바꾸지 않는다. 자동 입력의 내부 읽기 검증은 저장 노드를 수정하지 않고, 저장·공개 반환·PreparedState의 방어 복사는 유지한다.
 - 범위와 보존 계약은 `docs/analysis-history-memory.md`, 같은 768MiB 조건의 합성 전후 검증은 `docs/load-tests/gh374-analysis-history-memory.md`에 기록한다. 운영의 정확한 동시 부하 재현이나 OOM 완전 제거로 확대 해석하지 않는다.
 
+### 검수 기준 준비의 출처 확인 (#379)
+
+- 접수 때 기준 준비(`ValidationBaselineService.capture`)의 출처 확인은 `AnalysisJobSourceView`로 회차·설정집 상태와 원고 hash/key/version만 읽는다. 과거 Job proxy의 식별자 외 getter나 인자 없는 `WorldSettingCandidate.getTemporalScope()`를 부르면 Job 엔티티 전체와 입력·기준 상태·journal JSON이 초기화되어, 회차가 많은 작품에서 768MiB 힙을 넘긴다. 저장 입력 JSON 자체가 필요한 진단 직전 반영 Job 한 건만 엔티티로 읽는다.
+- 파기 대기 확인 같은 반복 조회는 접수 한 번 안에서 (회차, 원고 key)별로 한 번만 묻는다. 쿼리마다 auto-flush가 영속성 컨텍스트의 후보 엔티티 전체를 dirty check하므로 이력 행마다 다시 물으면 접수 시간이 이력 수에 비례한다. 접수는 Work 잠금 아래라 그 사이 파기 요청이 바뀌지 않는다.
+
 ### 캐릭터 비교 근거 수명 (#363)
 
 - V112는 `setting_candidates.stored_evidence_validation`을 DB가 파생하는 검증 기록으로 관리한다. 후보 저장/근거 변경 시 같은 출처의 DB 청크로 인용·Unicode 위치·시점·설정집 부모 프로필 근거를 검증하고, 입력 JSON 및 Job의 key/version/hash와 결속한다. 상태만 바뀌는 저장은 재청킹 후에도 기존 검증을 보존한다. 애플리케이션은 이 컬럼을 직접 쓰지 않는다.
