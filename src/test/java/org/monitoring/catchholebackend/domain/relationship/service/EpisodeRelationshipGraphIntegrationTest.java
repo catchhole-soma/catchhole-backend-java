@@ -447,7 +447,7 @@ class EpisodeRelationshipGraphIntegrationTest {
         apply(first, initial, action(initial, Operation.ADD, Kind.COMPANIONSHIP, "함께 여행한다"));
         UUID alias = boundNodeId(first, initial.observations().getFirst().sourceNodeRefs().getFirst());
         UUID bora = boundNodeId(first, initial.observations().getFirst().targetNodeRefs().getFirst());
-        UUID characterId = character("아라 린");
+        UUID characterId = character("아라 린 얀델");
         UUID profile = profileNodeAt(2, "아라 린과 다라는 함께 길을 떠났다.", "아라 린", "다라", characterId);
 
         UUID third = job(3);
@@ -460,6 +460,10 @@ class EpisodeRelationshipGraphIntegrationTest {
         assertProfileLink(profile, characterId, 2, 2);
         Graph latest = service.getRelationshipGraph(owner, workId, 3);
         assertThat(latest.nodes()).extracting(n -> n.id()).doesNotContain(alias).contains(profile, bora);
+        assertThat(latest.nodes()).filteredOn(n -> n.id().equals(profile)).singleElement().satisfies(n -> {
+            assertThat(n.name()).isEqualTo("아라 린 얀델");
+            assertThat(n.profileRegistered()).isTrue();
+        });
         assertThat(latest.edges()).allSatisfy(e -> assertThat(endpoints(e)).doesNotContain(alias));
         assertThat(latest.edges()).filteredOn(e -> endpoints(e).equals(java.util.Set.of(profile, bora)))
                 .singleElement().extracting(Edge::summary).isEqualTo("다시 함께 여행한다");
@@ -640,6 +644,81 @@ class EpisodeRelationshipGraphIntegrationTest {
             assertThat(graph.edges()).filteredOn(e -> endpoints(e).equals(java.util.Set.of(profile, bora)))
                     .singleElement().extracting(Edge::summary).isEqualTo(no + "화 동행");
         }
+    }
+
+    private org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.Node graphNode(
+            int episodeNo, UUID nodeId) {
+        return service.getRelationshipGraph(owner, workId, episodeNo).nodes().stream()
+                .filter(n -> n.id().equals(nodeId)).findFirst().orElseThrow();
+    }
+
+    @Test
+    @DisplayName("등록 회차부터 노드 이름은 현재 프로필 이름을 따라가고 미등록·보관·삭제 프로필은 관측 이름으로 돌아간다")
+    void registeredNodeDisplaysProfileNameAndFollowsRename() {
+        UUID first = job(1);
+        Context initial = prepare(first);
+        apply(first, initial, action(initial, Operation.ADD, Kind.COMPANIONSHIP, "함께 여행한다"));
+        UUID nodeId = boundNodeId(first, initial.observations().getFirst().sourceNodeRefs().getFirst());
+        UUID characterId = character("아라 린");
+        UUID second = job(2);
+        Context later = prepare(second);
+        confirmDiscovery(second, characterId, "아라");
+        apply(second, later, action(later, Operation.UPDATE, Kind.COMPANIONSHIP, "함께 여행한다"));
+        assertProfileLink(nodeId, characterId, 1, 2);
+
+        assertThat(graphNode(1, nodeId)).satisfies(n -> {
+            assertThat(n.name()).isEqualTo("아라");
+            assertThat(n.profileRegistered()).isFalse();
+        });
+        var statistics = em.getEntityManagerFactory().unwrap(org.hibernate.SessionFactory.class).getStatistics();
+        boolean previouslyEnabled = statistics.isStatisticsEnabled();
+        statistics.setStatisticsEnabled(true);
+        statistics.clear();
+        Graph registered;
+        try {
+            registered = service.getRelationshipGraph(owner, workId, 2);
+            assertThat(statistics.getEntityStatistics(WorkCharacter.class.getName()).getLoadCount()).isZero();
+            assertThat(statistics.getEntityStatistics(AnalysisJob.class.getName()).getLoadCount()).isZero();
+            assertThat(java.util.Arrays.stream(statistics.getQueries())
+                    .filter(q -> q.contains("WorkCharacter") && q.contains("character.name as name"))
+                    .mapToLong(q -> statistics.getQueryStatistics(q).getExecutionCount()).sum()).isEqualTo(1);
+        } finally {
+            statistics.setStatisticsEnabled(previouslyEnabled);
+        }
+        assertThat(registered.nodes()).filteredOn(n -> n.id().equals(nodeId)).singleElement().satisfies(n -> {
+            assertThat(n.name()).isEqualTo("아라 린");
+            assertThat(n.profileRegistered()).isTrue();
+        });
+        var detail = service.getRelationshipEdge(owner, workId, registered.edges().getFirst().id(), 2);
+        assertThat(List.of(detail.sourceNode(), detail.targetNode()))
+                .filteredOn(n -> n.id().equals(nodeId)).singleElement()
+                .satisfies(n -> assertThat(n.name()).isEqualTo("아라 린"));
+
+        tx.executeWithoutResult(t -> em.find(WorkCharacter.class, characterId).updateBasicInfo("아라 린 2", null));
+        Graph renamed = service.getRelationshipGraph(owner, workId, 2);
+        assertThat(renamed.nodes()).filteredOn(n -> n.id().equals(nodeId)).singleElement()
+                .satisfies(n -> assertThat(n.name()).isEqualTo("아라 린 2"));
+        assertThat(renamed.revision()).isNotEqualTo(registered.revision());
+        assertThat(graphNode(1, nodeId).name()).isEqualTo("아라");
+
+        // An archived profile is no longer on the dashboard: fall back to the observed name.
+        tx.executeWithoutResult(t -> em.find(WorkCharacter.class, characterId).archive());
+        assertThat(graphNode(2, nodeId)).satisfies(n -> {
+            assertThat(n.name()).isEqualTo("아라");
+            assertThat(n.profileRegistered()).isTrue();
+        });
+        // Deleting a profile sets the node FK to null (ON DELETE SET NULL): unregistered again.
+        tx.executeWithoutResult(t -> {
+            em.find(WorkCharacter.class, characterId).restore();
+            em.createNativeQuery("update relationship_graph_nodes set character_id = null where id = ?1")
+                    .setParameter(1, nodeId).executeUpdate();
+        });
+        assertThat(graphNode(2, nodeId)).satisfies(n -> {
+            assertThat(n.name()).isEqualTo("아라");
+            assertThat(n.profileRegistered()).isFalse();
+        });
+        tx.executeWithoutResult(t -> assertThat(em.find(RelationshipGraphNode.class, nodeId).getName())
+                .isEqualTo("아라"));
     }
 
     @Test
@@ -1289,9 +1368,12 @@ class EpisodeRelationshipGraphIntegrationTest {
         Graph latest = service.getRelationshipGraph(owner, workId, 2);
         assertThat(latest.edges().getFirst().id()).isEqualTo(firstGraph.edges().getFirst().id());
         assertThat(latest.nodes()).extracting(n -> n.id()).containsExactlyInAnyOrder(ara, bora);
-        assertThat(latest.nodes()).extracting(n -> n.name()).containsExactlyInAnyOrder("아라", "보라");
+        // GH382: from its registration episode the node shows the current profile name.
+        assertThat(latest.nodes()).extracting(n -> n.name())
+                .containsExactlyInAnyOrder("미래의 현재 프로필 이름", "보라");
         assertThat(service.getRelationshipGraph(owner, workId, 1).nodes())
-                .allSatisfy(n -> assertThat(n.profileRegistered()).isFalse());
+                .allSatisfy(n -> assertThat(n.profileRegistered()).isFalse())
+                .extracting(n -> n.name()).containsExactlyInAnyOrder("아라", "보라");
         tx.executeWithoutResult(
                 status -> {
                     em.clear();
@@ -1518,14 +1600,18 @@ class EpisodeRelationshipGraphIntegrationTest {
         assertThat(service.getRelationshipGraph(owner, workId, 1).nodes())
                 .filteredOn(n -> n.id().equals(nodeId))
                 .singleElement()
-                .satisfies(n -> assertThat(n.profileRegistered()).isFalse());
+                .satisfies(n -> {
+                    assertThat(n.profileRegistered()).isFalse();
+                    assertThat(n.name()).isEqualTo("아라");
+                });
+        // GH382: the registered node shows the current profile name, not the observed one.
         assertThat(service.getRelationshipGraph(owner, workId, 2).nodes())
                 .filteredOn(n -> n.id().equals(nodeId))
                 .singleElement()
                 .satisfies(
                         n -> {
                             assertThat(n.profileRegistered()).isTrue();
-                            assertThat(n.name()).isEqualTo("아라");
+                            assertThat(n.name()).isEqualTo("현재 프로필의 다른 이름");
                         });
     }
 

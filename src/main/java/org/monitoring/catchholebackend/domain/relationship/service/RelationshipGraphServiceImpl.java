@@ -43,6 +43,8 @@ import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.character.repository.ConfirmedCharacterIdentityRow;
 import org.monitoring.catchholebackend.domain.character.repository.SettingCandidateRepository;
 import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterRepository;
+import org.monitoring.catchholebackend.domain.character.repository.WorkCharacterNameRow;
+import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateKind;
 import org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
@@ -1114,10 +1116,10 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                             source, target));
             outputNodes.put(
                     source,
-                    mapper.toNode(read.index().node(source), event.getSourceName(), cutoff));
+                    displayNode(read, source, event.getSourceName(), cutoff));
             outputNodes.put(
                     target,
-                    mapper.toNode(read.index().node(target), event.getTargetName(), cutoff));
+                    displayNode(read, target, event.getTargetName(), cutoff));
         }
         var considered =
                 read.analyses().values().stream()
@@ -1243,8 +1245,8 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         return new Detail(
                 mapper.toEdge(edge, event, evidence.size(), progress.lastVerifiedEpisodeNo(),
                         progress.updateIncomplete(), source, target),
-                mapper.toNode(read.index().node(source), event.getSourceName(), cutoff),
-                mapper.toNode(read.index().node(target), event.getTargetName(), cutoff),
+                displayNode(read, source, event.getSourceName(), cutoff),
+                displayNode(read, target, event.getTargetName(), cutoff),
                 evidence,
                 edge.getVersion());
     }
@@ -1261,6 +1263,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                                         .toList())
                         .stream()
                         .collect(Collectors.toMap(Episode::getId, e -> e));
+        NodeIndex index = new NodeIndex(nodes.findAllByWorkIdOrderByFirstEpisodeNoAscIdAsc(workId));
         return new ReadState(
                 all,
                 valid,
@@ -1268,8 +1271,36 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                         workId, Integer.MAX_VALUE),
                 edges.findAllByWorkId(workId).stream()
                         .collect(Collectors.toMap(RelationshipGraphEdge::getId, e -> e)),
-                new NodeIndex(nodes.findAllByWorkIdOrderByFirstEpisodeNoAscIdAsc(workId)),
+                index,
+                profileNames(workId, index),
                 episodeMap);
+    }
+
+    /**
+     * Current profile names of linked profile nodes, read once as scalars in the same snapshot.
+     * Archived or deleted profiles are absent, so those nodes fall back to their observed name.
+     */
+    private Map<UUID, String> profileNames(UUID workId, NodeIndex index) {
+        Set<UUID> linked = index.nodes().stream()
+                .filter(n -> !n.isMerged() && n.getCharacterId() != null)
+                .map(RelationshipGraphNode::getCharacterId)
+                .collect(Collectors.toSet());
+        if (linked.isEmpty()) return Map.of();
+        return characters.findNamesByWorkIdAndStatusAndIdIn(workId, CharacterStatus.ACTIVE, linked).stream()
+                .collect(Collectors.toMap(WorkCharacterNameRow::getId, WorkCharacterNameRow::getName));
+    }
+
+    /**
+     * A node registered to a profile by the selected episode shows the current profile name;
+     * any other node keeps the name observed up to that episode. Stored names are not changed.
+     */
+    private Node displayNode(ReadState read, UUID nodeId, String observedName, int cutoff) {
+        RelationshipGraphNode node = read.index().node(nodeId);
+        boolean registered = node.getCharacterId() != null
+                && node.getCharacterLinkedEpisodeNo() != null
+                && node.getCharacterLinkedEpisodeNo() <= cutoff;
+        String profileName = registered ? read.profileNames().get(node.getCharacterId()) : null;
+        return mapper.toNode(node, profileName == null ? observedName : profileName, cutoff);
     }
 
     private Map<UUID, RelationshipGraphEvent> latestEvents(ReadState read, int cutoff) {
@@ -1321,6 +1352,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
             List<RelationshipGraphEvent> events,
             Map<UUID, RelationshipGraphEdge> edges,
             NodeIndex index,
+            Map<UUID, String> profileNames,
             Map<UUID, Episode> episodes) {}
 
     @Override

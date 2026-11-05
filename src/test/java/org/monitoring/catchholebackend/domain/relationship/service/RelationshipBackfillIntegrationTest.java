@@ -560,7 +560,7 @@ class RelationshipBackfillIntegrationTest {
     }
 
     @Test
-    @DisplayName("확정 후보의 과거 이름만 연결하고 현재 이름이나 후행 프로필을 과거에 노출하지 않는다")
+    @DisplayName("확정 후보의 과거 이름만 연결하고 현재 이름은 문맥에 노출하지 않으며 등록 회차부터 프로필 이름을 표시한다")
     void historicalIdentityIsCutoffSafe() {
         UUID one = episode(1), two = episode(2);
         confirmedName(one, "아라", "미래에 바뀐 호칭");
@@ -577,8 +577,10 @@ class RelationshipBackfillIntegrationTest {
         finish(second);
         assertThat(graph.getRelationshipGraph(owner, workId, 1).nodes())
                 .anyMatch(n -> n.name().equals("보라") && !n.profileRegistered());
+        // GH382: from the registration episode the public graph shows the current profile name.
         assertThat(graph.getRelationshipGraph(owner, workId, 2).nodes())
-                .anyMatch(n -> n.name().equals("보라") && n.profileRegistered());
+                .anyMatch(n -> n.name().equals("미래의 정체") && n.profileRegistered())
+                .noneMatch(n -> n.name().equals("보라"));
     }
 
     private UUID boundNodeId(UUID jobId, String ref) {
@@ -649,6 +651,8 @@ class RelationshipBackfillIntegrationTest {
         assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.COMPLETE);
         var result = graph.getRelationshipGraph(owner, workId, null);
         assertThat(result.nodes()).extracting(n -> n.id()).containsExactlyInAnyOrder(profile, bora);
+        assertThat(result.nodes()).filteredOn(n -> n.id().equals(profile)).singleElement()
+                .satisfies(n -> assertThat(n.name()).isEqualTo("아라 린 프로필"));
         assertThat(jdbc.queryForObject(
                 "select count(*) from relationship_graph_nodes where work_id=? and name='아라'", Long.class, workId))
                 .isZero();
