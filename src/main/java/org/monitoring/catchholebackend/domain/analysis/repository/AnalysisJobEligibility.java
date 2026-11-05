@@ -38,4 +38,18 @@ final class AnalysisJobEligibility {
                 ))
 
             """;
+
+    /**
+     * #381 claim 전용 조건. 같은 작품의 검수 실행이 확정 설정을 잠근 동안 확정 설정을 쓸 수 있는 자동 작업(추출·캐릭터 비교·세계관 비교)은 claim하지 않는다.
+     * 메트릭 snapshot의 DOMAIN에는 넣지 않는다. 파라미터 {@code :lockNow}·{@code :lockQueuedCutoff}는 {@code ValidationSettingsLock.window()}로 채운다.
+     */
+    static final String VALIDATION_LOCK = """
+            (job.jobType not in (org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION,
+                    org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.CHARACTER_FACT_COMPARISON,
+                    org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.WORLD_SETTING_COMPARISON)
+                or not exists (select lockJob.id from ValidationJob lockJob join lockJob.report lockReport
+                    where lockReport.work.id = job.work.id and
+            """ + org.monitoring.catchholebackend.domain.validation.repository.ValidationJobRepository.SETTINGS_LOCK + """
+                ))
+            """;
 }

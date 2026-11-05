@@ -136,6 +136,8 @@ class ValidationSettingsApplicationIntegrationTest extends ValidationSettingsApp
     @Test @DisplayName("일반 회차는 기존 자동 반영 contributor로 확정되고 사람의 그룹 확정도 그대로 동작한다")
     void releaseOnlyPathDoesNotChangeLegacyAutomaticApply() {
         var f=fixture();
+        // #381: 101화 검수는 접수만 되고 Worker가 가져가지 않았다. 대기 잠금 시간이 지나 같은 작품의 자동 추출·사람 확정을 더 이상 막지 않는 상태로 둔다.
+        jdbc.update("update validation_jobs set updated_at=? where report_id=?",java.time.LocalDateTime.now().minusMinutes(11),f.report());
         // 검수 report가 없는 앞 회차(100화)의 일반 자동 분석. 101화의 검수 report는 이 회차의 판단에 쓰지 않는다.
         var job=tx.execute(s->{
             var work=em.find(Work.class,f.work());var episode=em.createQuery("select e from Episode e where e.work=:w and e.episodeNo=100",Episode.class).setParameter("w",work).getSingleResult();
