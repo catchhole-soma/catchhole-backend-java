@@ -539,7 +539,7 @@ public class AnalysisJob extends BaseEntity {
     }
 
     /**
-     * GH312 S3: 검수 release Job의 회차 전체 확정이 두 도메인을 모두 반영한 뒤에만 호출한다. 추출 완료 트랜잭션(RUNNING) 또는
+     * 검수 release Job의 두 도메인 자동 처리 완료 뒤 호출한다. 검토 대기 후보가 남아도 완료이며, 추출 완료 트랜잭션(RUNNING) 또는
      * 보류 뒤 작가의 명시 반영(SUCCEEDED)에서 SEALED 기록 위에만 표시하며, 보류·되돌림에서는 호출하지 않는다.
      */
     public void completeReviewReleaseApplication() {

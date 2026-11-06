@@ -64,7 +64,7 @@ class ValidationSettingsApplicationRollbackIntegrationTest extends ValidationSet
         var r=release();
         var ids=inJob(r.job(),job->{var d=discovery(job,"에르웬");stat(job,d.getProvisionalSubjectKey(),"에르웬",35,CharacterFactOperation.ADD);
             return List.of(scopeUnresolvedWorld(job,"엘프","서식지","북부").getId(),job.getBatch().getId());});
-        completeExtraction(r);assertThat(applicationRow(r.f()).get("status")).isEqualTo("HELD_REVIEW");
+        completeLegacyHeldExtraction(r);assertThat(applicationRow(r.f()).get("status")).isEqualTo("HELD_REVIEW");
         worldApplication.updateCandidateDecisions(r.f().member(),r.f().work(),new org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateDecisionUpdateRequest(ids.get(1),List.of(
                 new org.monitoring.catchholebackend.domain.worldsetting.dto.request.WorldSettingCandidateDecisionUpdateItem(ids.get(0),org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingOperation.ADD,
                         org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory.RACE,"엘프","북부 숲","서식지","북부","범위 확인"))));
@@ -83,7 +83,7 @@ class ValidationSettingsApplicationRollbackIntegrationTest extends ValidationSet
         var r=release();
         var held=inJob(r.job(),job->{var d=discovery(job,"에르웬");stat(job,d.getProvisionalSubjectKey(),"에르웬",35,CharacterFactOperation.ADD);
             var d2=discovery(job,"비요른");world(job,"엘프","서식지","북부");return stat(job,d2.getProvisionalSubjectKey(),"비요른",50,CharacterFactOperation.REVIEW_REQUIRED).getId();});
-        completeExtraction(r);assertThat(applicationRow(r.f()).get("status")).isEqualTo("HELD_REVIEW");
+        completeLegacyHeldExtraction(r);assertThat(applicationRow(r.f()).get("status")).isEqualTo("HELD_REVIEW");
         characterReview.dismissSettingCandidate(r.f().member(),r.f().work(),held);
         doThrow(new AppException(WorldSettingErrorCode.WORLD_SETTING_NOT_FOUND)).when(worldApplication).applyAutomatically(any());
         long before=reportVersion(r.f());
@@ -97,15 +97,16 @@ class ValidationSettingsApplicationRollbackIntegrationTest extends ValidationSet
         assertThat(applications.applySettings(r.f().member(),r.f().work(),r.f().report(),request)).as("same key replays the held receipt").isEqualTo(response);
     }
 
-    @Test @DisplayName("기존 자동 반영 규칙이 계획한 후보를 보류하면 이미 쓴 다른 도메인까지 되돌리고 CANDIDATE_CHANGED로 보류한다")
-    void contributorHoldIsNotAbsorbedAsPartialSuccess() {
+    @Test @DisplayName("기존 자동 반영 규칙이 후보를 보류해도 다른 도메인의 정상 반영은 유지한다")
+    void contributorHoldKeepsOtherDomainApplied() {
         var r=release();var ids=applicable(r);
         // 세계관 contributor가 아무것도 반영하지 않은 상황(검증 실패 흡수와 같은 결과)을 만든다.
         doNothing().when(worldApplication).applyAutomatically(any());
         completeExtraction(r);
-        assertNothingApplied(r);
-        var reasons=reviews.getValidationReview(r.f().member(),r.f().work(),r.f().report()).application().holdReasons();
-        assertThat(reasons).containsExactly(new ValidationApplicationHoldReason(ValidationApplicationHoldCode.CANDIDATE_CHANGED,ValidationApplicationCandidateType.WORLD_SETTING,ids.world(),"NOT_APPLIED"));
+        assertThat(characters(r.f())).isEqualTo(1);assertThat(facts(r.f())).isEqualTo(1);assertThat(confirmed(r.f())).isEqualTo(2);
+        assertThat(worldSettings(r.f())).isZero();assertThat(automaticAppliedAt(r.job())).isNotNull();
+        assertThat(jdbc.queryForObject("select review_status from world_setting_candidates where id=?",String.class,ids.world())).isEqualTo("PENDING_REVIEW");
+        assertThat(applicationRow(r.f()).get("status")).isEqualTo("APPLIED");
         assertThat(applicationRow(r.f()).get("last_error_code")).isNull();
         assertThat(List.of(jobState(r.job()))).containsExactly("SUCCEEDED/SEALED");
     }

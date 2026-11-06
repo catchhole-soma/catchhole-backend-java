@@ -162,14 +162,17 @@ class ValidationNextEpisodeAdmissionIntegrationTest extends ValidationSettingsAp
         // 회차 전체 확정 보류(APPLICATION_HELD)도 설정 저장 전이므로 막는다.
         var r=release();var held=r.f();
         inJob(r.job(),job->{var d=discovery(job,"에르웬");return stat(job,d.getProvisionalSubjectKey(),"에르웬",35,CharacterFactOperation.REVIEW_REQUIRED);});
-        completeExtraction(r);assertThat(applicationRow(held).get("status")).isEqualTo("HELD_REVIEW");
+        completeLegacyHeldExtraction(r);assertThat(applicationRow(held).get("status")).isEqualTo("HELD_REVIEW");
         assertThat(stage(held)).isEqualTo(ValidationReviewStage.APPLICATION_HELD);
         assertBlockedEverywhere(held,ValidationReviewStage.APPLICATION_HELD);
     }
 
-    @Test @DisplayName("회차 전체 확정(APPLIED) 뒤에는 같은 업로드가 성공하고 새 회차가 검수 자격을 받아 다음 검수가 다시 다음 회차를 막는다")
+    @Test @DisplayName("자동 처리(APPLIED) 뒤 남은 검토 후보가 있어도 다음 회차 등록이 가능하고 새 회차는 검수 자격을 받는다")
     void appliedValidationAllowsNextEpisode() throws Exception {
-        var r=release();var f=r.f();applicable(r);completeExtraction(r);
+        var r=release();var f=r.f();applicable(r);
+        var pending=inJob(r.job(),job->scopeUnresolvedWorld(job,"드워프","서식지","산").getId());
+        completeExtraction(r);
+        assertThat(jdbc.queryForObject("select review_status from world_setting_candidates where id=?",String.class,pending)).isEqualTo("PENDING_REVIEW");
         assertThat(applicationRow(f).get("status")).isEqualTo("APPLIED");assertThat(stage(f)).isEqualTo(ValidationReviewStage.APPLIED);
         assertThat(eligibility(f.member(),f.work(),null).path("nextEpisodeAdmission").path("allowed").asBoolean()).isTrue();
         var uploaded=upload(f.member(),f.work(),Mode.SINGLE,102);var next=uploaded.createdEpisodes().getFirst().id();
