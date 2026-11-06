@@ -848,6 +848,45 @@ class EpisodeRelationshipGraphIntegrationTest {
     }
 
     @Test
+    @DisplayName("한 프로필에 등록된 노드가 둘 이상이면 같은 프로필 이름을 반복하지 않고 관측 이름을 보여 준다")
+    void profileWithSeveralRegisteredNodesKeepsObservedNames() {
+        UUID first = job(1);
+        Context initial = prepare(first);
+        apply(first, initial, action(initial, Operation.ADD, Kind.COMPANIONSHIP, "함께 여행한다"));
+        UUID source = boundNodeId(first, initial.observations().getFirst().sourceNodeRefs().getFirst());
+        UUID target = boundNodeId(first, initial.observations().getFirst().targetNodeRefs().getFirst());
+        String sourceName = graphNode(1, source).name(), targetName = graphNode(1, target).name();
+        UUID characterId = character("아라 린");
+        // Already split production data (before the one-time cleanup): link nodes to one profile
+        // directly, the source by episode 1 and the target from episode 2.
+        tx.executeWithoutResult(t -> em.createNativeQuery(
+                        "update relationship_graph_nodes set character_id = ?1, character_linked_episode_no = 1 where id = ?2")
+                .setParameter(1, characterId).setParameter(2, source).executeUpdate());
+        tx.executeWithoutResult(t -> em.createNativeQuery(
+                        "update relationship_graph_nodes set character_id = ?1, character_linked_episode_no = 2 where id = ?2")
+                .setParameter(1, characterId).setParameter(2, target).executeUpdate());
+        UUID second = job(2);
+        Context later = prepare(second);
+        apply(second, later, action(later, Operation.UPDATE, Kind.COMPANIONSHIP, "함께 여행한다"));
+
+        // Episode 1: the source is the profile's only registered node, so it takes the profile name.
+        assertThat(graphNode(1, source).name()).isEqualTo("아라 린");
+        assertThat(graphNode(1, target)).satisfies(n -> {
+            assertThat(n.name()).isEqualTo(targetName);
+            assertThat(n.profileRegistered()).isFalse();
+        });
+        // Episode 2: both are registered to the same profile; neither repeats the profile name.
+        assertThat(graphNode(2, source)).satisfies(n -> {
+            assertThat(n.name()).isEqualTo(sourceName);
+            assertThat(n.profileRegistered()).isTrue();
+        });
+        assertThat(graphNode(2, target)).satisfies(n -> {
+            assertThat(n.name()).isEqualTo(targetName);
+            assertThat(n.profileRegistered()).isTrue();
+        });
+    }
+
+    @Test
     @DisplayName("별칭 조회는 확정 후보가 많아도 scalar 조회 한 번이며 후보와 원 분석 Job을 적재하지 않는다")
     void aliasLookupIsScalarAndDoesNotHydrateCandidatesOrJobs() {
         UUID characterId = character("아라 린");

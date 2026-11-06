@@ -1392,11 +1392,21 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
      */
     private Node displayNode(ReadState read, UUID nodeId, String observedName, int cutoff) {
         RelationshipGraphNode node = read.index().node(nodeId);
-        boolean registered = node.getCharacterId() != null
+        // Already split data (several nodes linked to one profile, awaiting the one-time cleanup)
+        // would otherwise show the same profile name several times: only the profile's single
+        // registered node by this episode takes the profile name.
+        boolean single = registeredBy(node, cutoff)
+                && read.index().canonicalNodesOf(node.getCharacterId()).stream()
+                        .filter(other -> registeredBy(other, cutoff))
+                        .count() == 1;
+        String profileName = single ? read.profileNames().get(node.getCharacterId()) : null;
+        return mapper.toNode(node, profileName == null ? observedName : profileName, cutoff);
+    }
+
+    private static boolean registeredBy(RelationshipGraphNode node, int cutoff) {
+        return node.getCharacterId() != null
                 && node.getCharacterLinkedEpisodeNo() != null
                 && node.getCharacterLinkedEpisodeNo() <= cutoff;
-        String profileName = registered ? read.profileNames().get(node.getCharacterId()) : null;
-        return mapper.toNode(node, profileName == null ? observedName : profileName, cutoff);
     }
 
     private Map<UUID, RelationshipGraphEvent> latestEvents(ReadState read, int cutoff) {
