@@ -79,4 +79,20 @@ public class RelationshipGraphNode extends BaseEntity {
         mergedAtEpisodeNo = episodeNo;
         return true;
     }
+
+    /**
+     * GH391 one-time cleanup: redirects a node linked to the same profile as the canonical node.
+     * The profile link moves to the canonical node only (V118 requires a redirected row to be
+     * unlinked); the stored name, first episode, edges' history and the row itself stay.
+     * Returns false when this node is already redirected or is not linked.
+     */
+    public boolean consolidateInto(UUID canonicalId, int episodeNo) {
+        if (id.equals(canonicalId)) throw new IllegalStateException("A node cannot merge into itself.");
+        if (characterId == null || mergedIntoNodeId != null) return false;
+        characterId = null;
+        characterLinkedEpisodeNo = null;
+        mergedIntoNodeId = canonicalId;
+        mergedAtEpisodeNo = episodeNo;
+        return true;
+    }
 }

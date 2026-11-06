@@ -1,6 +1,8 @@
 package org.monitoring.catchholebackend.domain.relationship.entity;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -95,5 +97,22 @@ public class RelationshipGraphEvent extends BaseEntity {
         value.status = status;
         value.evidence = evidence;
         return value;
+    }
+
+    /**
+     * GH391 one-time cleanup: keeps the quotes of the same analysis's event on a merged edge.
+     * Label, summary, status and direction stay this event's; identical quotes are not repeated.
+     */
+    public void appendEvidence(JsonNode other) {
+        if (other == null || !other.isArray() || other.isEmpty()) return;
+        ArrayNode merged = evidence != null && evidence.isArray()
+                ? ((ArrayNode) evidence).deepCopy()
+                : JsonNodeFactory.instance.arrayNode();
+        for (JsonNode quote : other) {
+            boolean present = false;
+            for (JsonNode existing : merged) present |= existing.equals(quote);
+            if (!present) merged.add(quote.deepCopy());
+        }
+        evidence = merged;
     }
 }

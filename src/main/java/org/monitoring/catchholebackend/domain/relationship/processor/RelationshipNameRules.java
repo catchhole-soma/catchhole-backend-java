@@ -97,29 +97,42 @@ public final class RelationshipNameRules {
             Map<String, ? extends Collection<UUID>> confirmed,
             Collection<String> observed,
             Collection<ProfileName> profiles) {
-        Map<String, Set<UUID>> exact = new HashMap<>(), current = new HashMap<>();
-        List<Spelling> spellings = new ArrayList<>();
-        confirmed.forEach((name, ids) -> {
-            String normalized = normalize(name);
-            exact.computeIfAbsent(exactKey(name, normalized), k -> new LinkedHashSet<>()).addAll(ids);
-            if (usable(normalized)) ids.forEach(id -> spellings.add(new Spelling(normalized, id, true)));
-        });
-        for (ProfileName profile : profiles) {
-            String normalized = normalize(profile.name());
-            current.computeIfAbsent(exactKey(profile.name(), normalized), k -> new LinkedHashSet<>())
-                    .add(profile.characterId());
-            if (usable(normalized)) spellings.add(new Spelling(normalized, profile.characterId(), false));
-        }
+        Lookup lookup = lookup(confirmed, profiles);
         Map<String, List<UUID>> resolved = new LinkedHashMap<>();
         // Every confirmed name, observed or not: a same-name node in this context gets the same answer.
-        for (String name : confirmed.keySet()) resolved.put(name, exact(name, exact, current));
+        for (String name : confirmed.keySet()) resolved.put(name, exact(name, lookup.exact(), lookup.current()));
         for (String name : observed) {
             if (resolved.containsKey(name)) continue;
-            List<UUID> ids = exact(name, exact, current);
-            if (ids.isEmpty()) ids = contained(normalize(name), spellings);
+            List<UUID> ids = exact(name, lookup.exact(), lookup.current());
+            if (ids.isEmpty()) ids = contained(normalize(name), lookup.spellings());
             if (!ids.isEmpty()) resolved.put(name, ids);
         }
         return resolved;
+    }
+
+    /**
+     * GH391 1회 정리용 엄격 해소. {@link #resolve}와 같은 입력·정규화·제외 단어를 쓰지만 정확 일치에서 멈추지 않고
+     * 정확 일치(확정 이름·현재 프로필 이름)와 포함 일치(확정 이름·현재 프로필 이름) 프로필을 모두 모은다.
+     * 둘 이상이면 그대로 돌려주어 보류하고, 하나여도 확정 이름이 뒷받침하지 않으면(현재 프로필 이름만 겹치면) 해소하지 않는다.
+     *
+     * <p>이미 같은 프로필에 연결된 노드를 합칠 때만 쓴다. 다른 프로필과 정확히 같은 이름("한스 호지")이나 다른 프로필 이름에
+     * 포함되는 짧은 이름("테르시아")은 확정 별칭이 있어도 다른 사람일 수 있어 합치지 않는다.
+     */
+    public static List<UUID> resolveStrictly(
+            String name,
+            Map<String, ? extends Collection<UUID>> confirmed,
+            Collection<ProfileName> profiles) {
+        Lookup lookup = lookup(confirmed, profiles);
+        String normalized = normalize(name);
+        String key = exactKey(name, normalized);
+        Set<UUID> ids = new LinkedHashSet<>(), anchored = new HashSet<>();
+        Set<UUID> exactConfirmed = lookup.exact().getOrDefault(key, Set.of());
+        ids.addAll(exactConfirmed);
+        anchored.addAll(exactConfirmed);
+        ids.addAll(lookup.current().getOrDefault(key, Set.of()));
+        if (usable(normalized)) overlapping(normalized, lookup.spellings(), ids, anchored);
+        if (ids.size() == 1 && !anchored.containsAll(ids)) return List.of();
+        return List.copyOf(ids);
     }
 
     /** 충돌 확인용 현재 프로필 이름(대시보드 ACTIVE 프로필의 대표 이름). */
@@ -138,13 +151,37 @@ public final class RelationshipNameRules {
     private static List<UUID> contained(String normalized, List<Spelling> spellings) {
         if (!usable(normalized)) return List.of();
         Set<UUID> ids = new LinkedHashSet<>(), anchored = new HashSet<>();
+        overlapping(normalized, spellings, ids, anchored);
+        if (ids.size() == 1 && !anchored.containsAll(ids)) return List.of();
+        return List.copyOf(ids);
+    }
+
+    /** 겹치는 철자의 프로필을 {@code ids}에, 그중 확정 이름으로 겹친 프로필을 {@code anchored}에 더한다. */
+    private static void overlapping(
+            String normalized, List<Spelling> spellings, Set<UUID> ids, Set<UUID> anchored) {
         for (Spelling spelling : spellings) {
             if (!overlaps(normalized, spelling.normalized())) continue;
             ids.add(spelling.characterId());
             if (spelling.confirmed()) anchored.add(spelling.characterId());
         }
-        if (ids.size() == 1 && !anchored.containsAll(ids)) return List.of();
-        return List.copyOf(ids);
+    }
+
+    private static Lookup lookup(
+            Map<String, ? extends Collection<UUID>> confirmed, Collection<ProfileName> profiles) {
+        Map<String, Set<UUID>> exact = new HashMap<>(), current = new HashMap<>();
+        List<Spelling> spellings = new ArrayList<>();
+        confirmed.forEach((name, ids) -> {
+            String normalized = normalize(name);
+            exact.computeIfAbsent(exactKey(name, normalized), k -> new LinkedHashSet<>()).addAll(ids);
+            if (usable(normalized)) ids.forEach(id -> spellings.add(new Spelling(normalized, id, true)));
+        });
+        for (ProfileName profile : profiles) {
+            String normalized = normalize(profile.name());
+            current.computeIfAbsent(exactKey(profile.name(), normalized), k -> new LinkedHashSet<>())
+                    .add(profile.characterId());
+            if (usable(normalized)) spellings.add(new Spelling(normalized, profile.characterId(), false));
+        }
+        return new Lookup(exact, current, spellings);
     }
 
     /** 정규화 결과가 빈 이름은 원문 문자열 그대로만 같은 이름으로 본다. */
@@ -186,4 +223,8 @@ public final class RelationshipNameRules {
     }
 
     private record Spelling(String normalized, UUID characterId, boolean confirmed) {}
+
+    /** 확정 이름·현재 프로필 이름의 정확 일치 색인과 포함 비교용 철자 목록. */
+    private record Lookup(
+            Map<String, Set<UUID>> exact, Map<String, Set<UUID>> current, List<Spelling> spellings) {}
 }
