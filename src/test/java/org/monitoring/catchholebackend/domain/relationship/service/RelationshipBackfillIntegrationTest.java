@@ -814,6 +814,25 @@ class RelationshipBackfillIntegrationTest {
     }
 
     @Test
+    @DisplayName("GH385 백필도 보관한 프로필의 확정 이름으로 관계 노드를 해소하지 않는다")
+    void archivedProfileNameIsNotABackfillIdentity() {
+        UUID one = episode(1);
+        confirmedName(one, "아라", "보관된 아라");
+        tx.executeWithoutResult(t -> em.createQuery(
+                        "select c from WorkCharacter c where c.work.id=:work",
+                        org.monitoring.catchholebackend.domain.character.entity.WorkCharacter.class)
+                .setParameter("work", workId).getResultList()
+                .forEach(org.monitoring.catchholebackend.domain.character.entity.WorkCharacter::archive));
+        coordinator.bootstrapRelationshipBackfill();
+
+        var first = claim();
+        var c1 = prepare(first);
+
+        assertThat(c1.nodes()).extracting(n -> n.name()).containsExactlyInAnyOrder("아라", "보라");
+        assertThat(c1.nodes()).noneMatch(n -> n.profileRegistered());
+    }
+
+    @Test
     @DisplayName("고정 회원의 선택 시점 원고만 한 번 접수하고 관계 작업은 회차 상태를 바꾸지 않는다")
     void fixedScopeAndNoCoreMutation() {
         UUID one = episode(1), two = episode(2);

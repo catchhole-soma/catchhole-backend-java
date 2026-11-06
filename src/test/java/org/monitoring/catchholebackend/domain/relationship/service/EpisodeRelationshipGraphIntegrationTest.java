@@ -1185,6 +1185,26 @@ class EpisodeRelationshipGraphIntegrationTest {
         assertThat(nodeCount()).isEqualTo(2);
     }
 
+    @Test
+    @DisplayName("GH385 보관한 프로필의 확정 이름은 정확 일치와 포함 규칙 어느 쪽으로도 관계 노드를 해소하지 않는다")
+    void archivedProfileNameIsNotAnIdentity() {
+        UUID characterId = character("아라 린");
+        confirmedAliasAt(1, "아라 린과 늑대는 웃었다.", characterId, "아라 린");
+        confirmedAliasAt(1, "아라 린과 늑대는 웃었다.", characterId, "늑대");
+        tx.executeWithoutResult(t -> em.find(WorkCharacter.class, characterId).archive());
+
+        String text = "늑대와 아라는 다시 만났다.";
+        UUID second = jobWithSource(2, text, false);
+        Context context = prepareWith(second, text, observation("O1", text, "늑대", "아라"));
+
+        for (String ref : List.of(sourceRef(context), targetRef(context))) {
+            assertThat(contextNode(context, ref).profileRegistered()).isFalse();
+            assertThat(knownCharacterId(second, ref)).isNull();
+            assertProfileLink(boundNodeId(second, ref), null, 2, null);
+        }
+        assertThat(nodeCount()).isEqualTo(2);
+    }
+
     private Decision action(Context context, Operation operation, Kind kind, String summary) {
         String relationship =
                 operation == Operation.ADD
