@@ -27,7 +27,7 @@
 - **의존성 hash**: 기존 동결 hash(`dependencyRevision`·`manualDependencyRevision` 등)의 입력과 계산은 raw id 그대로 둔다. 새 문맥이 별칭 노드의 edge를 프로필 노드 ref로 투영하면, 그 raw edge 쌍과 사용자 정정·삭제 hash를 `aliasDependencyPairs`·`aliasDependencyRevision`(`aliasDependencyVersion=1`)으로 따로 저장하고 조회·완료·반영 때 함께 검사한다. 필드가 없는 옛 문맥은 그대로 통과한다.
 - **미래 이름 금지**: 프로필 노드의 `first_episode_no`는 병합으로 앞당기지 않는다. 노드가 문맥에 보이는 회차는 병합 그룹에서 가장 이른 회차이고, 그 회차의 문맥 이름은 그때까지 알려진 이름(자기 이름이 아직이면 별칭)을 쓴다. 프로필 노드가 아직 보이지 않는 앞 회차에서 별칭으로 다시 쓰면, 그 별칭을 미연결 redirect 행(이름=별칭, 첫 회차=그 회차)으로 남겨 뒤 문맥에서도 노드가 보이게 한다.
 - **사용자 정정·삭제**: 정정·삭제 억제는 edge 행에 있으므로 병합 뒤에도 유지된다. 삭제된 관계는 문맥에 없어서 모델이 프로필 노드 쪽으로 같은 종류를 다시 ADD할 수 있다. 이때 병합 그룹 어느 노드 쌍의 같은 slot에 삭제 억제가 있으면 새 edge를 만들지 않는다.
-- **표시 이름**: 선택 회차에 등록된 노드는 현재 프로필 이름(`ACTIVE`)을 조회 때 (id, name) scalar 조회 한 번으로 읽어 쓰고, `WorkCharacter` 엔티티는 올리지 않는다. 미등록 노드는 그 회차까지 최근 event의 관측 이름이다. 프로필 개명은 다음 조회에 바로 반영되고(revision 변경), 보관(`ARCHIVED`)되거나 삭제로 연결이 끊긴 프로필의 노드는 관측 이름으로 돌아간다. `node.name`·event 이름·Worker 문맥 이름은 바꾸지 않는다. 선택 회차 이전 원문에 아직 나오지 않은 전체 이름이 등록 노드의 표시 이름으로 보일 수 있다.
+- **표시 이름**: 선택 회차에 등록된 노드가 그 프로필의 유일한 등록 노드이면 현재 프로필 이름(`ACTIVE`)을 조회 때 (id, name) scalar 조회 한 번으로 읽어 쓰고, `WorkCharacter` 엔티티는 올리지 않는다. 미등록 노드와, 한 프로필에 등록 노드가 둘 이상인 경우(1회 정리 전 분리 데이터)의 노드는 그 회차까지 최근 event의 관측 이름이다. 프로필 개명은 다음 조회에 바로 반영되고(revision 변경), 보관(`ARCHIVED`)되거나 삭제로 연결이 끊긴 프로필의 노드는 관측 이름으로 돌아간다. `node.name`·event 이름·Worker 문맥 이름은 바꾸지 않는다. 선택 회차 이전 원문에 아직 나오지 않은 전체 이름이 등록 노드의 표시 이름으로 보일 수 있다.
 - **동결 binding**: 병합 전에 옛 노드 UUID로 준비한 PREPARED/COMPLETED 문맥은 edge 집합·정정·억제가 바뀌지 않으므로 409 없이 완료·반영한다. finalize는 binding id를 해소하지 않으며, 그 Job이 옛 노드에 만든 edge도 조회에서는 프로필 노드로 보인다. 옛 노드 edge를 UPDATE한 event의 이름 방향은 해소한 끝점으로 맞춘다.
 - **1회 정리(별도 PR)**: 배포와 관계 백필 캠페인 완료 뒤, Java 서비스 + 내부 API-key 엔드포인트(dry-run)로 작품 단위 트랜잭션·Work 잠금 안에서 edge 끝점을 프로필 노드로 옮긴다. canonical key가 겹치면 근거를 합치고 정정 설명·삭제 억제를 보존하며, 자기 연결이 되는 edge는 보고 후 정리한다. 그 뒤 `(work_id, character_id) WHERE character_id IS NOT NULL AND merged_into_node_id IS NULL` unique index를 추가한다.
 
@@ -179,7 +179,7 @@ Edge의 `lastVerifiedEpisodeNo`는 해당 쌍의 기술적 완료가 이어진 �
 
 Graph: `selectedEpisode,availableEpisodes,revision,nodes,edges,truncated,totalEdgeCount,analysisStatus,partial,updateIncomplete,incompleteEpisodeNos`.
 Episode: `id,episodeNo,title`. 프론트 회차 선택은 스포일러를 줄이기 위해 N화만 사용한다.
-Node: `id,name,description,profileRegistered`. `name`은 선택 회차에 등록된 노드면 현재 프로필 이름, 아니면 관측 이름이다(GH382). v1 description은 null. 같은 프로필로 합친 노드는 프로필 노드 id 하나로 내려준다.
+Node: `id,name,description,profileRegistered`. `name`은 선택 회차에 등록된 노드가 그 프로필의 유일한 등록 노드면 현재 프로필 이름, 아니면 관측 이름이다(GH382). 1회 정리 전의 분리 데이터처럼 한 프로필에 등록 노드가 둘 이상이면 같은 프로필 이름을 반복하지 않고 각자의 관측 이름을 쓴다. v1 description은 null. 같은 프로필로 합친 노드는 프로필 노드 id 하나로 내려준다.
 Edge: `id,sourceNodeId,targetNodeId,axis,kind,label,summary,direction,status,version,evidenceCount,lastVerifiedEpisodeNo,updateIncomplete`.
 Detail: `edge,sourceNode,targetNode,evidence,version`. 근거는 `episodeId,episodeNo,episodeTitle,quote,startOffset,endOffset`이며 선택 회차 이후 근거를 보내지 않는다.
 

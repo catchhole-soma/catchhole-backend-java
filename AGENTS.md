@@ -1169,7 +1169,7 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - 일반 관계는 가족 규칙 파이프라인과 분리한 `relationship_graph_*` 이력을 사용한다. 기존 캐릭터·세계관 contributor 목록에 관계를 끼워 넣지 않는다. 핵심 반영 후 dedicated 관계 finalize를 같은 트랜잭션에서 실행한다.
 - `RELATIONSHIP_GRAPH_ENABLED`(base 기본 true)와 Worker `supportsRelationshipAnalysis`로 신규 작업을 활성화한다. 지원 광고와 응답 `relationshipAnalysisContract.formatVersion=1`이 둘 다 있을 때만 호출한다. 이미 활성화된 재시도는 구 Worker가 claim하지 않는다.
 - `RelationshipGraphContract`는 하나의 버전이 함께 바뀌는 Worker/공개 계약 record와 enum을 묶는 예외다. 세부 정책과 제한은 [docs/episode-relationships.md](docs/episode-relationships.md)를 단일 문서로 유지한다.
-- 과거 관계도는 회차까지 공개된 지식을 표현한다. 현재 프로필 사진은 과거 화면에 합치지 않는다. 이름은 선택 회차에 등록된 노드에 한해 서버가 현재 프로필 이름을 표시한다(GH382). 모델에는 O/H/N/R local refs만 전달하며, 근거는 원문 전체의 Unicode code point offset으로 검증한다.
+- 과거 관계도는 회차까지 공개된 지식을 표현한다. 현재 프로필 사진은 과거 화면에 합치지 않는다. 이름은 선택 회차에 그 프로필의 유일한 등록 노드에 한해 서버가 현재 프로필 이름을 표시한다(GH382, 등록 노드가 둘 이상이면 관측 이름). 모델에는 O/H/N/R local refs만 전달하며, 근거는 원문 전체의 Unicode code point offset으로 검증한다.
 - 의미 분석 실패/내부 보류는 캐릭터·세계관 결과를 폐기하지 않는다. lease/권한/quota/원문/저장 오류를 FAILED 의미 처리로 우회하지 않는다. prepare의 S3 I/O는 DB 잠금 밖에서 읽고 돌아와 lease와 manifest를 재확인한다.
 - GH367 일반 회차 관계는 회차별 독립 이력이다. 앞 회차의 후발 반영은 후행 문맥·결과를 무효화하거나 유료 재분석하지 않는다. 같은 회차 재분석은 해당 회차만 대체하며, 조회는 회차 순서와 각 출처의 유효성을 따른다. 자동 event 의존성과 사용자 정정·삭제를 분리하고 원문·세대·lease 보호는 유지한다. 구 INVALIDATED Job은 안전한 동일 작업 재개에서 저장된 새 관측만으로 문맥을 다시 준비한다. 이유는 전체 무효화가 무관한 결과까지 숨기고 동일 Job 재시도를 영구 409로 막았기 때문이다. GH332 전용 백필의 순서 보정·공개/과금 계약은 별도로 유지한다.
 - 사용자 설명 정정과 삭제는 낭독 시점의 서사 변화가 아닌 오류 정정이다. 버전 충돌을 검사하며 삭제 slot을 자동 재생성하지 않는다. 원문 파기 시 후행 context에 복사된 HOLD 인용도 함께 지운다.
