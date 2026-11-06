@@ -58,8 +58,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 class SettingBookAnalysisIntegrationTest {
     @Autowired MockMvc mvc;
-    /** #387 ANALYSIS_AUTOMATIC_INPUT_LIVE_SETTINGS_ENABLED=true로 같은 시나리오를 format 2에서도 돌린다. */
-    @org.springframework.beans.factory.annotation.Value("${analysis.automatic-input.live-settings-enabled:false}") protected boolean liveInput;
+    /** #387 기본은 format 2다. ANALYSIS_AUTOMATIC_INPUT_LIVE_SETTINGS_ENABLED=false로 같은 시나리오를 format 1에서도 돌린다. */
+    @org.springframework.beans.factory.annotation.Value("${analysis.automatic-input.live-settings-enabled:true}") protected boolean liveInput;
     @Autowired org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter mvcAdapter;
     @Autowired MemberRepository members;
     @Autowired WorkRepository works;

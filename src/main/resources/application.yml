@@ -115,8 +115,9 @@ analysis:
     scheduling-enabled: ${ANALYSIS_METRICS_SCHEDULING_ENABLED:true}
     fixed-delay-ms: ${ANALYSIS_METRICS_FIXED_DELAY_MS:15000}
   # #387 자동 누적 claim 입력을 지문 + references(format 2)로 저장하고 캐릭터·세계관은 실행 중 대상별로 읽는다.
+  # 기본 true다. 끄면 새 claim만 claim 사본(format 1)으로 돌아간다(ADR-0005).
   automatic-input:
-    live-settings-enabled: ${ANALYSIS_AUTOMATIC_INPUT_LIVE_SETTINGS_ENABLED:false}
+    live-settings-enabled: ${ANALYSIS_AUTOMATIC_INPUT_LIVE_SETTINGS_ENABLED:true}
 
 service-usage:
   metrics:

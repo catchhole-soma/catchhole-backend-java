@@ -48,11 +48,11 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
     private final AnalysisLiveStateReader liveState;
 
     /*
-     * #387 자동 누적 claim 입력을 format 2(지문 + references)로 저장하고 캐릭터·세계관은 실행 중 대상별로 읽는다. 기본 false다.
-     * 켜기 전에 claim한 Job(format 1)과 그 재시도는 저장된 사본을 그대로 읽는다. 코드를 이 단계 전으로 되돌리려면 PENDING·RUNNING·
-     * 재개 대기인 format 2 Job이 없어야 한다.
+     * #387 자동 누적 claim 입력을 format 2(지문 + references)로 저장하고 캐릭터·세계관은 실행 중 대상별로 읽는다. 기본 true다.
+     * 끄면 새 claim만 format 1이 된다. 켜기 전에 claim한 Job(format 1)과 그 재시도는 저장된 사본을 그대로 읽는다. 코드를 이 단계 전으로
+     * 되돌리려면 PENDING·RUNNING·재개 대기인 format 2 Job이 없어야 한다(ADR-0005).
      */
-    @org.springframework.beans.factory.annotation.Value("${analysis.automatic-input.live-settings-enabled:false}")
+    @org.springframework.beans.factory.annotation.Value("${analysis.automatic-input.live-settings-enabled:true}")
     private boolean liveSettingsEnabled;
 
     private static final com.fasterxml.jackson.databind.ObjectMapper STORED_JSON = new com.fasterxml.jackson.databind.ObjectMapper();

@@ -142,8 +142,11 @@ class AutomaticAnalysisIntegrationTest {
     @Autowired WorldSettingService worldSettings;
     @Autowired CharacterFactComparisonWorkerService characterWorker;
     @Autowired org.monitoring.catchholebackend.domain.analysis.processor.AnalysisLiveStateReader liveState;
-    /** #387 ANALYSIS_AUTOMATIC_INPUT_LIVE_SETTINGS_ENABLED=true로 같은 시나리오를 format 2에서도 돌린다. */
-    @org.springframework.beans.factory.annotation.Value("${analysis.automatic-input.live-settings-enabled:false}") boolean liveInput;
+    /**
+     * #387 기본은 format 2다. ANALYSIS_AUTOMATIC_INPUT_LIVE_SETTINGS_ENABLED=false로 같은 시나리오를 format 1에서도 돌린다.
+     * 기본 실행의 format 1은 아래 두 #387 테스트가 서비스의 플래그를 직접 바꿔 확인한다.
+     */
+    @org.springframework.beans.factory.annotation.Value("${analysis.automatic-input.live-settings-enabled:true}") boolean liveInput;
     @Autowired org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal stateJournal;
     @Autowired tools.jackson.databind.ObjectMapper wireJson;
     @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
@@ -1827,8 +1830,9 @@ class AutomaticAnalysisIntegrationTest {
     @Test
     @DisplayName("#387 같은 3회차 실행을 claim 입력 사본(format 1)과 live 읽기(format 2)로 돌리면 claim 응답·비교 문맥·journal 변경·최종 DB가 같다")
     void liveInputMatchesFrozenInputAcrossRun() {
-        org.junit.jupiter.api.Assumptions.assumeFalse(liveInput, "format 2 전체 실행에서는 플래그를 바꾸는 이 비교를 반복하지 않는다");
+        // 설정값과 무관하게 두 형식을 모두 돌린다. 기본 실행(format 2)에서 format 1 claim·비교·봉인·완료를 확인하는 곳이다.
         Object target = org.springframework.test.util.AopTestUtils.getUltimateTargetObject(states);
+        Object configured = ReflectionTestUtils.getField(target, "liveSettingsEnabled");
         try {
             ReflectionTestUtils.setField(target, "liveSettingsEnabled", false);
             List<String> frozen = renamed(equivalenceRun("frozen@example.invalid", "01000000001", false));
@@ -1840,8 +1844,105 @@ class AutomaticAnalysisIntegrationTest {
                 assertThat(live.get(index)).as("record %d: %s", index, firstDifference(frozen.get(index), live.get(index))).isEqualTo(frozen.get(index));
             }
         } finally {
-            ReflectionTestUtils.setField(target, "liveSettingsEnabled", false);
+            ReflectionTestUtils.setField(target, "liveSettingsEnabled", configured);
         }
+    }
+
+    @Test
+    @DisplayName("#387 플래그를 켜기 전에 claim한 회차(format 1)는 켠 뒤의 lease 만료 재claim·실패 재시도에도 claim 사본으로 비교·봉인·자동 반영하고, 같은 실행의 다음 회차는 format 2로 claim하며 플래그를 다시 꺼도 format 2로 끝난다")
+    void frozenInputJobClaimedBeforeFlagOnResumesAfterFlagOn() {
+        Object target = org.springframework.test.util.AopTestUtils.getUltimateTargetObject(states);
+        Object configured = ReflectionTestUtils.getField(target, "liveSettingsEnabled");
+        try {
+            // 배포 전 서버(플래그 꺼짐)가 1화를 claim해 claim 사본(format 1)을 저장했다.
+            ReflectionTestUtils.setField(target, "liveSettingsEnabled", false);
+            Run run = run(2);
+            WorkerAnalysisJobPayload first = claim();
+            assertStoredFormat(first, false);
+            JsonNode frozen = storedInput(first);
+            assertThat(frozen.has("characters")).isTrue();
+            prepareCharacterBatches(first);
+
+            // 배포: 플래그가 켜진 서버로 바뀌고 이전 Worker의 lease가 만료됐다. 같은 Job을 다시 claim해도 사본을 다시 만들지 않는다.
+            ReflectionTestUtils.setField(target, "liveSettingsEnabled", true);
+            WorkerAnalysisJobPayload reclaimed = claimAfterLeaseExpired(first.analysisJobId());
+            assertThat(reclaimed.analysisJobId()).isEqualTo(first.analysisJobId());
+            assertFrozenInputKept(reclaimed, first, frozen);
+            var firstBatch = characterWorker.claimNextCharacterFactComparisonBatch(reclaimed.analysisJobId(), reclaimed.leaseToken()).orElseThrow();
+            completeCharacterBatch(reclaimed, firstBatch.comparisonBatchId());
+
+            // 실패 뒤 작가의 재시도도 같은 사본과 hash로 재개해 남은 비교를 마치고 봉인·자동 반영한다.
+            worker.failAnalysisJob(reclaimed.analysisJobId(), reclaimed.leaseToken(),
+                    new org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysisJobFailRequest(
+                            AnalysisFailureCode.UNEXPECTED_ERROR, "저장 연결 일시 실패"));
+            Long owner = tx.execute(status -> entities.find(Work.class, run.workId()).getMember().getId());
+            publicJobs.retryFailedAnalysisJob(owner, run.workId(), first.analysisJobId());
+            WorkerAnalysisJobPayload retried = claim();
+            assertThat(retried.analysisJobId()).isEqualTo(first.analysisJobId());
+            assertFrozenInputKept(retried, first, frozen);
+            var secondBatch = characterWorker.claimNextCharacterFactComparisonBatch(retried.analysisJobId(), retried.leaseToken()).orElseThrow();
+            assertThat(secondBatch.comparisonBatchId()).isNotEqualTo(firstBatch.comparisonBatchId());
+            completeCharacterBatch(retried, secondBatch.comparisonBatchId());
+            assertThat(characterWorker.claimNextCharacterFactComparisonBatch(retried.analysisJobId(), retried.leaseToken())).isEmpty();
+            complete(retried);
+            assertAppliedAndSealed(first.analysisJobId());
+            assertThat(storedInput(first)).isEqualTo(frozen);
+
+            // 같은 실행의 2화는 켠 서버가 처음 claim하므로 format 2이고, 1화가 반영한 인물을 지금 DB에서 읽는다.
+            WorkerAnalysisJobPayload second = claim();
+            assertThat(second.analysisJobId()).isEqualTo(run.jobs().getLast());
+            assertStoredFormat(second, true);
+            assertThat(second.knownCharacters()).extracting(character -> character.name()).containsExactlyInAnyOrder("비요른", "에르웬");
+            UUID erwen = tx.execute(status -> entities.createQuery("select c.id from WorkCharacter c where c.work.id = :w and c.name = '에르웬'", UUID.class)
+                    .setParameter("w", run.workId()).getSingleResult());
+            assertThat(tx.<String>execute(status -> states.getInputTarget(jobs.findById(second.analysisJobId()).orElseThrow(), "characters", "character:" + erwen)
+                    .path("slots").path("STAT:stats.mental").path("factValue").asText())).isEqualTo("35");
+
+            // 운영자가 플래그를 다시 꺼도 이미 format 2로 claim한 Job은 format 2로 재claim하고 끝난다.
+            ReflectionTestUtils.setField(target, "liveSettingsEnabled", false);
+            WorkerAnalysisJobPayload secondReclaimed = claimAfterLeaseExpired(second.analysisJobId());
+            assertThat(secondReclaimed.analysisJobId()).isEqualTo(second.analysisJobId());
+            assertStoredFormat(secondReclaimed, true);
+            assertThat(secondReclaimed.analysisContext().inputStateHash()).isEqualTo(second.analysisContext().inputStateHash());
+            complete(secondReclaimed);
+            assertAppliedAndSealed(second.analysisJobId());
+        } finally {
+            ReflectionTestUtils.setField(target, "liveSettingsEnabled", configured);
+        }
+    }
+
+    /**
+     * lease를 만료시킨 뒤 Worker처럼 다시 claim한다. 만료 회수는 잠긴 Job 행을 건너뛰는데(SKIP LOCKED), 직전 커밋의 후보 상태 변경이
+     * 부른 비동기 지표 관측(AnalysisMetricsReconciler)이 같은 행을 잠깐 잠글 수 있어 한 번의 claim은 빈 결과일 수 있다.
+     */
+    private WorkerAnalysisJobPayload claimAfterLeaseExpired(UUID jobId) {
+        jdbc.update("update analysis_jobs set lease_expires_at=? where id=?", LocalDateTime.now().minusMinutes(1), jobId);
+        for (int attempt = 0; attempt < 100; attempt++) {
+            var claimed = worker.claimAnalysisJob(request());
+            if (claimed.isPresent()) return claimed.get();
+            try {
+                Thread.sleep(20);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(exception);
+            }
+        }
+        throw new AssertionError("만료 lease의 Job을 다시 claim하지 못했습니다: " + jobId);
+    }
+
+    private void assertFrozenInputKept(WorkerAnalysisJobPayload payload, WorkerAnalysisJobPayload original, JsonNode frozen) {
+        assertStoredFormat(payload, false);
+        assertThat(storedInput(payload)).isEqualTo(frozen);
+        assertThat(payload.analysisContext().inputStateHash()).isEqualTo(original.analysisContext().inputStateHash());
+    }
+
+    private void assertAppliedAndSealed(UUID jobId) {
+        tx.executeWithoutResult(status -> {
+            AnalysisJob job = jobs.findById(jobId).orElseThrow();
+            assertThat(job.getStatus()).isEqualTo(AnalysisJobStatus.SUCCEEDED);
+            assertThat(job.getJournalStatus()).isEqualTo(AnalysisJournalStatus.SEALED);
+            assertThat(job.getAutomaticAppliedAt()).isNotNull();
+        });
     }
 
     /** 1화: 새 인물 둘·새 세계관, 2화: 기존 인물 스탯 변경·기존 세계관 새 속성, 3화 claim. Worker 내부 API로 비교 문맥을 받는다. */
