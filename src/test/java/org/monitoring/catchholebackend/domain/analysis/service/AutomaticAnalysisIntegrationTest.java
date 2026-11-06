@@ -141,6 +141,8 @@ class AutomaticAnalysisIntegrationTest {
     @Autowired WorldSettingWorkerService worldWorker;
     @Autowired WorldSettingService worldSettings;
     @Autowired CharacterFactComparisonWorkerService characterWorker;
+    @Autowired org.monitoring.catchholebackend.domain.analysis.processor.AnalysisLiveStateReader liveState;
+    @Autowired org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal stateJournal;
     @MockitoSpyBean WorldSettingCandidateServiceImpl worldApplication;
     @org.springframework.test.context.bean.override.mockito.MockitoBean
     org.monitoring.catchholebackend.global.storage.ObjectStorageService storage;
@@ -1123,6 +1125,9 @@ class AutomaticAnalysisIntegrationTest {
             assertThat(input.path("worldSettings").isEmpty()).isFalse();
             assertThat(org.monitoring.catchholebackend.support.AnalysisRunStateEquivalence.assertMatchesWholeState(states, job))
                     .isEqualTo(2);
+            // #387 format 2의 live 읽기(대상별·claim 현재값)가 실제 claim이 고정한 입력과 같다. 앞 회차 자동 반영이 만든 인물·세계관이다.
+            if (mode == AnalysisReviewMode.AUTOMATIC) assertThat(org.monitoring.catchholebackend.support.AnalysisLiveStateEquivalence
+                    .assertLiveMatchesClaimInput(liveState, stateJournal, states, job)).isEqualTo(2);
             String ref = input.path("characters").fieldNames().next();
             UUID actualId = mode == AnalysisReviewMode.AUTOMATIC ? UUID.fromString(input.path("characters").path(ref).path("actualCharacterId").asText()) : null;
             addStat(job, actualId == null ? ref : null, actualId, 36, CharacterFactOperation.UPDATE);

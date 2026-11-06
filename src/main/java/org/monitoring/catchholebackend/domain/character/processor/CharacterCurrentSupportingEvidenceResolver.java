@@ -37,6 +37,11 @@ public class CharacterCurrentSupportingEvidenceResolver {
         return capture;
     }
 
+    /** #387 대상별 읽기용. 작품 전체 출처를 미리 읽지 않고 필요한 Job만 {@link #source}에서 읽는다. 결과는 begin과 같다. */
+    public Capture beginLazily(Work work) {
+        return new Capture(work.getId());
+    }
+
     /** The proxy identifier is safe to read without hydrating its large Job JSON columns. */
     public AnalysisJobSourceView source(Capture capture, AnalysisJob job) {
         if (job == null) return null;

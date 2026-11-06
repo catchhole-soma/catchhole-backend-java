@@ -1429,9 +1429,13 @@ class SettingBookAnalysisIntegrationTest {
         assertThat(input.path("characters").elements().next().path("slots").elements().next().path("provenance").path("sourceKind").asText()).isEqualTo("SETTING_BOOK");
         // 설정집이 반영한 실제 인물·세계관을 읽는 다음 회차 입력도 같다.
         assertThat(org.monitoring.catchholebackend.support.AnalysisRunStateEquivalence.assertMatchesWholeState(states,next)).isEqualTo(2);
+        // #387 format 2의 live 읽기도 설정집 출처 provenance를 가진 이 claim 입력과 같다.
+        assertThat(org.monitoring.catchholebackend.support.AnalysisLiveStateEquivalence.assertLiveMatchesClaimInput(liveState,stateJournal,states,next)).isEqualTo(2);
     }
 
     @Autowired org.monitoring.catchholebackend.domain.analysis.service.AnalysisJobLeaseService leases;
+    @Autowired org.monitoring.catchholebackend.domain.analysis.processor.AnalysisLiveStateReader liveState;
+    @Autowired org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal stateJournal;
 
     @Test void editAndArchiveCancelPendingAndRunningComparisonLeasesButKeepCompletedHistory() throws Exception {
         for (boolean archive : java.util.List.of(false,true)) {

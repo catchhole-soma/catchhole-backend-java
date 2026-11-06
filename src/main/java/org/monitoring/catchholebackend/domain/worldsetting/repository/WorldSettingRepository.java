@@ -28,6 +28,15 @@ public interface WorldSettingRepository extends JpaRepository<WorldSetting, UUID
             """)
     List<WorldSettingVersion> findSettingVersions(@Param("workId") UUID workId);
 
+    /** #387 자동 누적 live 읽기의 분류별 대상 id. 전체 capture(id 순)와 같은 순서다. */
+    @Query("""
+            select worldSetting.id from WorldSetting worldSetting
+            where worldSetting.work.id = :workId and worldSetting.category = :category
+            order by worldSetting.id
+            """)
+    List<UUID> findIdsByWorkIdAndCategory(@Param("workId") UUID workId,
+            @Param("category") org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory category);
+
     long countByWorkId(UUID workId);
 
     Optional<WorldSetting> findByIdAndWorkId(UUID id, UUID workId);

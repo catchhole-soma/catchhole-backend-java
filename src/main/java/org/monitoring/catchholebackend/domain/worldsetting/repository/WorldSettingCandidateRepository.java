@@ -63,6 +63,19 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
             """)
     List<WorldSettingLatestSourceEpisode> findLatestConfirmedSourceEpisodes(@Param("worldSettingIds") Collection<UUID> worldSettingIds);
 
+    /** #387 자동 누적 live 읽기 지문. 작품 세계관 대상별 확정 현재값 후보(이력 전용 제외) 수이며 후보 엔티티를 읽지 않는다. */
+    @Query("""
+            select new org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingCurrentSourceCount(
+                target.id, count(candidate))
+            from WorldSettingCandidate candidate
+            join candidate.targetWorldSetting target
+            where target.work.id = :workId
+              and candidate.reviewStatus = org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus.CONFIRMED
+              and candidate.historyOnly = false
+            group by target.id
+            """)
+    List<WorldSettingCurrentSourceCount> countConfirmedCurrentSources(@Param("workId") UUID workId);
+
     Optional<WorldSettingCandidate> findByIdAndWorkId(UUID id, UUID workId);
 
     Optional<WorldSettingCandidate> findByIdAndWorkIdAndAnalysisJobBatchId(UUID id, UUID workId, UUID batchId);

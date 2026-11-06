@@ -16,6 +16,18 @@ public interface CharacterFactRepository extends JpaRepository<CharacterFact, UU
 
     List<CharacterFact> findAllByWorkCharacterIdOrderByCreatedAtDesc(UUID characterId);
 
+    /** #387 자동 누적 live 읽기 지문. 작품의 ACTIVE 인물별 Fact 수와 가장 늦은 생성 시각이며 Fact 엔티티를 읽지 않는다. */
+    @Query("""
+            select new org.monitoring.catchholebackend.domain.character.repository.CharacterFactStamp(
+                character.id, count(fact), max(fact.createdAt))
+            from CharacterFact fact
+            join fact.workCharacter character
+            where character.work.id = :workId
+              and character.status = org.monitoring.catchholebackend.domain.character.type.CharacterStatus.ACTIVE
+            group by character.id
+            """)
+    List<CharacterFactStamp> findActiveFactStamps(@Param("workId") UUID workId);
+
     List<CharacterFact> findAllByWorkCharacterIdAndFactTypeAndFactKeyOrderByEffectiveFromEpisodeNoDescCreatedAtDesc(
             UUID characterId,
             CharacterFactType factType,

@@ -1,15 +1,19 @@
 package org.monitoring.catchholebackend.domain.character.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import lombok.RequiredArgsConstructor;
+import org.monitoring.catchholebackend.domain.analysis.service.AnalysisLiveSubjectSource;
 import org.monitoring.catchholebackend.domain.analysis.service.AnalysisStateSource;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSnapshotSource;
@@ -24,10 +28,13 @@ import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.springframework.stereotype.Component;
 
-/** 일반 단일 회차의 입력 경로와 분리된 누적 실행 S0 capture다. */
+/**
+ * 일반 단일 회차의 입력 경로와 분리된 누적 실행 S0 capture다. #387부터 자동 누적 format 2의 대상별·현재값 live 읽기와 지문도
+ * 같은 규칙으로 제공한다.
+ */
 @Component
 @RequiredArgsConstructor
-public class CharacterAnalysisStateSource implements AnalysisStateSource {
+public class CharacterAnalysisStateSource implements AnalysisStateSource, AnalysisLiveSubjectSource {
 
     private final WorkCharacterRepository characterRepository;
     private final CharacterSnapshotSourceRepository sourceRepository;
@@ -44,13 +51,67 @@ public class CharacterAnalysisStateSource implements AnalysisStateSource {
 
     @Override
     public JsonNode capture(Work work) {
+        return capture(work, characterRepository.findAllByWorkIdAndStatusOrderByCreatedAtDesc(work.getId(), CharacterStatus.ACTIVE),
+                candidateRepository.findConfirmedDiscoveries(work.getId()), supportingEvidence.begin(work), false);
+    }
+
+    /** #387 요청한 ACTIVE 인물만 capture와 같은 규칙으로 읽는다. 다른 인물의 엔티티·Fact·후보는 읽지 않는다. */
+    @Override
+    public ObjectNode captureSubjects(Work work, Collection<String> refs) {
+        List<UUID> ids = new ArrayList<>();
+        for (String ref : refs) persistedId(ref).ifPresent(ids::add);
+        if (ids.isEmpty()) return JsonNodeFactory.instance.objectNode();
+        return capture(work, characterRepository.findAllByWorkIdAndStatusAndIdInOrderByCreatedAtDesc(work.getId(), CharacterStatus.ACTIVE, ids),
+                candidateRepository.findConfirmedDiscoveriesForCharacters(work.getId(), ids), supportingEvidence.beginLazily(work), false);
+    }
+
+    /** #387 claim 응답용 현재값. 이력 Fact와 slot 근거 사본을 만들지 않으며 그 밖의 값은 capture와 같다. */
+    @Override
+    public ObjectNode captureCurrentValues(Work work) {
+        return capture(work, characterRepository.findAllByWorkIdAndStatusOrderByCreatedAtDesc(work.getId(), CharacterStatus.ACTIVE),
+                candidateRepository.findConfirmedDiscoveries(work.getId()), supportingEvidence.begin(work), true);
+    }
+
+    @Override
+    public ObjectNode toCurrentValues(ObjectNode capturedState) {
+        ObjectNode result = capturedState.deepCopy();
+        result.remove("historyFacts");
+        result.path("slots").forEach(slot -> ((ObjectNode) slot).remove("supportingSources"));
+        return result;
+    }
+
+    /**
+     * #387 지문 행: ACTIVE 인물마다 [id, 이름, snapshotVersion, Fact 수, 가장 늦은 Fact 생성 시각, 확정 인물 발견 id 목록].
+     * 이름만 바꾸는 updateBasicInfo, 현재값을 바꾸지 않는 이력 Fact 추가, 별칭·식별 근거를 바꾸는 인물 발견 확정은
+     * snapshotVersion을 올리지 않으므로 각각 따로 넣는다. 보관·복구·생성은 id 집합을 바꾼다.
+     */
+    @Override
+    public ArrayNode fingerprintRows(UUID workId) {
+        Map<UUID, org.monitoring.catchholebackend.domain.character.repository.CharacterFactStamp> facts = new java.util.HashMap<>();
+        factRepository.findActiveFactStamps(workId).forEach(stamp -> facts.put(stamp.characterId(), stamp));
+        Map<UUID, List<String>> discoveries = new java.util.HashMap<>();
+        candidateRepository.findConfirmedDiscoveryStamps(workId).forEach(stamp ->
+                discoveries.computeIfAbsent(stamp.characterId(), ignored -> new ArrayList<>()).add(stamp.candidateId().toString()));
+        ArrayNode rows = JsonNodeFactory.instance.arrayNode();
+        characterRepository.findSettingVersions(workId, CharacterStatus.ACTIVE).stream()
+                .sorted(Comparator.comparing(row -> row.id().toString()))
+                .forEach(row -> {
+                    var stamp = facts.get(row.id());
+                    ArrayNode values = rows.addArray().add(row.id().toString()).add(row.name()).add(row.snapshotVersion())
+                            .add(stamp == null ? 0 : stamp.factCount());
+                    values.add(stamp == null || stamp.latestCreatedAt() == null ? null : stamp.latestCreatedAt().toString());
+                    ArrayNode ids = values.addArray();
+                    discoveries.getOrDefault(row.id(), List.of()).stream().sorted().forEach(ids::add);
+                });
+        return rows;
+    }
+
+    private ObjectNode capture(Work work, List<WorkCharacter> characters, List<SettingCandidate> discoveries,
+            org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.Capture capture,
+            boolean currentValuesOnly) {
         ObjectNode result = JsonNodeFactory.instance.objectNode();
-        var capture = supportingEvidence.begin(work);
-        var discoveries = candidateRepository.findConfirmedDiscoveries(work.getId());
-        for (WorkCharacter character : characterRepository.findAllByWorkIdAndStatusOrderByCreatedAtDesc(
-                work.getId(), CharacterStatus.ACTIVE
-        )) {
-            ObjectNode state = captureCharacter(character, capture);
+        for (WorkCharacter character : characters) {
+            ObjectNode state = captureCharacter(character, capture, currentValuesOnly);
             var confirmed = discoveries.stream().filter(candidate -> character.getId().equals(candidate.getMatchedCharacterId())).toList();
             var identityEvidence = JsonNodeFactory.instance.arrayNode();
             for (SettingCandidate discovery : confirmed) identityEvidence.addAll(supportingEvidence.captureRetainedIdentityEvidence(capture, discovery));
@@ -59,12 +120,25 @@ public class CharacterAnalysisStateSource implements AnalysisStateSource {
         }
         return result;
     }
+
+    private static java.util.Optional<UUID> persistedId(String ref) {
+        String prefix = "character:";
+        if (ref == null || !ref.startsWith(prefix)) return java.util.Optional.empty();
+        try {
+            UUID id = UUID.fromString(ref.substring(prefix.length()));
+            return CharacterAnalysisStateMapper.persistedRef(id).equals(ref) ? java.util.Optional.of(id) : java.util.Optional.empty();
+        } catch (IllegalArgumentException exception) {
+            return java.util.Optional.empty();
+        }
+    }
+
     public ObjectNode captureCharacter(WorkCharacter character) {
-        return captureCharacter(character, supportingEvidence.begin(character.getWork()));
+        return captureCharacter(character, supportingEvidence.begin(character.getWork()), false);
     }
 
     private ObjectNode captureCharacter(WorkCharacter character,
-            org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.Capture capture) {
+            org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.Capture capture,
+            boolean currentValuesOnly) {
         Map<CharacterSnapshotSlot, List<CharacterFact>> facts = new LinkedHashMap<>();
         for (CharacterSnapshotSource source : sourceRepository.findAllByWorkCharacterIdOrderByFactTypeAscFactKeyAscSourceOrderAsc(character.getId())) {
             facts.computeIfAbsent(new CharacterSnapshotSlot(source.getFactType(), source.getFactKey()), ignored -> new ArrayList<>()).add(source.getSourceFact());
@@ -72,6 +146,12 @@ public class CharacterAnalysisStateSource implements AnalysisStateSource {
         var entries = snapshotAccessor.read(character, facts);
         ObjectNode state = mapper.toState(character, entries, facts, job -> supportingEvidence.source(capture, job));
         state.put("currentSupportingEvidenceVersion", 1);
+        if (currentValuesOnly) {
+            // claim 응답은 이력과 slot 근거 사본을 읽지 않는다. 대표 서사 시점의 근거는 모델 값이 쓰므로 아래에서 그대로 만든다.
+            state.remove("historyFacts");
+            captureCurrentNarrativeTime(character, capture, state);
+            return state;
+        }
         for (var entry : entries.values()) {
             ObjectNode slot = (ObjectNode) state.path("slots").path(CharacterAnalysisStateMapper.slotKey(entry.slot()));
             slot.set("supportingSources", supportingEvidence.captureSlot(capture, character, entry.slot(), facts.getOrDefault(entry.slot(), List.of())));
@@ -95,6 +175,13 @@ public class CharacterAnalysisStateSource implements AnalysisStateSource {
             row.set("narrativeTime", origin.path("narrativeTime").deepCopy());
             row.set("supportingSource", origin);
         }
+        captureCurrentNarrativeTime(character, capture, state);
+        return state;
+    }
+
+    private void captureCurrentNarrativeTime(WorkCharacter character,
+            org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.Capture capture,
+            ObjectNode state) {
         JsonNode current = character.getCurrentNarrativeTime();
         if (current != null && !current.isNull()) {
             UUID sourceId;
@@ -123,7 +210,6 @@ public class CharacterAnalysisStateSource implements AnalysisStateSource {
             frozen.set("supportingSource", origin);
             state.set("currentNarrativeTime", frozen);
         }
-        return state;
     }
 
 }
