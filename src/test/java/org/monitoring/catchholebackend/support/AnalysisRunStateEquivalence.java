@@ -75,9 +75,24 @@ public final class AnalysisRunStateEquivalence {
             });
         });
         assertThat(states.getInputCharacterIdentities(job)).isEqualTo(identities);
-        assertThat(states.getInputCurrentSubjects(job)).isEqualTo(input);
+        assertThat(states.getInputCurrentSubjects(job)).isEqualTo(
+                org.monitoring.catchholebackend.domain.analysis.processor.AnalysisAutomaticInputFormat.isLive(job) ? currentValues(input) : input);
         assertDetachedCopies(states, job, input, projected);
         return compared;
+    }
+
+    /**
+     * #387 format 2의 claim 현재값 읽기는 이력·근거 사본을 만들지 않는다(AnalysisLiveSubjectSource.toCurrentValues와 같은 규칙,
+     * AnalysisLiveStateReaderIntegrationTest가 그 규칙과 reader의 동등성을 확인한다). format 1에서는 claim 입력 전체를 읽는다.
+     */
+    private static JsonNode currentValues(JsonNode input) {
+        ObjectNode result = input.deepCopy();
+        result.path("characters").forEach(character -> {
+            ((ObjectNode) character).remove("historyFacts");
+            character.path("slots").forEach(slot -> ((ObjectNode) slot).remove("supportingSources"));
+        });
+        result.path("worldSettings").forEach(world -> ((ObjectNode) world).remove(List.of("provenance", "provenanceByPath")));
+        return result;
     }
 
     /** 반환 값을 바꿔도 다음 읽기와 저장 입력이 바뀌지 않는다. */

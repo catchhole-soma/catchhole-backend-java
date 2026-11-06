@@ -58,6 +58,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 class SettingBookAnalysisIntegrationTest {
     @Autowired MockMvc mvc;
+    /** #387 ANALYSIS_AUTOMATIC_INPUT_LIVE_SETTINGS_ENABLED=true로 같은 시나리오를 format 2에서도 돌린다. */
+    @org.springframework.beans.factory.annotation.Value("${analysis.automatic-input.live-settings-enabled:false}") protected boolean liveInput;
     @Autowired org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter mvcAdapter;
     @Autowired MemberRepository members;
     @Autowired WorkRepository works;
@@ -275,7 +277,7 @@ class SettingBookAnalysisIntegrationTest {
         JsonNode claim=semanticClaim("SETTING_BOOK",200);
         var origin=jobs.findById(UUID.fromString(book.path("latestAnalysisJob").path("id").asText())).orElseThrow();
         JsonNode input=states.getInputState(origin);
-        assertSemanticCarrier(claim,input);
+        assertSemanticCarrier(claim,input,origin.getAutomaticInputState());
         var typeSet=new java.util.HashSet<String>();
         claim.path("semanticCurrentContext").path("characters").forEach(owner -> owner.path("currentSlots").forEach(slot -> typeSet.add(slot.path("factType").asText())));
         assertThat(typeSet).containsExactlyInAnyOrder(java.util.Arrays.stream(CharacterFactType.values()).map(Enum::name).toArray(String[]::new));
@@ -367,10 +369,15 @@ class SettingBookAnalysisIntegrationTest {
     }
 
     private void assertSemanticCarrier(JsonNode claim,JsonNode input) {
+        assertSemanticCarrier(claim,input,input);
+    }
+
+    /** stored는 저장된 claim 입력이다. format 1은 input과 같고 #387 format 2는 지문·references만 담는다. inputStateHash는 저장 입력의 hash다. */
+    private void assertSemanticCarrier(JsonNode claim,JsonNode input,JsonNode stored) {
         JsonNode carrier=claim.path("semanticCurrentContext"), context=claim.path("analysisContext");
         assertThat(carrier.isObject()).isTrue(); assertThat(carrier.path("complete").asBoolean()).isTrue();
         for(String field:java.util.List.of("formatVersion","runId","generation","inputStateHash","sourceHash")) assertThat(carrier.path(field)).isEqualTo(context.path(field));
-        assertThat(carrier.path("inputStateHash").asText()).isEqualTo(new org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal().hash(input));
+        assertThat(carrier.path("inputStateHash").asText()).isEqualTo(new org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal().hash(stored));
         var expected = new java.util.LinkedHashMap<String,JsonNode>();
         input.path("characters").forEach(owner -> owner.path("slots").forEach(slot -> expected.put(
                 (owner.path("actualCharacterId").isNull()?owner.path("provisionalSubjectKey").asText():owner.path("actualCharacterId").asText())+":"+slot.path("factType").asText()+":"+slot.path("factKey").asText(),slot)));
@@ -3055,6 +3062,15 @@ class SettingBookAnalysisIntegrationTest {
         duplicate.put("proposedScopeName", "거주집단"); duplicate.put("proposedSettingName", "서식지"); duplicate.put("proposedValue", "북부"); duplicate.put("comparisonReason", "이동된 기존 값과 중복");
         completeWorldBatch(origin.getId(), lease, dependentBatch.comparisonBatchId(), movedContext, duplicate);
         if (staleMove) { actual.updateProperty("서식지", "서식지", "작가가 정한 동부"); em.flush(); }
+        if (staleMove && liveInput) {
+            // #387 format 2는 GH201을 우회한 이 쓰기를 지문으로 잡아 같은 입력으로 완료하지 않는다(커밋 뒤 실행 무효화는 AutomaticAnalysisIntegrationTest).
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> worldWorker.claimNextWorldSettingComparisonBatch(origin.getId(), lease))
+                    .isInstanceOfSatisfying(org.monitoring.catchholebackend.global.exception.AppException.class,
+                            error -> assertThat(error.getResultCode().getCode()).isEqualTo("ANALYSIS_RUN_STATE_CONFLICT"));
+            assertThat(worldCandidateRepository.findById(published.getFirst().candidateId()).orElseThrow().isPendingReview()).isTrue();
+            assertThat(actual.getPropertyValue("서식지")).isEqualTo("작가가 정한 동부"); assertThat(actual.hasProperty("거주집단", "서식지")).isFalse();
+            return;
+        }
         assertThat(worldWorker.claimNextWorldSettingComparisonBatch(origin.getId(), lease)).isEmpty();
         origin.updateCheckpointStage(org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage.WORLD_COMPARISONS_FINISHED);
         worker.completeAnalysisJob(origin.getId(), lease, new org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysisJobCompleteRequest(null,null,null));

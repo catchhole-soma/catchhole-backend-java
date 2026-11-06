@@ -113,7 +113,7 @@ class AnalysisJobWorkerServiceCharacterBatchRecoveryTest {
                 characterSettingSchemaRepository,
                 analysisJobWorkerMapper,
                 new org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisSemanticCurrentContextMapper(
-                        new tools.jackson.databind.ObjectMapper(), new org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal()),
+                        new tools.jackson.databind.ObjectMapper(), new org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal(), null),
                 aiTokenService,
                 worldBatchRepository,
                 characterBatchRepository,

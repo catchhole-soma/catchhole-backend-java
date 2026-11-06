@@ -22,7 +22,7 @@ import org.monitoring.catchholebackend.global.exception.AppException;
 class AnalysisSemanticCurrentContextMapperTest {
     private final AnalysisStateJournal journal = new AnalysisStateJournal();
     private final tools.jackson.databind.ObjectMapper wire = new tools.jackson.databind.ObjectMapper();
-    private final AnalysisSemanticCurrentContextMapper mapper = new AnalysisSemanticCurrentContextMapper(wire, journal);
+    private final AnalysisSemanticCurrentContextMapper mapper = new AnalysisSemanticCurrentContextMapper(wire, journal, null);
     private static final UUID CHARACTER = UUID.fromString("3a54feaa-070d-49e7-a5b0-0bb4cde8b8ce");
 
     @Test @DisplayName("모든 character 슬롯과 world 속성을 합산한 정확한 4096 상한은 허용한다")

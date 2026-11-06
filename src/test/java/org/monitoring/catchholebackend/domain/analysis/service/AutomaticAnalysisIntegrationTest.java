@@ -142,7 +142,11 @@ class AutomaticAnalysisIntegrationTest {
     @Autowired WorldSettingService worldSettings;
     @Autowired CharacterFactComparisonWorkerService characterWorker;
     @Autowired org.monitoring.catchholebackend.domain.analysis.processor.AnalysisLiveStateReader liveState;
+    /** #387 ANALYSIS_AUTOMATIC_INPUT_LIVE_SETTINGS_ENABLED=true로 같은 시나리오를 format 2에서도 돌린다. */
+    @org.springframework.beans.factory.annotation.Value("${analysis.automatic-input.live-settings-enabled:false}") boolean liveInput;
     @Autowired org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal stateJournal;
+    @Autowired tools.jackson.databind.ObjectMapper wireJson;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
     @MockitoSpyBean WorldSettingCandidateServiceImpl worldApplication;
     @org.springframework.test.context.bean.override.mockito.MockitoBean
     org.monitoring.catchholebackend.global.storage.ObjectStorageService storage;
@@ -238,7 +242,7 @@ class AutomaticAnalysisIntegrationTest {
         Long owner = tx.execute(status -> entities.find(Work.class, run.workId()).getMember().getId());
         WorkerAnalysisJobPayload first = claim();
         if (completed) complete(first);
-        JsonNode originalInput = input(first);
+        JsonNode originalInput = preservedInput(first);
         var unchanged = new WorldSettingIdentityUpdateRequest(WorldSettingCategory.RACE, "  바바리안  ", 0L);
         worldSettings.updateWorldSettingIdentity(owner, run.workId(), settingId, unchanged);
         worldSettings.updateWorldSettingIdentity(owner, run.workId(), settingId, unchanged);
@@ -249,7 +253,7 @@ class AutomaticAnalysisIntegrationTest {
             assertThat(jobs.findById(run.jobs().get(1)).orElseThrow().getStatus()).isEqualTo(AnalysisJobStatus.PENDING);
             assertThat(entities.find(WorldSetting.class, settingId).getVersion()).isZero();
         });
-        assertThat(input(first)).isEqualTo(originalInput);
+        assertThat(preservedInput(first)).isEqualTo(originalInput);
         assertThatThrownBy(() -> worldSettings.updateWorldSettingIdentity(owner, run.workId(), settingId,
                 new WorldSettingIdentityUpdateRequest(WorldSettingCategory.RACE, "북부 바바리안", 0L)))
                 .isInstanceOfSatisfying(AppException.class, error ->
@@ -416,7 +420,7 @@ class AutomaticAnalysisIntegrationTest {
         complete(first);
         UUID secondId = nextBatch(run.workId(), 2);
         WorkerAnalysisJobPayload second = claim();
-        JsonNode frozen = input(second);
+        JsonNode frozen = liveInput ? storedInput(second) : input(second);
         String frozenHash = second.analysisContext().inputStateHash();
         Long ownerId = tx.execute(status -> entities.find(Work.class, run.workId()).getMember().getId());
 
@@ -433,6 +437,7 @@ class AutomaticAnalysisIntegrationTest {
             assertThat(secondJob.getAutomaticInputState()).isEqualTo(frozen);
             assertThat(secondJob.getInputStateHash()).isEqualTo(frozenHash);
         });
+        // #387 format 2도 확정 설정이 claim 뒤 바뀌지 않았으면(대기 후보 수정은 확정 설정이 아니다) 완료한 Job의 투영을 읽는다.
         tx.executeWithoutResult(status -> assertThat(states.getProjectedState(jobs.findById(secondId).orElseThrow())).isNotNull());
         nextBatch(run.workId(), 3);
         var third = claim();
@@ -1817,6 +1822,335 @@ class AutomaticAnalysisIntegrationTest {
                 Arguments.of(AnalysisReviewMode.AUTOMATIC, AnalysisFailureCode.LLM_RESPONSE_PARSE_ERROR, false));
     }
 
+    // ---- #387 format 1(claim 사본)과 format 2(live 읽기)의 같은 실행 비교 ----
+
+    @Test
+    @DisplayName("#387 같은 3회차 실행을 claim 입력 사본(format 1)과 live 읽기(format 2)로 돌리면 claim 응답·비교 문맥·journal 변경·최종 DB가 같다")
+    void liveInputMatchesFrozenInputAcrossRun() {
+        org.junit.jupiter.api.Assumptions.assumeFalse(liveInput, "format 2 전체 실행에서는 플래그를 바꾸는 이 비교를 반복하지 않는다");
+        Object target = org.springframework.test.util.AopTestUtils.getUltimateTargetObject(states);
+        try {
+            ReflectionTestUtils.setField(target, "liveSettingsEnabled", false);
+            List<String> frozen = renamed(equivalenceRun("frozen@example.invalid", "01000000001", false));
+            ReflectionTestUtils.setField(target, "liveSettingsEnabled", true);
+            List<String> live = renamed(equivalenceRun("live@example.invalid", "01000000002", true));
+            assertThat(frozen).as("claim 3·Worker 응답 13·journal 2·최종 DB 7").hasSize(25);
+            assertThat(live).hasSameSizeAs(frozen);
+            for (int index = 0; index < frozen.size(); index++) {
+                assertThat(live.get(index)).as("record %d: %s", index, firstDifference(frozen.get(index), live.get(index))).isEqualTo(frozen.get(index));
+            }
+        } finally {
+            ReflectionTestUtils.setField(target, "liveSettingsEnabled", false);
+        }
+    }
+
+    /** 1화: 새 인물 둘·새 세계관, 2화: 기존 인물 스탯 변경·기존 세계관 새 속성, 3화 claim. Worker 내부 API로 비교 문맥을 받는다. */
+    private List<String> equivalenceRun(String email, String phone, boolean expectLive) {
+        List<String> records = new ArrayList<>();
+        Run run = runFor(3, email, phone);
+        WorkerAnalysisJobPayload first = claimWithSemantic();
+        records.add("claim1 " + wire(first));
+        assertStoredFormat(first, expectLive);
+        prepareCharacterBatches(first);
+        for (var batch = characterWorker.claimNextCharacterFactComparisonBatch(first.analysisJobId(), first.leaseToken());
+             batch.isPresent(); batch = characterWorker.claimNextCharacterFactComparisonBatch(first.analysisJobId(), first.leaseToken())) {
+            records.add("characterBatch1 " + wire(batch.get()));
+            var context = characterWorker.getCharacterFactComparisonBatchContext(first.analysisJobId(), batch.get().comparisonBatchId(), first.leaseToken());
+            records.add("characterContext1 " + wire(context));
+            characterWorker.completeCharacterFactComparisonBatch(first.analysisJobId(), batch.get().comparisonBatchId(), first.leaseToken(),
+                    new WorkerCharacterFactComparisonBatchCompleteRequest(context.contextToken(),
+                            List.of(new WorkerCharacterFactComparisonBatchCompleteRequest.Decision("C1", CharacterFactOperation.ADD,
+                                    "stats.mental", null, List.of(), List.of(), "35", Map.of("value", 35),
+                                    CharacterFactTemporalScope.PRESENT, "원문 수치", Map.of())), List.of(), Map.of()));
+        }
+        UUID firstWorld = publishWorld(first, "엘프", "서식지", "북부", "엘프는 북부에 산다.");
+        records.add("pendingSubjects1 " + wire(worldWorker.getPendingWorldSettingSubjectResolutions(first.analysisJobId(), first.leaseToken())));
+        worldWorker.resolveWorldSettingSubjects(first.analysisJobId(), first.leaseToken(), new WorkerWorldSettingSubjectResolutionRequest(
+                List.of(new WorkerWorldSettingSubjectResolutionRequest.SubjectResolutionInput(firstWorld, List.of(), List.of("provisional-world:" + firstWorld), false))));
+        completeOnlyWorldBatch(first, records, "1", null, "서식지", "북부");
+        complete(first);
+
+        WorkerAnalysisJobPayload second = claimWithSemantic();
+        records.add("claim2 " + wire(second));
+        UUID erwen = tx.execute(status -> entities.createQuery("select c.id from WorkCharacter c where c.work.id = :w and c.name = '에르웬'", UUID.class)
+                .setParameter("w", run.workId()).getSingleResult());
+        UUID elves = tx.execute(status -> entities.createQuery("select w.id from WorldSetting w where w.work.id = :w", UUID.class)
+                .setParameter("w", run.workId()).getSingleResult());
+        tx.executeWithoutResult(status -> {
+            AnalysisJob job = jobs.findById(second.analysisJobId()).orElseThrow();
+            SettingCandidate candidate = SettingCandidate.create(job.getWork(), job.getEpisode(), null, job, SettingEntityType.CHARACTER,
+                    "에르웬", "에르웬", erwen, SettingCandidateMatchStatus.MATCHED, "stats.mental", "36", SettingValueType.NUMBER,
+                    JSON.objectNode().put("value", 36), evidence("stats.mental 수치는 36였다."), BigDecimal.ONE, null);
+            entities.persist(candidate);
+            job.updateCheckpointStage(AnalysisJobCheckpointStage.CHARACTER_CANDIDATES_SAVED);
+        });
+        var batch = characterWorker.claimNextCharacterFactComparisonBatch(second.analysisJobId(), second.leaseToken()).orElseThrow();
+        records.add("characterBatch2 " + wire(batch));
+        var context = characterWorker.getCharacterFactComparisonBatchContext(second.analysisJobId(), batch.comparisonBatchId(), second.leaseToken());
+        records.add("characterContext2 " + wire(context));
+        String statRef = context.snapshotEntries().stream().filter(entry -> "stats.mental".equals(entry.factKey())).findFirst().orElseThrow().snapshotRef();
+        characterWorker.completeCharacterFactComparisonBatch(second.analysisJobId(), batch.comparisonBatchId(), second.leaseToken(),
+                new WorkerCharacterFactComparisonBatchCompleteRequest(context.contextToken(),
+                        List.of(new WorkerCharacterFactComparisonBatchCompleteRequest.Decision("C1", CharacterFactOperation.UPDATE,
+                                "stats.mental", statRef, List.of(), List.of(), "36", Map.of("value", 36),
+                                CharacterFactTemporalScope.PRESENT, "원문 수치 변경", Map.of())), List.of(), Map.of()));
+        assertThat(characterWorker.claimNextCharacterFactComparisonBatch(second.analysisJobId(), second.leaseToken())).isEmpty();
+        UUID secondWorld = publishWorld(second, "엘프", "수명", "천 년", "엘프의 수명을 알 수 없다.");
+        records.add("pendingSubjects2 " + wire(worldWorker.getPendingWorldSettingSubjectResolutions(second.analysisJobId(), second.leaseToken())));
+        records.add("subjectPage2 " + wire(worldWorker.getWorldSettingSubjects(second.analysisJobId(), second.leaseToken(), WorldSettingCategory.RACE, 0, 50)));
+        worldWorker.resolveWorldSettingSubjects(second.analysisJobId(), second.leaseToken(), new WorkerWorldSettingSubjectResolutionRequest(
+                List.of(new WorkerWorldSettingSubjectResolutionRequest.SubjectResolutionInput(secondWorld, List.of(elves), List.of(), false))));
+        completeOnlyWorldBatch(second, records, "2", elves, "수명", "천 년");
+        complete(second);
+
+        WorkerAnalysisJobPayload third = claimWithSemantic();
+        records.add("claim3 " + wire(third));
+        for (UUID job : run.jobs().subList(0, 2)) {
+            records.add("journal " + tx.execute(status -> jobs.findById(job).orElseThrow().getStateJournal().path("changes").toString()));
+        }
+        records.add("characters " + rows("select name, role_label, current_age, current_level, snapshot_version, current_narrative_time, profile_json, stats_json, skills_json, items_json, statuses_json, manually_edited_slots, status from characters where work_id=? order by name", run.workId()));
+        records.add("facts " + rows("select c.name, f.fact_type, f.fact_key, f.fact_value, f.value_json, f.effective_from_episode_no from character_facts f join characters c on c.id=f.character_id where c.work_id=? order by c.name, f.fact_key, f.fact_value", run.workId()));
+        records.add("sources " + rows("select c.name, s.fact_type, s.fact_key, s.source_order, f.fact_value from character_snapshot_sources s join characters c on c.id=s.character_id join character_facts f on f.id=s.source_fact_id where c.work_id=? order by c.name, s.fact_key, s.source_order", run.workId()));
+        records.add("worlds " + rows("select category, subject_name, version, properties_json, manually_edited_paths from world_settings where work_id=? order by subject_name", run.workId()));
+        records.add("characterCandidates " + rows("select entity_name, attribute_name, attribute_value, review_status, comparison_status, suggested_operation, proposed_fact_value, automatic_review_hold_reason, reviewed_automatically from setting_candidates where work_id=? order by entity_name, attribute_name, attribute_value, candidate_kind", run.workId()));
+        records.add("worldCandidates " + rows("select subject_name, setting_name, extracted_value, review_status, comparison_status, suggested_operation, automatic_review_hold_reason, reviewed_automatically from world_setting_candidates where work_id=? order by subject_name, setting_name", run.workId()));
+        records.add("jobs " + rows("select a.status, a.journal_status, a.checkpoint_stage, a.automatic_applied_at is not null as applied, e.episode_no from analysis_jobs a join episodes e on e.id=a.episode_id where a.work_id=? order by e.episode_no", run.workId()));
+        return records;
+    }
+
+    /**
+     * semantic 현재 문맥은 대상을 내부 ref(UUID 문자열) 순으로 싣는다. 두 실행의 UUID는 무작위라 같은 대상의 상대 순서가 실행마다 다를 수 있으므로
+     * 이름을 바꾼 뒤 그 목록만 내용 순으로 맞춘다. 다른 목록의 순서는 그대로 비교한다.
+     */
+    private static String sortSemanticOwners(String record) {
+        int split = record.indexOf(' ');
+        if (split < 0 || !record.startsWith("claim")) return record;
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        try {
+            JsonNode node = mapper.readTree(record.substring(split + 1));
+            JsonNode semantic = node.path("semanticCurrentContext");
+            for (String field : List.of("characters", "worldSubjects")) {
+                if (!(semantic.path(field) instanceof com.fasterxml.jackson.databind.node.ArrayNode owners)) continue;
+                List<JsonNode> sorted = new ArrayList<>();
+                owners.forEach(sorted::add);
+                sorted.sort(java.util.Comparator.comparing(JsonNode::toString));
+                owners.removeAll();
+                sorted.forEach(owners::add);
+            }
+            return record.substring(0, split + 1) + mapper.writeValueAsString(node);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
+    private static String firstDifference(String expected, String actual) {
+        int at = 0;
+        while (at < expected.length() && at < actual.length() && expected.charAt(at) == actual.charAt(at)) at++;
+        int from = Math.max(0, at - 120);
+        return "at " + at + " expected …" + expected.substring(from, Math.min(expected.length(), at + 200))
+                + "… actual …" + actual.substring(from, Math.min(actual.length(), at + 200)) + "…";
+    }
+
+    /** H2 JSON 열은 byte[]로 오므로 UTF-8 문자열로 바꿔 값으로 비교한다. */
+    private List<Map<String, Object>> rows(String sql, Object... args) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Map<String, Object> row : jdbc.queryForList(sql, args)) {
+            Map<String, Object> converted = new java.util.LinkedHashMap<>();
+            row.forEach((column, value) -> converted.put(column, value instanceof byte[] bytes
+                    ? new String(bytes, java.nio.charset.StandardCharsets.UTF_8) : value));
+            result.add(converted);
+        }
+        return result;
+    }
+
+    private void assertStoredFormat(WorkerAnalysisJobPayload payload, boolean expectLive) {
+        tx.executeWithoutResult(status -> assertThat(org.monitoring.catchholebackend.domain.analysis.processor.AnalysisAutomaticInputFormat
+                .isLive(jobs.findById(payload.analysisJobId()).orElseThrow())).isEqualTo(expectLive));
+    }
+
+    private UUID publishWorld(WorkerAnalysisJobPayload payload, String subject, String setting, String value, String quote) {
+        return tx.execute(status -> {
+            AnalysisJob job = jobs.findById(payload.analysisJobId()).orElseThrow();
+            WorldSettingCandidate candidate = WorldSettingCandidate.create(job.getWork(), job.getEpisode(), job, WorldSettingCategory.RACE,
+                    subject, setting, value, evidence(quote), BigDecimal.ONE, null);
+            entities.persist(candidate);
+            job.updateCheckpointStage(AnalysisJobCheckpointStage.WORLD_CANDIDATES_PUBLISHED);
+            return candidate.getId();
+        });
+    }
+
+    private void completeOnlyWorldBatch(WorkerAnalysisJobPayload payload, List<String> records, String label, UUID actualTarget, String setting, String value) {
+        var batch = worldWorker.claimNextWorldSettingComparisonBatch(payload.analysisJobId(), payload.leaseToken()).orElseThrow();
+        records.add("worldBatch" + label + " " + wire(batch));
+        var context = worldWorker.getWorldSettingComparisonBatchContext(payload.analysisJobId(), batch.comparisonBatchId(), payload.leaseToken(),
+                new WorkerWorldSettingComparisonBatchContextRequest(batch.resolvedTargetWorldSettingIds(), batch.resolvedProvisionalSubjectKeys()));
+        records.add("worldContext" + label + " " + wire(context));
+        var target = context.targets().getFirst();
+        worldWorker.completeWorldSettingComparisonBatch(payload.analysisJobId(), batch.comparisonBatchId(), payload.leaseToken(),
+                new WorkerWorldSettingComparisonBatchCompleteRequest(
+                        List.of(new WorkerWorldSettingComparisonBatchCompleteRequest.ContextVersion(target.worldSettingId(), target.version(), target.provisionalSubjectKey())),
+                        List.of(new WorkerWorldSettingComparisonBatchCompleteRequest.Decision("D1", List.of("C1"), "엘프", actualTarget,
+                                null, null, List.of(), WorldSettingConsolidationStatus.SINGLE, WorldSettingSuggestedOperation.ADD, null,
+                                null, setting, value, "원문 " + setting, Map.of(), target.provisionalSubjectKey())), Map.of(), context.contextToken()));
+        assertThat(worldWorker.claimNextWorldSettingComparisonBatch(payload.analysisJobId(), payload.leaseToken())).isEmpty();
+    }
+
+    private WorkerAnalysisJobPayload claimWithSemantic() {
+        return worker.claimAnalysisJob(new WorkerAnalysisJobClaimRequest("test-only", "검증", Set.of(AnalysisJobType.SETTING_EXTRACTION),
+                Set.of(AnalysisMode.ORDERED_PROVISIONAL), null, null, null, true, true)).orElseThrow();
+    }
+
+    private String wire(Object value) {
+        return wireJson.writeValueAsString(value);
+    }
+
+    /**
+     * 두 실행의 식별자·시각·hash는 다르다(format 2의 inputStateHash는 저장 입력 형식이 달라 당연히 다르다). 기록 전체에서 처음 나온 순서대로
+     * 같은 값은 같은 이름, 다른 값은 다른 이름으로 바꾼다. 그래서 한 실행 안에서 같은 hash·id를 가리키는 관계는 그대로 비교된다.
+     */
+    private static List<String> renamed(List<String> records) {
+        java.util.regex.Pattern token = java.util.regex.Pattern.compile(
+                "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{64}|\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?");
+        Map<String, String> names = new java.util.HashMap<>();
+        List<String> result = new ArrayList<>();
+        for (String record : records) {
+            var matcher = token.matcher(record);
+            StringBuilder renamedRecord = new StringBuilder();
+            while (matcher.find()) {
+                String name = names.computeIfAbsent(matcher.group(), value -> "<" + (value.length() == 64 ? "H" : value.contains("-") && value.length() == 36 ? "U" : "T") + names.size() + ">");
+                matcher.appendReplacement(renamedRecord, java.util.regex.Matcher.quoteReplacement(name));
+            }
+            matcher.appendTail(renamedRecord);
+            result.add(sortSemanticOwners(renamedRecord.toString()));
+        }
+        return result;
+    }
+
+    private Run runFor(int count, String email, String phone) {
+        return tx.execute(status -> {
+            Member member = Member.register(email, "test-only", phone, "검증 작가");
+            entities.persist(member);
+            Work work = Work.create(member, "격리 자동 분석", WorkGenre.FANTASY, "테스트");
+            entities.persist(work);
+            entities.persist(CharacterSettingSchema.create(work, "stats.mental", null, "정신",
+                    CharacterFactType.STAT, SettingValueType.NUMBER, CharacterSettingValueSemantics.BASE_VALUE,
+                    CharacterSettingMergePolicy.REPLACE, JSON.arrayNode(), CharacterSettingSchemaSource.SYSTEM_SEED, true));
+            UploadBatch batch = UploadBatch.create(work, member, UploadType.MULTI_EPISODE_MULTI_FILE, UploadSourceType.FILE);
+            entities.persist(batch);
+            List<AnalysisJob> created = new ArrayList<>();
+            for (int number = 1; number <= count; number++) {
+                Episode episode = Episode.create(work, null, number, "원고", "automatic-test/" + number, "v1", storage.contentHash(SOURCE), SOURCE.codePointCount(0, SOURCE.length()));
+                entities.persist(episode);
+                AnalysisJob job = AnalysisJob.create(work, batch, episode, AnalysisJobType.SETTING_EXTRACTION);
+                job.configureReviewMode(AnalysisReviewMode.AUTOMATIC);
+                created.add(job);
+            }
+            states.initializeRun(created);
+            return new Run(work.getId(), created.stream().map(AnalysisJob::getId).toList());
+        });
+    }
+
+    // ---- #387 format 2: 실행이 처음 읽은 대상의 확정 근거 오류 ----
+
+    @Test
+    @DisplayName("#387 format 2는 claim에서 다른 인물의 근거를 검증하지 않고, 실행이 처음 읽은 인물의 근거 연결 오류는 Job을 claim 입력 실패 진단으로 마감해 재시도할 수 있게 한다")
+    void liveInputEvidenceErrorOnFirstSubjectReadFailsJobCleanly() {
+        org.junit.jupiter.api.Assumptions.assumeTrue(liveInput, "format 2 실행에서만 대상을 실행 중에 읽는다");
+        Run run = run(2);
+        WorkerAnalysisJobPayload first = claim();
+        UUID broken = tx.execute(status -> {
+            AnalysisJob job = jobs.findById(first.analysisJobId()).orElseThrow();
+            discovery(job, "비요른", null, true);
+            SettingCandidate anchor = discovery(job, "에르웬", null, true);
+            return addStat(job, anchor.getProvisionalSubjectKey(), null, 35, CharacterFactOperation.ADD).getId();
+        });
+        complete(first);
+        UUID erwen = tx.execute(status -> entities.createQuery("select c.id from WorkCharacter c where c.work.id = :w and c.name = '에르웬'", UUID.class)
+                .setParameter("w", run.workId()).getSingleResult());
+        UUID bjorn = tx.execute(status -> entities.createQuery("select c.id from WorkCharacter c where c.work.id = :w and c.name = '비요른'", UUID.class)
+                .setParameter("w", run.workId()).getSingleResult());
+        // 에르웬의 현재 스탯 근거 후보가 다른 인물에 연결된 깨진 상태. claim 현재값은 slot 근거 사본을 만들지 않아 읽지 않는다.
+        jdbc.update("update setting_candidates set matched_character_id=? where id=?", bjorn, broken);
+
+        WorkerAnalysisJobPayload second = claim();
+        assertThat(second.analysisJobId()).isEqualTo(run.jobs().getLast());
+        tx.executeWithoutResult(status -> {
+            AnalysisJob job = jobs.findById(second.analysisJobId()).orElseThrow();
+            SettingCandidate candidate = SettingCandidate.create(job.getWork(), job.getEpisode(), null, job, SettingEntityType.CHARACTER,
+                    "에르웬", "에르웬", erwen, SettingCandidateMatchStatus.MATCHED, "stats.mental", "36", SettingValueType.NUMBER,
+                    JSON.objectNode().put("value", 36), evidence("stats.mental 수치는 36였다."), BigDecimal.ONE, null);
+            entities.persist(candidate);
+            job.updateCheckpointStage(AnalysisJobCheckpointStage.CHARACTER_CANDIDATES_SAVED);
+        });
+        assertThatThrownBy(() -> {
+            var batch = characterWorker.claimNextCharacterFactComparisonBatch(second.analysisJobId(), second.leaseToken()).orElseThrow();
+            characterWorker.getCharacterFactComparisonBatchContext(second.analysisJobId(), batch.comparisonBatchId(), second.leaseToken());
+        }).isInstanceOfSatisfying(AppException.class, error -> assertThat(error.getResultCode().getCode()).isEqualTo("ANALYSIS_CURRENT_EVIDENCE_INVALID"));
+
+        tx.executeWithoutResult(status -> {
+            AnalysisJob job = jobs.findById(second.analysisJobId()).orElseThrow();
+            assertThat(job.getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
+            assertThat(job.getJournalStatus()).isEqualTo(AnalysisJournalStatus.INCOMPLETE);
+            assertThat(job.getFailureCode()).isEqualTo(AnalysisFailureCode.UNEXPECTED_ERROR);
+            assertThat(job.getFailureDiagnostics().stage()).isEqualTo("CLAIM_INPUT");
+            assertThat(job.getFailureDiagnostics().reasonCode()).isEqualTo("CURRENT_EVIDENCE_BINDING_INVALID");
+            assertThat(job.getFailureDiagnostics().sourceErrorCode()).isEqualTo("ANALYSIS_CURRENT_EVIDENCE_INVALID");
+            assertThat(job.getLeaseToken()).isNull();
+            assertThat(job.getEpisode().getStatus()).isEqualTo(org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.FAILED);
+        });
+        // 늦은 Worker 호출은 lease가 없어 거절되고, 같은 Job 재시도는 기존 경로로 접수된다.
+        assertThatThrownBy(() -> worker.heartbeatAnalysisJob(second.analysisJobId(), second.leaseToken()))
+                .isInstanceOf(AppException.class);
+        Long owner = tx.execute(status -> entities.find(Work.class, run.workId()).getMember().getId());
+        jdbc.update("update setting_candidates set matched_character_id=? where id=?", erwen, broken);
+        publicJobs.retryFailedAnalysisJob(owner, run.workId(), second.analysisJobId());
+        tx.executeWithoutResult(status -> assertThat(jobs.findById(second.analysisJobId()).orElseThrow().getStatus()).isEqualTo(AnalysisJobStatus.PENDING));
+        WorkerAnalysisJobPayload retried = claim();
+        assertThat(retried.analysisJobId()).isEqualTo(second.analysisJobId());
+        var batch = characterWorker.claimNextCharacterFactComparisonBatch(retried.analysisJobId(), retried.leaseToken()).orElseThrow();
+        assertThat(characterWorker.getCharacterFactComparisonBatchContext(retried.analysisJobId(), batch.comparisonBatchId(), retried.leaseToken())
+                .snapshotEntries()).isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("#387 format 2 실행 중 GH201을 거치지 않은 확정 설정 쓰기(지문 불일치)는 그 Worker 호출을 409로 되돌린 뒤 실행을 무효화한다")
+    void liveInputFingerprintMismatchInvalidatesRun() {
+        org.junit.jupiter.api.Assumptions.assumeTrue(liveInput, "format 2 실행에서만 지문으로 실행 중 설정을 확인한다");
+        Run run = run(2);
+        WorkerAnalysisJobPayload first = claim();
+        tx.executeWithoutResult(status -> {
+            AnalysisJob job = jobs.findById(first.analysisJobId()).orElseThrow();
+            SettingCandidate anchor = discovery(job, "에르웬", null, true);
+            addStat(job, anchor.getProvisionalSubjectKey(), null, 35, CharacterFactOperation.ADD);
+        });
+        complete(first);
+        UUID erwen = tx.execute(status -> entities.createQuery("select c.id from WorkCharacter c where c.work.id = :w and c.name = '에르웬'", UUID.class)
+                .setParameter("w", run.workId()).getSingleResult());
+        WorkerAnalysisJobPayload second = claim();
+        assertThat(second.analysisJobId()).isEqualTo(run.jobs().getLast());
+        tx.executeWithoutResult(status -> {
+            AnalysisJob job = jobs.findById(second.analysisJobId()).orElseThrow();
+            SettingCandidate candidate = SettingCandidate.create(job.getWork(), job.getEpisode(), null, job, SettingEntityType.CHARACTER,
+                    "에르웬", "에르웬", erwen, SettingCandidateMatchStatus.MATCHED, "stats.mental", "36", SettingValueType.NUMBER,
+                    JSON.objectNode().put("value", 36), evidence("stats.mental 수치는 36였다."), BigDecimal.ONE, null);
+            entities.persist(candidate);
+            job.updateCheckpointStage(AnalysisJobCheckpointStage.CHARACTER_CANDIDATES_SAVED);
+        });
+        // legacy 단건 비교 EXCLUDE가 대표 서사 시점을 바꿀 때처럼 GH201을 거치지 않고 snapshotVersion을 올린 쓰기다.
+        jdbc.update("update characters set snapshot_version = snapshot_version + 1 where id=?", erwen);
+        assertThatThrownBy(() -> {
+            var batch = characterWorker.claimNextCharacterFactComparisonBatch(second.analysisJobId(), second.leaseToken()).orElseThrow();
+            characterWorker.getCharacterFactComparisonBatchContext(second.analysisJobId(), batch.comparisonBatchId(), second.leaseToken());
+        }).isInstanceOfSatisfying(AppException.class, error -> assertThat(error.getResultCode().getCode()).isEqualTo("ANALYSIS_RUN_STATE_CONFLICT"));
+        tx.executeWithoutResult(status -> {
+            AnalysisJob job = jobs.findById(second.analysisJobId()).orElseThrow();
+            assertThat(job.getJournalStatus()).isEqualTo(AnalysisJournalStatus.INVALIDATED);
+            assertThat(job.getStatus()).isEqualTo(AnalysisJobStatus.CANCELED);
+            assertThat(job.getLeaseToken()).isNull();
+        });
+        assertThatThrownBy(() -> worker.heartbeatAnalysisJob(second.analysisJobId(), second.leaseToken())).isInstanceOf(AppException.class);
+    }
+
     private List<UUID> prepareWorldBatches(WorkerAnalysisJobPayload payload) {
         List<UUID> ids = tx.execute(status -> {
             AnalysisJob job = jobs.findById(payload.analysisJobId()).orElseThrow();
@@ -2010,6 +2344,13 @@ class AutomaticAnalysisIntegrationTest {
     }
     private JsonNode input(WorkerAnalysisJobPayload payload) {
         return tx.execute(status -> states.getInputState(jobs.findById(payload.analysisJobId()).orElseThrow()).deepCopy());
+    }
+    private JsonNode storedInput(WorkerAnalysisJobPayload payload) {
+        return tx.execute(status -> jobs.findById(payload.analysisJobId()).orElseThrow().getAutomaticInputState().deepCopy());
+    }
+    /** 실행 뒤에도 보존되는 입력: format 1은 claim 사본 전체, format 2는 저장 입력(지문·references)이다. */
+    private JsonNode preservedInput(WorkerAnalysisJobPayload payload) {
+        return liveInput ? storedInput(payload) : input(payload);
     }
     private void complete(WorkerAnalysisJobPayload payload) {
         tx.executeWithoutResult(status -> {

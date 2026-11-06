@@ -89,6 +89,9 @@ public interface AnalysisRunStateService {
 
     void validateResume(AnalysisJob job);
 
+    /** #387 format 2 저장 입력은 온전한데 지금 확정 설정의 지문이 claim 때와 다른지. format 1이면 false다. */
+    boolean isLiveInputStale(AnalysisJob job);
+
     void appendValidatedChanges(AnalysisJob job, String expectedInputStateHash, List<AnalysisStateChange> changes);
 
     void seal(AnalysisJob job);

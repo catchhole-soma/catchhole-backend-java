@@ -106,6 +106,28 @@ public class CharacterAnalysisStateSource implements AnalysisStateSource, Analys
         return rows;
     }
 
+    /**
+     * #387 인물 식별 색인. capture의 인물마다 actualCharacterId·provisionalSubjectKey(null)·이름·별칭을 고른 값과 같다.
+     * 별칭은 addConfirmedIdentity와 같은 규칙(trim, 빈 값·대표 이름 제외, 중복 제거, 후보 생성 순)이다. 순서는 생성 역순, 같은 시각이면 id다.
+     */
+    @Override
+    public ObjectNode identities(UUID workId) {
+        Map<UUID, List<String>> names = new java.util.HashMap<>();
+        candidateRepository.findConfirmedDiscoveryAliases(workId).forEach(alias ->
+                names.computeIfAbsent(alias.characterId(), ignored -> new ArrayList<>()).add(alias.entityName()));
+        ObjectNode result = JsonNodeFactory.instance.objectNode();
+        for (var row : characterRepository.findSettingVersions(workId, CharacterStatus.ACTIVE)) {
+            ObjectNode identity = result.putObject(CharacterAnalysisStateMapper.persistedRef(row.id()));
+            identity.put("actualCharacterId", row.id().toString());
+            identity.putNull("provisionalSubjectKey");
+            identity.put("name", row.name());
+            ArrayNode aliases = identity.putArray("aliases");
+            names.getOrDefault(row.id(), List.of()).stream().filter(java.util.Objects::nonNull).map(String::trim)
+                    .filter(alias -> !alias.isBlank() && !alias.equals(row.name())).distinct().forEach(aliases::add);
+        }
+        return result;
+    }
+
     private ObjectNode capture(Work work, List<WorkCharacter> characters, List<SettingCandidate> discoveries,
             org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.Capture capture,
             boolean currentValuesOnly) {

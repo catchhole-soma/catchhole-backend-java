@@ -40,7 +40,7 @@ class PreparedAnalysisStateTest {
     private final AnalysisStateJournal journal = spy(new AnalysisStateJournal());
     private final AnalysisRunStateServiceImpl service = new AnalysisRunStateServiceImpl(jobs, journal, List.of(),
             mock(ApplicationEventPublisher.class), mock(AnalysisPendingReferenceSource.class), jobSources,
-            mock(org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock.class));
+            mock(org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock.class), null);
     private AnalysisJob job;
     private Episode episode;
 
@@ -270,7 +270,7 @@ class PreparedAnalysisStateTest {
         when(pending.capture(any())).thenReturn(advisory);
         var capturingService = new AnalysisRunStateServiceImpl(jobs, journal, capturedSources,
                 mock(ApplicationEventPublisher.class), pending, jobSources,
-                mock(org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock.class));
+                mock(org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock.class), null);
         AnalysisJob target = AnalysisJob.create(job.getWork(), null, episode, AnalysisJobType.SETTING_EXTRACTION);
         ReflectionTestUtils.setField(target, "id", UUID.randomUUID());
         target.configureReviewMode(AnalysisReviewMode.AUTOMATIC);
@@ -312,7 +312,7 @@ class PreparedAnalysisStateTest {
                 List.of(source("characters", characters, captures), source("worldSettings", worlds, captures),
                         source("references", references, captures)),
                 mock(ApplicationEventPublisher.class), mock(AnalysisPendingReferenceSource.class), jobSources,
-                mock(org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock.class));
+                mock(org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock.class), null);
         AnalysisJob target = AnalysisJob.create(job.getWork(), null, episode, AnalysisJobType.SETTING_EXTRACTION);
         ReflectionTestUtils.setField(target, "id", UUID.randomUUID());
         target.configureReviewMode(AnalysisReviewMode.MANUAL);
@@ -350,7 +350,7 @@ class PreparedAnalysisStateTest {
                 List.of(source("characters", characters, new LinkedHashMap<>()),
                         source("worldSettings", nodes.objectNode(), new LinkedHashMap<>())),
                 mock(ApplicationEventPublisher.class), mock(AnalysisPendingReferenceSource.class), jobSources,
-                mock(org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock.class));
+                mock(org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock.class), null);
         AnalysisJob manual = AnalysisJob.create(job.getWork(), null, episode, AnalysisJobType.SETTING_EXTRACTION);
         manual.configureReviewMode(AnalysisReviewMode.MANUAL);
         AppException walked = rejected(() -> walkingService.initializeRun(List.of(manual)));
@@ -396,7 +396,7 @@ class PreparedAnalysisStateTest {
                 List.of(source("characters", com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode(), new LinkedHashMap<>()),
                         source("worldSettings", com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode(), new LinkedHashMap<>())),
                 mock(ApplicationEventPublisher.class), mock(AnalysisPendingReferenceSource.class), jobSources,
-                mock(org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock.class));
+                mock(org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock.class), null);
 
         assertThatThrownBy(() -> sourcesService.initializeRun(List.of(automatic, manual)))
                 .isInstanceOfSatisfying(AppException.class, error ->
@@ -423,7 +423,7 @@ class PreparedAnalysisStateTest {
         var capturingService = new AnalysisRunStateServiceImpl(jobs, journal,
                 List.of(source("characters", nodes.objectNode(), captures), source("worldSettings", nodes.objectNode(), captures)),
                 mock(ApplicationEventPublisher.class), mock(AnalysisPendingReferenceSource.class), jobSources,
-                mock(org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock.class));
+                mock(org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock.class), null);
 
         capturingService.initializeRun(List.of(bookJob));
 

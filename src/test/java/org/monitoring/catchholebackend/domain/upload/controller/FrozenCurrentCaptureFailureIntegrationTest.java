@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.upload.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -47,7 +48,8 @@ class FrozenCurrentCaptureFailureIntegrationTest extends SettingBookAnalysisInte
 
         var claimed = evidenceClaim("SETTING_BOOK", 200);
         UUID lease = UUID.fromString(claimed.path("leaseToken").asText());
-        var frozen = pending.getAutomaticInputState().path("characters").path("character:" + owner.getId());
+        // 고정 입력(format 1)과 live 대상별 읽기(#387 format 2) 모두 같은 claim 입력 대상 값이다.
+        var frozen = states.getInputTarget(pending, "characters", "character:" + owner.getId());
         var frozenSlot = frozen.path("slots").path("PROFILE:profile.오른손_감각");
         assertThat(frozenSlot.path("factValue").asText()).isEqualTo("정상");
         assertThat(frozenSlot.path("supportingSources").get(0).path("unavailableReason").asText()).isEqualTo("OFFSETS_UNAVAILABLE");
@@ -104,7 +106,7 @@ class FrozenCurrentCaptureFailureIntegrationTest extends SettingBookAnalysisInte
     void invalidOldestCaptureFailsWithoutQueueOrTokenLeak() throws Exception {
         var book = upload("다음 분석 원문");
         var pending = jobs.findById(UUID.fromString(book.path("latestAnalysisJob").path("id").asText())).orElseThrow();
-        invalidCurrentSource();
+        UUID owner = invalidCurrentSource();
         // A reservation left by an interrupted old worker must not survive a failed new capture.
         UUID reservation = UUID.randomUUID();
         var account = em.createQuery("select a from AiTokenAccount a where a.member.id=:id", AiTokenAccount.class)
@@ -112,6 +114,16 @@ class FrozenCurrentCaptureFailureIntegrationTest extends SettingBookAnalysisInte
         account.reserve(1000);
         em.persist(AiTokenUsage.reserve(reservation, pending, AiTokenPurpose.SETTING_EXTRACTION, 1, "offline-test", 1000));
         em.flush();
+        if (liveInput) {
+            // #387 format 2의 claim은 claim 응답이 읽는 현재값만 읽는다. 이 slot 근거는 그 인물을 처음 읽는 비교 준비에서 검증되고,
+            // 그때의 Job 실패 마감은 AutomaticAnalysisIntegrationTest가 실제 커밋 경계로 확인한다.
+            evidenceClaim("SETTING_BOOK", 200);
+            assertThat(pending.getStatus().name()).isEqualTo("RUNNING");
+            assertThatThrownBy(() -> states.getInputTarget(pending, "characters", "character:" + owner))
+                    .isInstanceOfSatisfying(org.monitoring.catchholebackend.global.exception.AppException.class,
+                            error -> assertThat(error.getResultCode().getCode()).isEqualTo("ANALYSIS_CURRENT_EVIDENCE_INVALID"));
+            return;
+        }
         evidenceClaim("SETTING_BOOK", 204);
         em.flush();
         assertThat(pending.getStatus().name()).isEqualTo("FAILED");
@@ -140,9 +152,15 @@ class FrozenCurrentCaptureFailureIntegrationTest extends SettingBookAnalysisInte
         states.initializeRun(List.of(first, successor));
         invalidCurrentSource();
         em.flush();
-        evidenceClaim("EPISODE", 204);
-        assertThat(first.getStatus().name()).as("journal=%s step=%s sourceCurrent=%s", first.getJournalStatus(), first.getCurrentStep(), first.hasCurrentSourceVersion()).isEqualTo("FAILED");
-        assertThat(first.getJournalStatus().name()).isEqualTo("INCOMPLETE");
+        if (liveInput) {
+            // #387 format 2는 claim에서 slot 근거를 검증하지 않아 선행 회차 claim이 성공한다. 그래도 선행 회차가 끝나기 전에는 후속 회차가 열리지 않는다.
+            evidenceClaim("EPISODE", 200);
+            assertThat(first.getStatus().name()).isEqualTo("RUNNING");
+        } else {
+            evidenceClaim("EPISODE", 204);
+            assertThat(first.getStatus().name()).as("journal=%s step=%s sourceCurrent=%s", first.getJournalStatus(), first.getCurrentStep(), first.hasCurrentSourceVersion()).isEqualTo("FAILED");
+            assertThat(first.getJournalStatus().name()).isEqualTo("INCOMPLETE");
+        }
         evidenceClaim("EPISODE", 204);
         assertThat(successor.getStatus().name()).isEqualTo("PENDING");
         assertThat(successor.getLeaseToken()).isNull();
@@ -206,13 +224,15 @@ class FrozenCurrentCaptureFailureIntegrationTest extends SettingBookAnalysisInte
         return job;
     }
 
-    private void invalidCurrentSource() throws Exception {
+    /** 현재 slot 근거의 출처 manifest를 깨고 그 slot의 인물 id를 돌려준다. */
+    private UUID invalidCurrentSource() throws Exception {
         var candidate = currentQuote(true);
         var origin = candidate.getAnalysisJob();
         // 원문 manifest는 updatable=false다. 메모리만 바꾸지 않고 조회 대상 DB에도 손상을 재현한다.
         em.flush();
         sql.update("UPDATE analysis_jobs SET source_content_hash=? WHERE id=?", "invalid", origin.getId());
         em.refresh(origin);
+        return candidate.getMatchedCharacterId();
     }
 
     private SettingCandidate currentQuote(boolean technicalFailure) throws Exception {

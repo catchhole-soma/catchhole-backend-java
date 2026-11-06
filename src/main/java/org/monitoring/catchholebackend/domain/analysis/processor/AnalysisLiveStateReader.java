@@ -67,6 +67,11 @@ public class AnalysisLiveStateReader {
         return source(domain).toCurrentValues(capturedState);
     }
 
+    /** 인물 식별 색인(ref → {actualCharacterId, provisionalSubjectKey, name, aliases}). scalar 조회만 한다. */
+    public ObjectNode characterIdentities(UUID workId) {
+        return source(AnalysisStateSlices.CHARACTERS).identities(workId);
+    }
+
     /** 세계관 분류(WorldSettingCategory 이름)의 지금 대상 ref. */
     public List<String> worldSubjectRefs(UUID workId, String category) {
         return source(AnalysisStateSlices.WORLD_SETTINGS).subjectRefs(workId, category);

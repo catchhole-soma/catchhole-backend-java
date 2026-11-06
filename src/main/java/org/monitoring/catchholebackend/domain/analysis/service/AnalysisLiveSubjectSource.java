@@ -34,6 +34,14 @@ public interface AnalysisLiveSubjectSource {
     /** capture 결과 하나에서 현재값 읽기가 빼는 필드를 뺀 복사본. 현재값 읽기와 capture의 동등성 기준이다. */
     ObjectNode toCurrentValues(ObjectNode capturedState);
 
+    /**
+     * 인물 식별 색인(ref → {actualCharacterId, provisionalSubjectKey, name, aliases}). capture에서 같은 필드를 고른 값과 같고
+     * scalar 조회만 한다. 인물 도메인만 제공한다.
+     */
+    default ObjectNode identities(UUID workId) {
+        throw new UnsupportedOperationException(domain() + "는 인물 식별 색인을 제공하지 않습니다.");
+    }
+
     /** 이 분류(세계관 WorldSettingCategory 이름)의 지금 대상 ref. 분류가 없는 도메인은 지원하지 않는다. */
     default List<String> subjectRefs(UUID workId, String category) {
         throw new UnsupportedOperationException(domain() + "는 분류별 대상 목록을 제공하지 않습니다.");
