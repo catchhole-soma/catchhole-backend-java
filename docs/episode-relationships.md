@@ -38,7 +38,7 @@
 - **실행 수단**: 내부 API 키 엔드포인트 `POST /api/internal/v1/relationship-graph/cleanups`, body `{"workId": "...", "apply": false}`. `apply`를 생략하거나 false면 dry-run이다. 호출 전까지 아무 일도 하지 않으므로 별도 플래그가 없다. 응답에는 노드·프로필 이름이 있으므로 공개 이슈·PR에 그대로 붙이지 않는다. 로그는 workId와 건수만 남긴다.
 - **기준 회차(cutoff)**: 공개 세대(`relationship_backfill_works.published_generation`, 행이 없으면 0)의 마지막 APPLIED 회차. APPLIED가 없으면 아무것도 읽거나 쓰지 않는다. 연결·병합 회차(`character_linked_episode_no`·`merged_at_episode_no`)는 이 회차로 기록해 과거 화면에 프로필 이름을 소급하지 않는다.
 - **확정 이름**: cutoff 이하 확정 `CHARACTER_DISCOVERY`(ACTIVE 프로필)를 scalar 조회 한 번으로 읽는다. cutoff 분석을 만든 Job이 `ORDERED_PROVISIONAL`이면 런타임 ordered prepare처럼 현재 ACTIVE 대표 이름도 확정 근거로 넣고, 아니면 대표 이름은 충돌 확인에만 쓴다. 작품의 가장 최근 회차 Job이 아니라 cutoff 분석의 Job을 보는 이유는 실패한 뒤 회차 재분석(다른 모드)이 저장된 그래프의 해소 방식을 바꾸지 않기 때문이다.
-- **같은 프로필 연결 노드(먼저)**: ACTIVE 프로필에 병합되지 않은 연결 노드가 둘 이상이면 대표 이름과 정규화 결과가 같은 노드(없으면 첫 회차·연결 회차·생성 시각·id가 가장 이른 노드)를 대표로 남긴다. 나머지는 ① 이름이 작품에서 유일하고 ② `RelationshipNameRules.resolveStrictly`(정확 일치에서 멈추지 않고 정확∪포함 프로필을 모두 모으며 확정 이름이 뒷받침해야 함)가 정확히 그 프로필이고 ③ 이름이 대표 이름의 짧은/긴 형태일 때만 합친다(`MERGE_LINKED`: `character_id`를 비우고 `merged_into`를 기록, 대표 노드의 첫 회차·연결 회차는 유지). 아니면 사유를 남긴다(`HELD_COLLISION`: 다른 ACTIVE 프로필과 정확히 같거나 그 이름에 포함, `OTHER_PROFILE`, `UNRESOLVED`, `NOT_REPRESENTATIVE_FORM`: 확정 별칭이어도 대표 이름과 무관, `DUPLICATE_NAME`, `AFTER_CUTOFF`). 보관 프로필에 연결된 노드는 합치거나 다시 연결하지 않고 `ARCHIVED_PROFILE`(이름이 다른 ACTIVE 프로필 하나로 해소되면 `OTHER_PROFILE`)로 보고만 한다.
+- **같은 프로필 연결 노드(먼저)**: ACTIVE 프로필에 병합되지 않은 연결 노드가 둘 이상이면 대표 이름과 정규화 결과가 같은 노드를 대표로 남긴다. 없으면 아래 ①②③을 통과한 노드 중 첫 회차·연결 회차·생성 시각·id가 가장 이른 노드를 대표로 고르고, 그런 노드도 없으면 그 묶음은 합치지 않고 노드마다 사유를 남긴다(데이터 오류로 다른 사람이 먼저 연결돼 있어도 그 노드로 합치지 않기 위해). 나머지는 ① 이름이 작품에서 유일하고 ② `RelationshipNameRules.resolveStrictly`(정확 일치에서 멈추지 않고 정확∪포함 프로필을 모두 모으며 확정 이름이 뒷받침해야 함)가 정확히 그 프로필이고 ③ 이름이 대표 이름의 짧은/긴 형태일 때만 합친다(`MERGE_LINKED`: `character_id`를 비우고 `merged_into`를 기록, 대표 노드의 첫 회차·연결 회차는 유지). 아니면 사유를 남긴다(`HELD_COLLISION`: 다른 ACTIVE 프로필과 정확히 같거나 그 이름에 포함, `OTHER_PROFILE`, `UNRESOLVED`, `NOT_REPRESENTATIVE_FORM`: 확정 별칭이어도 대표 이름과 무관, `DUPLICATE_NAME`, `AFTER_CUTOFF`). 보관 프로필에 연결된 노드는 합치거나 다시 연결하지 않고 `ARCHIVED_PROFILE`(이름이 다른 ACTIVE 프로필 하나로 해소되면 `OTHER_PROFILE`)로 보고만 한다.
 - **미연결 노드(다음)**: 첫 회차 순으로 `RelationshipNameRules.resolve`(런타임과 같은 정확 일치 우선)를 적용한다. 한 프로필로 해소되고 이름이 유일하면 그 프로필의 연결 노드가 없을 때 연결(`LINK`), 하나면 병합(`MERGE_UNLINKED`), 둘 이상이면 `SPLIT_PROFILE`로 건너뛴다. 여러 프로필이면 `HELD_COLLISION`이다. 프로필 노드가 없는 같은 프로필의 별칭 둘은 첫째가 연결되고 둘째가 그 노드로 합쳐진다.
 - **선**: 모든 선의 끝점을 해소한 노드로 바꾸고, 방향은 저장 canonical key를 세 방향으로 다시 계산해 맞는 것으로 복원한다(event가 없는 선도 처리, event 방향과 다르거나 맞는 방향이 없으면 작품 전체를 409로 중단). 새 key가 같은 선은 하나만 남긴다. 생존 선은 이미 대표 끝점인 선, 없으면 첫 event 회차가 가장 이른 선(동률은 생성 시각·id)이다. 생존 선은 삭제 억제를 OR로, 정정 설명은 자기 것을 우선해 잇고(둘 다 다르면 `CORRECTION_CONFLICT` 경고), version은 둘보다 크게 올려 옛 화면의 PATCH/DELETE가 409가 된다. 합쳐지는 선의 event는 생존 선으로 옮기고, 같은 분석의 event가 이미 있으면 근거만 합친다(같은 인용은 한 번, 설명·상태·방향은 생존 선 event 유지). 끝점 순서가 생존 선과 반대인 event는 source/target 이름을 맞바꿔 미등록 노드의 관측 이름이 뒤바뀌지 않게 한다. 해소 뒤 자기 자신을 잇는 선은 event와 함께 지우고 보고한다.
 - **범위 밖**: 같은 두 노드·axis·kind의 `DIRECTED` 선이 양방향(A→B, B→A)으로 따로 있는 것은 canonical slot이 달라 계약상 서로 다른 관계이므로 합치지 않는다. 정리 뒤 겹침은 canonical slot 기준 0이며, 순서 없는 쌍 기준으로는 이런 양방향 선이 남는다.
@@ -131,12 +131,17 @@ from relationship_graph_edges where work_id=:w;            -- 백업 대비 감�
 select count(*) from relationship_graph_nodes where work_id=:w and merged_into_node_id is not null and character_id is not null; -- 0
 ```
 
-롤백(작품별, 정리 뒤 새 분석이 APPLIED되기 전에만. 그 사이 APPLIED가 있으면 수동 판단):
+롤백(작품별, 정리 뒤 이 작품에 새 관계 분석이 시작되지 않았을 때만). `:cleanup_at`은 apply 응답을 받은 시각이다. prepare는 새 노드를 저장하고 그 id를 `bindings`에 동결하므로, 진행 중이거나 재개할 수 있는 분석이 있는데 노드를 백업으로 바꾸면 그 분석의 완료·반영이 없는 노드·선 id를 가리켜 실패한다. 그래서 정리 apply의 게이트와 같은 조건을 Work 잠금 아래에서 확인하고, 하나라도 0이 아니면 `rollback;`으로 멈추고 수동 판단한다.
 
 ```sql
 begin;
-select id from works where id=:w for update;
-select count(*) from relationship_graph_analyses where work_id=:w and status='APPLIED' and updated_at > :cleanup_at; -- 0이어야 계속
+select id from works where id=:w for update;                       -- prepare·finalize와 같은 Work 잠금
+select count(*) from relationship_graph_analyses where work_id=:w and status in ('PENDING','PREPARED','COMPLETED');   -- 0
+select count(*) from relationship_graph_analyses where work_id=:w and status='INVALIDATED'
+   and context is not null and evidence_purged=false;                                                              -- 0 (GH367 재개 대상)
+select count(*) from relationship_graph_analyses where work_id=:w and status='APPLIED' and updated_at > :cleanup_at; -- 0
+select count(*) from relationship_graph_nodes n where n.work_id=:w
+   and not exists (select 1 from relationship_graph_nodes_gh391_bak b where b.id=n.id);                             -- 0 (정리 뒤 prepare가 만든 노드)
 delete from relationship_graph_events where work_id=:w;
 delete from relationship_graph_edges  where work_id=:w;
 delete from relationship_graph_nodes  where work_id=:w;
