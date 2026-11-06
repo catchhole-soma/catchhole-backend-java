@@ -528,7 +528,7 @@ domain/<domain>
 
 - AnalysisJob은 작품에 속한 단일 회차 AI 분석 작업의 상태와 결과 메타데이터를 추적한다. `UploadBatch`는 업로드 출처 묶음이며 분석 실행 단위가 아니다.
 - 첫 분석 안내는 계정 전체 기준으로 V64의 `analysis_guide_shown_at`과 `first_analysis_started_at`을 사용한다. 조회는 비소비, 노출 선점은 회원 잠금 아래 한 번만 성공하며 Job 생성과 최초 분석 시각을 같은 트랜잭션에 저장한다. 작품 삭제 후에도 경험 기록을 유지한다. 예시 확정은 실제 분석·설정 변경을 호출하지 않는다. 상세 API·이관 범위는 `docs/analysis-mode-guide.md`를 따른다.
-- 원문 텍스트는 `Episode`의 S3 저장 구조를 재사용한다. `analysis_jobs`에는 작업 메타데이터와 누적 모드의 고정 S0·검증 변경 기록을 저장하며 원문 전문이나 raw LLM 응답을 중복 저장하지 않는다.
+- 원문 텍스트는 `Episode`의 S3 저장 구조를 재사용한다. `analysis_jobs`에는 작업 메타데이터, 수동 누적의 고정 S0, 자동 누적의 회차별 claim 입력(`automatic_input_state`), 검증 변경 기록을 저장하며 원문 전문이나 raw LLM 응답을 중복 저장하지 않는다.
 - 분석 실패 이력은 `analysis_jobs.error_message`에 누적하지 않는다. Discord 발송 이력은 원시 오류 없이 `analysis_failure_notifications`에 식별자·고정 실패 코드·안전한 진단 snapshot·전송 상태로 따로 기록한다.
 - 새 회차 분석으로 대체된 legacy 캐릭터·세계관 비교 Job은 `cancelForSourceChange`로 `CANCELED` 마감한다. 토큰 예약 해제·후보 unlink·flush 순서는 유지하며 정상적인 교체를 `FAILED` 장애로 기록하거나 Discord 실패 알림으로 보내지 않는다.
 - 화면은 업로드 묶음에 생성된 회차별 `AnalysisJob.status`를 집계하고, 각 Job의 단일 대상 `Episode.status`를 단계별 상태로 보여준다.
@@ -570,9 +570,9 @@ domain/<domain>
 - 무효화된 Job은 동일 입력 재개를 거절하며 새 ordered 생성은 시작 회차 또는 이후의 확정 이력을 `ANALYSIS_FUTURE_HISTORY_CONFLICT`로 구분해 거절한다. 지원하지 않는 과거 복원을 현재 snapshot으로 대체하거나 유료 재실행을 자동 시작하지 않는다. 동일 원문의 최신 회차 Job이 재개 가능한 순차 실패이면 새 생성도 `ANALYSIS_ORDERED_JOB_RETRY_REQUIRED`로 거절해 완료 checkpoint를 버리지 않도록 한다. 기존 개별 MANUAL 분석은 원문 변경·무효화·정상 완료 등 기존 생성 검증을 통과하는 경우에만 명시적으로 실행한다.
 - 순차 분석은 실패 회차부터 같은 Job/run/checkpoint로 재개하고 전체 완료 뒤 기존 batch 후보를 검토한다. 선행 실패로 막힌 대기는 계속 분석 중이라고 안내하지 않으며 부분 검토·잔여 취소·부분 완료 상태를 추가하지 않는다. 원고 목록도 최신 ordered journal의 무효화와 저장 미완료를 완료로 표시하지 않는다. 상세 범위와 남은 한계는 `docs/gh201-analysis-recovery.md`를 따른다.
 - 실행 중 ordered Job의 무효화는 해당 Episode의 진행 상태와 미정산 토큰 예약도 같은 트랜잭션에서 정리한다. 토큰 정리는 동기 `AnalysisRunInvalidatedEvent`로 연결해 token→lease→state service의 생성자 순환을 피한다. 이미 정산된 사용량은 바꾸지 않는다.
-- S0의 미래 출처 검사는 현재 snapshot뿐 아니라 전체 확정 후보·캐릭터 Fact 이력·최초 등장 회차도 확인한다. REMOVE로 현재 slot이 사라졌거나 인물 발견만 확정된 경우도 현재 snapshot을 과거 설정으로 오인하지 않기 위함이다.
+- 새 ordered 생성의 미래 출처 검사는 현재 snapshot뿐 아니라 전체 확정 후보·캐릭터 Fact 이력·최초 등장 회차도 지금 회차 번호로 확인한다. REMOVE로 현재 slot이 사라졌거나 인물 발견만 확정된 경우도 현재 snapshot을 과거 설정으로 오인하지 않기 위함이다. 수동 누적은 이어서 S0에 담긴 출처 회차를 확인한다. 자동 누적은 S0를 만들지 않으므로(#387) 현재 출처 Fact의 추출 Job, ACTIVE 인물의 확정 발견, 이력 전용이 아닌 확정 세계관 후보의 고정 회차(`source_episode_no`)를 scalar 조회로 확인하고 같은 `ANALYSIS_FUTURE_HISTORY_CONFLICT`를 낸다. 회차 이동 뒤에는 지금 번호와 고정 번호가 다르기 때문이다. 자동 쪽은 해당 확정 행 전체를 보므로 S0 순회보다 더 거절할 수만 있으며 그 차이는 이동한 회차에서만 생긴다. 설정집 출처 실행은 시작 회차가 없어 두 방식 모두 이 검사를 하지 않는다.
 - ordered 캐릭터 수정 후보는 `applyEditedValue=true`를 명시한 사용자 확정에서만 현재 실제 snapshot·schema로 ADD/UPDATE를 검증한다. AI 비교로 가장하지 않고 `USER_EDIT` 출처를 기록하며 기존 AI journal은 무효화 상태로 보존한다. `confirmed_application_mode`가 `APPLY_PROPOSAL`인 선행 확정만 후속 임시 의존성의 실제 반영 근거로 인정한다.
-- 명시적 새 ordered 실행은 동일 원문·대상·값·근거의 사용자 반려를 S0 `references`의 `HUMAN_REJECTION_POLICY/EXACT_SOURCE_CLAIM_V1` 해시로 이어받는다. 이 해시는 서버 판정용이며 prompt/current fact/scoring history로 전달하지 않는다. 비교 전 원본 후보는 보존하면서 반려 reference로 coverage를 채우고, 정확히 반려된 discovery에 직접 연결된 설정은 미해결 상태로 둔다. 이름만으로 차단하거나 불변 원문 manifest가 없는 legacy 후보에 소급하지 않는다.
+- 명시적 새 ordered 실행은 동일 원문·대상·값·근거의 사용자 반려를 S0(수동)·claim 입력(자동)의 `references`에 담긴 `HUMAN_REJECTION_POLICY/EXACT_SOURCE_CLAIM_V1` 해시로 이어받는다. 이 해시는 서버 판정용이며 prompt/current fact/scoring history로 전달하지 않는다. 비교 전 원본 후보는 보존하면서 반려 reference로 coverage를 채우고, 정확히 반려된 discovery에 직접 연결된 설정은 미해결 상태로 둔다. 이름만으로 차단하거나 불변 원문 manifest가 없는 legacy 후보에 소급하지 않는다.
 - 원문 파기는 기존 후보 근거뿐 아니라 영향 이후 ordered journal·S0·자동 시작 문맥에 복사된 identity evidence·참고 주장과 비교 context도 정리한다. S0는 실행 중 불변이다. 근거 삭제는 무효화된 입력 또는 정상 완료된 후행 기록에만 허용하며, 완료 상태·정산·설정값을 바꾸지 않는다. 커밋 후 원문 파기 재시도도 완료 후행을 다시 무효화하지 않는다. 당시 hash는 감사용으로 보존하되 `sourceEvidencePurged` 기록은 다시 replay하지 않는다.
 - `ORDERED_PROVISIONAL`은 회차별 고정 입력으로 캐릭터 비교를 원 Job 안에서 끝낸 뒤 `CHARACTER_COMPARISONS_FINISHED`를 기록한다. 같은 batch의 후속 회차가 앞 회차 저장을 기다리므로 그룹 handoff barrier를 사용하지 않으며 ordered 후보는 legacy 그룹 숨김 Job에 섞지 않는다.
 - Worker 실패는 `AnalysisFailureCode`로 분류해 `analysis_jobs.failure_code`와 후보별 비교 실패 코드에 저장한다. `error_message`는 운영 진단용 원문이며 공개 DTO의 실패 문구는 코드별 안전한 사용자 메시지만 사용한다. URL, 내부 API 경로, stack trace가 공개 응답에 섞이지 않게 한다.
@@ -1027,6 +1027,13 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - 잠금 검사는 Work 행을 잠근 뒤 `validation_jobs`를 행 잠금 없이 읽는다. 지문은 queue·retry, data 호출 전후, claim·heartbeat·게시·완료마다 다시 계산하고 다르면 기존 409다. 이벤트 없이 version을 바꾼 쓰기를 잡는 안전장치이며, 이름만 바꾸는 `updateBasicInfo`는 version을 올리지 않아 잡지 못한다.
 - 게시는 값을 대조하는 주체만 현재 행으로 읽는다. finding `quoted_subjects`(V119)는 B 인용의 이름·key만 담고 설정값은 담지 않는다. 상세 settingValue는 유효하고 APPLIED 전인 report에서만 현재 행으로 보인다. 그 기간에는 잠금·무효화 때문에 판정 때 값과 같기 때문이다. basis·정정은 판정 때 B·S 번호가 아니라 저장 대상 id와 지금 행 hash로 CAS한다.
 - seed가 있는 legacy report는 모든 경로에서 저장 기준을 계속 읽는다. 두 열은 마지막 legacy report 정리 뒤 별도 migration에서 지운다. 배포는 AI(seed 조건을 뺀 검색 SQL)를 먼저 올리고 Backend를 올린다. 새 이미지 전에 `SPRING_APPLICATION_JSON`에 `settings-lock-queued-timeout`을 넣고, 옛·새 Backend가 동시에 검수 접수를 받지 않게 한다.
+
+### 자동 누적 생성의 설정 복사 제거 (#387)
+
+- 자동 반영(`AUTOMATIC` → `ORDERED_PROVISIONAL`) 실행을 만들 때 `AnalysisRunStateServiceImpl.initializeRun`은 `stateSources`를 capture하지 않는다. 분석 시작·검수 release(검토 완료)·설정집 업로드/재분석이 모두 이 경로다. 자동 누적의 판정 입력은 회차마다 claim 때 고정하는 `automatic_input_state`이고 `run_base_state`를 읽는 곳은 수동 replay뿐이라, 이 복사본은 생성 때의 미래 출처 검사에만 쓰였다. 100화 작품 사본에서 검토 완료 한 번이 13초 걸리고 live 힙이 약 192MB 늘었으며 그동안 Work 행 잠금을 쥐고 있었다.
+- 자동 run의 seq 0 `run_base_state`에는 표지 `{"automaticInputCapturedAtClaim":true}`만 저장한다. V77 CHECK가 seq 0에 object를 요구하기 때문이며 migration은 없다. `characters`·`worldSettings`·`references` key가 없어 잘못 replay하면 변경 경로 검증에서 거절된다. 이미 만든 자동 run의 큰 S0는 그대로 두며 읽지 않는다.
+- 생성 때의 `stateSources` 도메인 등록 검사는 `source.domain()`으로만 유지하고, 한 실행의 모든 Job은 첫 Job과 반영 방식이 같아야 한다. 미래 출처 검사는 위 Analysis Domain Policy의 scalar 조회다. 수동 누적(`MANUAL + ORDERED_PROVISIONAL`)은 S0 capture와 순회를 그대로 한다.
+- 확정 근거 연결 오류(`ANALYSIS_CURRENT_EVIDENCE_INVALID`)는 생성 응답의 409가 아니라 첫 claim에서 `CLAIM_INPUT` 진단의 Job 실패로 드러난다(기존 claim 경로). claim 때의 capture와 그 미래 출처 순회, `AnalysisJob.initializeOrderedRun`의 검증은 바꾸지 않았다.
 
 ### 캐릭터 비교 근거 수명 (#363)
 
