@@ -331,6 +331,25 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
         }
     }
 
+    /**
+     * #387 자동 누적 입력은 claim 때 한 번 쓰고(captureAutomaticInput) 실행 중에는 바뀌지 않는다. 바꾸는 곳은 원문 파기뿐이고
+     * 파기는 journal을 INVALIDATED로 바꾸거나 완료된 Job만 다룬다. 그래서 heartbeat·progress·토큰 예약처럼 입력을 읽지 않는
+     * 호출마다 100화 작품에서 1MB가 넘는 입력을 다시 hash하지 않는다. 입력을 읽는 경로는 각자 hash를 확인하므로 변조된 입력으로
+     * 비교·journal 추가·seal을 할 수는 없다.
+     */
+    @Override
+    public void assertValidLeaseInput(AnalysisJob job) {
+        if (!job.isOrderedProvisional() || !job.isAutomaticReview()) {
+            assertValidInput(job);
+            return;
+        }
+        if (job.getJournalStatus() != AnalysisJournalStatus.PENDING || !job.hasCurrentSourceVersion()
+                || job.getInputStateHash() == null) {
+            throw conflict();
+        }
+        automaticInputForRead(job);
+    }
+
     @Override
     public void validateResume(AnalysisJob job) {
         requireOrdered(job);

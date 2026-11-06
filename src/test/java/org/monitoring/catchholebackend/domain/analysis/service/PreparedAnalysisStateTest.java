@@ -166,6 +166,92 @@ class PreparedAnalysisStateTest {
     }
 
     @Test
+    @DisplayName("lease 확인은 자동 누적 입력을 다시 hash하지 않고, 입력을 읽는 소비자는 변조된 입력을 각자 거절한다")
+    void leaseCheckSkipsAutomaticHashWhileInputConsumersStillReject() {
+        clearInvocations(journal);
+        service.assertValidLeaseInput(job);
+        verify(journal, never()).hash(any());
+
+        ((ObjectNode) job.getAutomaticInputState().at("/characters/hero/historyFacts/0")).put("quote", "저장 입력 변조");
+        service.assertValidLeaseInput(job);
+        verify(journal, never()).hash(any());
+        var change = change("event", List.of("references", "value"), com.fasterxml.jackson.databind.node.TextNode.valueOf("값"));
+        List<Runnable> consumers = List.of(() -> service.assertValidInput(job), () -> service.prepareState(job),
+                () -> service.getProjectedState(job), () -> service.appendValidatedChanges(job, job.getInputStateHash(), List.of(change)),
+                () -> service.seal(job));
+        for (Runnable consumer : consumers) {
+            assertThat(rejected(consumer).getResultCode()).isEqualTo(AnalysisJobErrorCode.ANALYSIS_RUN_STATE_CONFLICT);
+        }
+        assertThat(job.getStateJournal().path("changes")).isEmpty();
+        assertThat(job.getJournalStatus()).isEqualTo(org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.PENDING);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"invalidated", "incomplete", "sourceChanged", "nullHash",
+            "missingInput", "brokenChain", "predecessorIncomplete"})
+    @DisplayName("lease 확인은 hash 없이도 무효화·미완료·원문 변경·hash 없음·입력 없음·선행 회차 오류를 전체 검증과 같은 코드로 거절한다")
+    void leaseCheckKeepsScalarRejections(String scenario) {
+        AnalysisJob target = job;
+        switch (scenario) {
+            case "invalidated" -> job.invalidateJournal("원문 변경");
+            case "incomplete" -> job.markJournalIncomplete();
+            case "sourceChanged" -> episode.updateContent(25, "수정", "changed", "v2", "c".repeat(64), 100);
+            case "nullHash" -> ReflectionTestUtils.setField(job, "inputStateHash", null);
+            case "missingInput" -> ReflectionTestUtils.setField(job, "automaticInputState", null);
+            case "brokenChain" -> when(jobSources.findRunMembers(any(), any())).thenReturn(List.of());
+            default -> target = automaticSuccessorOf(job);
+        }
+        AnalysisJob checked = target;
+        clearInvocations(journal);
+        AppException lease = rejected(() -> service.assertValidLeaseInput(checked));
+        verify(journal, never()).hash(any());
+        AppException full = rejected(() -> service.assertValidInput(checked));
+
+        assertThat(lease.getResultCode()).isEqualTo("predecessorIncomplete".equals(scenario)
+                ? AnalysisJobErrorCode.ANALYSIS_RUN_PREDECESSOR_INCOMPLETE : AnalysisJobErrorCode.ANALYSIS_RUN_STATE_CONFLICT);
+        assertThat(lease.getResultCode()).isEqualTo(full.getResultCode());
+    }
+
+    @Test
+    @DisplayName("수동 누적의 lease 확인은 지금처럼 S0를 replay해 hash를 확인한다")
+    void manualLeaseCheckStillReplaysAndHashes() {
+        JsonNode base = job.getAutomaticInputState().deepCopy();
+        AnalysisJob manual = AnalysisJob.create(job.getWork(), null, episode, AnalysisJobType.SETTING_EXTRACTION);
+        ReflectionTestUtils.setField(manual, "id", UUID.randomUUID());
+        manual.initializeOrderedRun(UUID.randomUUID(), 1, 0, null, base);
+        manual.prepareOrderedInput(journal.hash(base));
+        manual.claim("test", "comparison", LocalDateTime.now().plusMinutes(10));
+        when(jobs.findAllByAnalysisRunIdAndRunGenerationOrderByRunSequenceAsc(manual.getAnalysisRunId(), 1L))
+                .thenReturn(List.of(manual));
+
+        clearInvocations(journal);
+        service.assertValidLeaseInput(manual);
+        verify(journal).hash(any());
+
+        ObjectNode tampered = (ObjectNode) base.deepCopy();
+        ((ObjectNode) tampered.at("/characters/hero/historyFacts/0")).put("quote", "S0 변조");
+        ReflectionTestUtils.setField(manual, "runBaseState", tampered);
+        assertThat(rejected(() -> service.assertValidLeaseInput(manual)).getResultCode())
+                .isEqualTo(AnalysisJobErrorCode.ANALYSIS_RUN_STATE_CONFLICT);
+    }
+
+    private AnalysisJob automaticSuccessorOf(AnalysisJob predecessor) {
+        Episode next = Episode.create(predecessor.getWork(), null, 26, "26화", "next", "v1", "c".repeat(64), 100);
+        ReflectionTestUtils.setField(next, "id", UUID.randomUUID());
+        AnalysisJob successor = AnalysisJob.create(predecessor.getWork(), null, next, AnalysisJobType.SETTING_EXTRACTION);
+        ReflectionTestUtils.setField(successor, "id", UUID.randomUUID());
+        successor.configureReviewMode(AnalysisReviewMode.AUTOMATIC);
+        successor.initializeOrderedRun(predecessor.getAnalysisRunId(), 1, 1, predecessor.getId(), null);
+        ObjectNode input = journal.emptyState();
+        successor.captureAutomaticInput(input);
+        successor.prepareOrderedInput(journal.hash(input));
+        successor.claim("test", "comparison", LocalDateTime.now().plusMinutes(10));
+        // 선행 회차(job)는 RUNNING이라 아직 SUCCEEDED·SEALED·자동 반영 완료가 아니다.
+        when(jobSources.findRunMembers(any(), any())).thenAnswer(ignored -> List.of(sourceView(predecessor), sourceView(successor)));
+        return successor;
+    }
+
+    @Test
     @DisplayName("자동 누적 생성은 설정을 capture하지 않고 표지만 저장하며, claim 때 한 번 복사한 입력은 원본과 분리된다")
     void automaticRunStoresMarkerWithoutCaptureAndFreezesInputAtClaim() {
         var nodes = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance;

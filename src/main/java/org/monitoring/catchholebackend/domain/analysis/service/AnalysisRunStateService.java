@@ -26,6 +26,15 @@ public interface AnalysisRunStateService {
 
     void assertValidInput(AnalysisJob job);
 
+    /**
+     * #387 Worker 내부 API의 lease 확인(AnalysisJobLeaseService)에서만 쓴다. 자동 누적은 claim 때 고정한 입력을 다시
+     * hash하지 않고 scalar 불변식(journal PENDING·현재 원문 버전·입력 hash 존재·고정 입력 존재·선행 회차)만 본다.
+     * 입력 내용을 읽는 소비자(getProjectedState·prepareState·appendValidatedChanges·seal·validateResume)는 각자 hash를
+     * 확인하고, lease 아래에서 getInputState나 getAutomaticInputState()만 읽는 경로는 assertValidInput을 직접 부른다.
+     * 수동 누적과 그 밖의 Job은 assertValidInput과 같다.
+     */
+    void assertValidLeaseInput(AnalysisJob job);
+
     void validateResume(AnalysisJob job);
 
     void appendValidatedChanges(AnalysisJob job, String expectedInputStateHash, List<AnalysisStateChange> changes);

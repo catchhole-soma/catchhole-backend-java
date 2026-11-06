@@ -312,6 +312,48 @@ class EpisodeRelationshipGraphIntegrationTest {
                 .sum();
     }
 
+    @ParameterizedTest(name = "tampered={0}")
+    @ValueSource(booleans = {false, true})
+    @DisplayName("#387 자동 누적 회차의 관계 문맥 준비는 lease가 생략한 고정 입력 hash를 직접 확인해 변조된 입력의 이름으로 노드를 묶지 않는다")
+    void automaticOrderedPrepareChecksFrozenInputHash(boolean tampered) {
+        var journal = new org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal();
+        UUID id = tx.execute(status -> {
+            AnalysisJob job = AnalysisJob.create(em.find(Work.class, workId), null, episode(1, source),
+                    AnalysisJobType.SETTING_EXTRACTION);
+            job.enableRelationshipAnalysis();
+            job.configureReviewMode(org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode.AUTOMATIC);
+            job.initializeOrderedRun(UUID.randomUUID(), 1, 0, null,
+                    new ObjectMapper().createObjectNode().put("automaticInputCapturedAtClaim", true));
+            ObjectNode input = journal.emptyState();
+            job.captureAutomaticInput(input);
+            job.prepareOrderedInput(journal.hash(input));
+            em.persist(job);
+            em.flush();
+            service.beginRelationshipAnalysis(job);
+            return job.getId();
+        });
+        if (tampered) {
+            tx.executeWithoutResult(status -> {
+                AnalysisJob job = jobs.findById(id).orElseThrow();
+                ObjectNode changed = (ObjectNode) job.getAutomaticInputState().deepCopy();
+                changed.put("tamperedForTest", true);
+                ReflectionTestUtils.setField(job, "automaticInputState", changed);
+            });
+        }
+        clearInvocations(runState);
+
+        if (!tampered) {
+            assertThat(prepare(id).observations()).hasSize(1);
+            verify(runState).assertValidInput(argThat(job -> job.getId().equals(id)));
+            return;
+        }
+        assertThatThrownBy(() -> prepare(id)).isInstanceOfSatisfying(AppException.class, error ->
+                assertThat(error.getResultCode().getCode()).isEqualTo("ANALYSIS_RUN_STATE_CONFLICT"));
+        assertThat(tx.<AnalysisStatus>execute(status -> analyses.findById(id).orElseThrow().getStatus()))
+                .isEqualTo(AnalysisStatus.PENDING);
+        assertThat(nodeCount()).isZero();
+    }
+
     @Test
     @DisplayName("그 회차까지 확정된 별칭은 같은 프로필의 기존 노드를 다시 쓰고 저장된 이름을 문맥에 보인다")
     void aliasConfirmedBeforeCutoffReusesProfileNode() {

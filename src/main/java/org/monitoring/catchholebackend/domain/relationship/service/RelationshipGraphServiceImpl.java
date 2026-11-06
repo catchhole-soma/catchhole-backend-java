@@ -190,6 +190,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                     RelationshipGraphAnalysis analysis = requiredAnalysis(job);
                     Context saved = preparedRetry(analysis, request);
                     if (saved != null) return saved;
+                    assertLeasedOrderedInput(job);
                     BuiltContext built = buildContext(job, request);
                     analysis.prepareContext(
                             hash(mapper.toJson(request)),
@@ -296,6 +297,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         assertLegacyManualEditsUnchanged(analysis, saved);
         Prepare request = mapper.toPrepareCachedObservations(
                 analysis.getSourceHash(), saved, analysis.getRejectedObservationCount());
+        assertLeasedOrderedInput(job);
         BuiltContext rebuilt = buildContext(job, request);
         analysis.prepareContext(hash(mapper.toJson(request)), rebuilt.context().contextToken(),
                 mapper.toJson(rebuilt.context()), rebuilt.bindings(), analysis.getRejectedObservationCount());
@@ -1729,6 +1731,14 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         if (!job.isRelationshipAnalysisEnabled()) conflict();
         sourceGuard.assertCurrent(job, job.getEpisode());
         return job;
+    }
+
+    /**
+     * #387 lease 확인은 자동 누적의 고정 입력을 다시 hash하지 않는다. lease 아래에서 그 입력의 인물 이름을 읽어 노드를 묶기
+     * 전에 hash를 직접 확인한다. 완료된 앞 회차를 읽는 백필 경로(canPrepareCachedObservations)에는 쓰지 않는다.
+     */
+    private void assertLeasedOrderedInput(AnalysisJob job) {
+        if (job.isOrderedProvisional() && job.isAutomaticReview()) runState.assertValidInput(job);
     }
 
     private void requireEligible(AnalysisJob job) {

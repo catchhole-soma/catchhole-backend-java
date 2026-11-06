@@ -1042,6 +1042,53 @@ class AutomaticAnalysisIntegrationTest {
         assertThat(worker.claimAnalysisJob(request())).isEmpty();
     }
 
+    @ParameterizedTest
+    @EnumSource(AnalysisReviewMode.class)
+    @DisplayName("Worker lease 확인은 자동 누적 고정 입력을 다시 hash하지 않아 heartbeat·progress·fail이 통과하고 입력을 읽는 주체 대기 목록·완료·재개가 변조를 거절한다. 수동 누적은 lease에서 그대로 거절한다")
+    void leaseCallsSkipOnlyAutomaticInputHash(AnalysisReviewMode mode) {
+        boolean automatic = mode == AnalysisReviewMode.AUTOMATIC;
+        Run run = run(2, mode);
+        WorkerAnalysisJobPayload first = claim();
+        tx.executeWithoutResult(status -> {
+            AnalysisJob job = jobs.findById(first.analysisJobId()).orElseThrow();
+            ObjectNode tampered = (ObjectNode) (automatic ? job.getAutomaticInputState() : job.getRunBaseState()).deepCopy();
+            tampered.put("tamperedForTest", "저장 입력 변조");
+            ReflectionTestUtils.setField(job, automatic ? "automaticInputState" : "runBaseState", tampered);
+        });
+        var progress = new org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysisJobProgressRequest(
+                "비교", org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.ANALYZING, null);
+        if (!automatic) {
+            assertRunStateConflict(() -> worker.heartbeatAnalysisJob(first.analysisJobId(), first.leaseToken()));
+            assertRunStateConflict(() -> worker.updateProgress(first.analysisJobId(), first.leaseToken(), progress));
+            return;
+        }
+        worker.heartbeatAnalysisJob(first.analysisJobId(), first.leaseToken());
+        worker.updateProgress(first.analysisJobId(), first.leaseToken(), progress);
+        // 고정 references를 그대로 싣는 세계관 주체 대기 목록은 lease 대신 직접 hash를 확인한다.
+        assertRunStateConflict(() -> worldWorker.getPendingWorldSettingSubjectResolutions(first.analysisJobId(), first.leaseToken()));
+        assertRunStateConflict(() -> complete(first));
+        assertRunStateConflict(() -> tx.executeWithoutResult(status ->
+                states.getProjectedState(jobs.findById(first.analysisJobId()).orElseThrow())));
+        tx.executeWithoutResult(status -> {
+            AnalysisJob job = jobs.findById(first.analysisJobId()).orElseThrow();
+            assertThat(job.getStatus()).isEqualTo(AnalysisJobStatus.RUNNING);
+            assertThat(job.getJournalStatus()).isEqualTo(AnalysisJournalStatus.PENDING);
+            assertThat(job.getAutomaticAppliedAt()).isNull();
+        });
+        worker.failAnalysisJob(first.analysisJobId(), first.leaseToken(),
+                new org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysisJobFailRequest(
+                        AnalysisFailureCode.UNEXPECTED_ERROR, "저장 연결 일시 실패"));
+        Long owner = tx.execute(status -> entities.find(Work.class, run.workId()).getMember().getId());
+        assertRunStateConflict(() -> publicJobs.retryFailedAnalysisJob(owner, run.workId(), first.analysisJobId()));
+        assertThat(tx.<AnalysisJobStatus>execute(status -> jobs.findById(first.analysisJobId()).orElseThrow().getStatus()))
+                .isEqualTo(AnalysisJobStatus.FAILED);
+    }
+
+    private static void assertRunStateConflict(org.assertj.core.api.ThrowableAssert.ThrowingCallable call) {
+        assertThatThrownBy(call).isInstanceOfSatisfying(AppException.class, error ->
+                assertThat(error.getResultCode().getCode()).isEqualTo("ANALYSIS_RUN_STATE_CONFLICT"));
+    }
+
     @Test
     @DisplayName("캐릭터 저장 뒤 세계관 반영이 실패하면 전체를 롤백하고 같은 완료 요청 재시도는 중복 없이 저장한다")
     void rollbackAndRetryDoNotDuplicateCharacter() {

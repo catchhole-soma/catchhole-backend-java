@@ -130,6 +130,8 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
 
     public WorkerWorldSettingSubjectResolutionPendingResponse getPendingSubjects(AnalysisJob job, boolean includeReferenceSelection
     ) {
+        // #387 lease 확인은 자동 누적 입력을 hash하지 않는다. 고정 references를 응답에 싣기 전에 직접 확인한다.
+        if (job.isAutomaticReview()) stateService.assertValidInput(job);
         return new WorkerWorldSettingSubjectResolutionPendingResponse(pendingCandidates(job).stream()
                 .filter(candidate -> !candidate.hasSubjectResolution())
                 .map(candidate -> new WorkerWorldSettingSubjectResolutionPendingResponse.Candidate(

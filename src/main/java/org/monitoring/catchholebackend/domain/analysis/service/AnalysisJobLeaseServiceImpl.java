@@ -47,7 +47,8 @@ public class AnalysisJobLeaseServiceImpl implements AnalysisJobLeaseService {
         if (!targetIds.isEmpty() && analysisJobRepository.existsValidationStagingForEpisodes(targetIds)) {
             throw new AppException(org.monitoring.catchholebackend.domain.validation.exception.ValidationErrorCode.VALIDATION_ERROR_REVIEW_PENDING);
         }
-        analysisRunStateService.assertValidInput(analysisJob);
+        // #387 자동 누적은 scalar 불변식만 본다. 입력을 읽는 소비자가 각자 hash를 확인한다.
+        analysisRunStateService.assertValidLeaseInput(analysisJob);
         return analysisJob;
     }
 }
