@@ -1034,6 +1034,7 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - 자동 run의 seq 0 `run_base_state`에는 표지 `{"automaticInputCapturedAtClaim":true}`만 저장한다. V77 CHECK가 seq 0에 object를 요구하기 때문이며 migration은 없다. `characters`·`worldSettings`·`references` key가 없어 잘못 replay하면 변경 경로 검증에서 거절된다. 이미 만든 자동 run의 큰 S0는 그대로 두며 읽지 않는다.
 - 생성 때의 `stateSources` 도메인 등록 검사는 `source.domain()`으로만 유지하고, 한 실행의 모든 Job은 첫 Job과 반영 방식이 같아야 한다. 미래 출처 검사는 위 Analysis Domain Policy의 scalar 조회다. 수동 누적(`MANUAL + ORDERED_PROVISIONAL`)은 S0 capture와 순회를 그대로 한다.
 - 확정 근거 연결 오류(`ANALYSIS_CURRENT_EVIDENCE_INVALID`)는 생성 응답의 409가 아니라 첫 claim에서 `CLAIM_INPUT` 진단의 Job 실패로 드러난다(기존 claim 경로). claim 때의 capture와 그 미래 출처 순회, `AnalysisJob.initializeOrderedRun`의 검증은 바꾸지 않았다.
+- Worker 내부 API의 lease 확인(`AnalysisJobLeaseServiceImpl` → `AnalysisRunStateService.assertValidLeaseInput`)은 자동 누적이면 고정 입력을 다시 hash하지 않고 journal PENDING·현재 원문 버전·입력 hash 존재·고정 입력 존재·선행 회차만 본다. heartbeat·progress·토큰 예약처럼 입력을 읽지 않는 호출까지 100화 작품에서 1MB가 넘는 입력을 매번 hash했기 때문이다. 고정 입력은 claim 때 한 번만 쓰고(`captureAutomaticInput`), 실행 중 바꾸는 곳은 journal을 INVALIDATED로 만드는 원문 파기뿐이다. 입력 내용을 읽는 경로는 각자 hash를 확인한다: `getProjectedState`·`prepareState`·`appendValidatedChanges`·`seal`·재개의 `validateResume`, 그리고 lease 확인에만 기대던 관계 문맥 준비(`RelationshipGraphServiceImpl`)와 세계관 주체 대기 목록(`OrderedWorldSettingWorker.getPendingSubjects`)은 `assertValidInput`을 직접 부른다. lease 아래에서 `getInputState`나 `getAutomaticInputState()`만 읽는 새 경로를 만들면 같은 확인을 둔다. 수동 누적의 lease 확인은 S0 replay와 hash를 그대로 한다.
 
 ### 캐릭터 비교 근거 수명 (#363)
 
