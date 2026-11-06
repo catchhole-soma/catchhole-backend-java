@@ -170,6 +170,7 @@ abstract class ValidationSettingsApplicationFixture extends ValidationReviewComp
     List<ValidationReviewAction> allowedActions(Fixture f) {return reviews.getValidationReview(f.member(),f.work(),f.report()).allowedActions();}
 
     /**
+     * 명시 전체 확정은 선택적 자동 반영 이전에 저장된 보류(HELD_REVIEW) 데이터에 남는 경로라 그 상태를 합성해 시작한다.
      * 보류된 release Job(SUCCEEDED·SEALED)은 미완료가 아니다. 설정집 자동 누적 Job이 대기·실행 중이면 READY 회차 전체 확정은 409
      * ANALYSIS_REVIEW_WAIT_REQUIRED이고 receipt·report version·확정 설정·release Job 보류 표지가 그대로이며 APPLY_SETTINGS를 안내하지 않는다.
      * 보류(HELD) 기록은 설정을 쓰지 않아 그동안에도 지금처럼 접수된다. 분석이 끝나면 안내와 반영이 함께 돌아온다.
@@ -178,7 +179,7 @@ abstract class ValidationSettingsApplicationFixture extends ValidationReviewComp
         var r=release();var f=r.f();
         var held=inJob(r.job(),job->{var d=discovery(job,"에르웬");stat(job,d.getProvisionalSubjectKey(),"에르웬",35,CharacterFactOperation.ADD);world(job,"엘프","서식지","북부");
             var d2=discovery(job,"비요른");return stat(job,d2.getProvisionalSubjectKey(),"비요른",50,CharacterFactOperation.REVIEW_REQUIRED).getId();});
-        completeExtraction(r);
+        completeLegacyHeldExtraction(r);
         assertThat(applicationRow(f).get("status")).isEqualTo("HELD_REVIEW");assertThat(jobState(r.job())).isEqualTo("SUCCEEDED/SEALED");assertThat(heldAt(r.job())).isNotNull();
         assertThat(analysisJobs.existsUnfinishedOrderedAnalysis(f.work())).as("held release job is finished").isFalse();
         assertThat(allowedActions(f)).contains(ValidationReviewAction.APPLY_SETTINGS);
