@@ -82,4 +82,15 @@ public class RelationshipGraphEdge extends BaseEntity {
             version++;
         }
     }
+
+    /**
+     * GH391 one-time cleanup: this edge survives a slot collision and takes over the other edge's
+     * user edits. A deletion of either edge keeps blocking the slot, an existing correction of this
+     * edge wins, and the version passes both so a stale client edit of either edge conflicts.
+     */
+    public void absorb(RelationshipGraphEdge other) {
+        suppressed |= other.suppressed;
+        if (correctedSummary == null) correctedSummary = other.correctedSummary;
+        version = Math.max(version, other.version) + 1;
+    }
 }

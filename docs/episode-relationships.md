@@ -12,12 +12,12 @@
 
 기존 미등록 노드도 뒤 회차의 관계 반영 때 유일하게 확인된 프로필에 연결한다. 이번 작업의 확정 후보와 prepare 당시 고정된 인물 ID를 사용하며, 동명 노드가 여럿이거나 두 근거의 ID가 다르면 연결하지 않는다. 그 프로필에 이미 노드가 있으면 새로 연결하지 않고 그 노드로 합친다(`merged_into_node_id` redirect, GH382). 최초 등장 회차는 유지하고 프로필 연결 회차는 이번 회차로 기록하므로, 1화에서 미등록이었던 인물이 2화에 연결돼도 1화는 미등록으로 남는다. 관계 반영 후 수동으로 확정한 프로필은 다음 관계 분석의 고정 입력으로 연결하며, 조회는 등록 노드의 표시 이름만 현재 프로필에서 읽고 연결·관계 이력은 갱신하지 않는다.
 
-수동 분석에서 뒤 회차의 prepare가 먼저 실행돼도, 앞 회차 원문에 같은 정확한 이름이 확인되고 작품 전체의 해당 노드가 하나라면 기존 ID를 재사용한다. 최초 관측 회차만 앞당기고 프로필 연결 회차는 유지한다. 현재 고정 인물 ID와 충돌하거나 동명 노드가 여러 개면 추측 병합하거나 새 중복 노드를 만들지 않고 보류한다. 이번 원문에 없는 미래 이름은 비교 문맥에 넣지 않으며, 기존 관계 ID·사용자 정정·삭제 억제는 유지하며, 일반 회차의 후발 반영만으로 후행 문맥을 무효화하지 않는다(GH367). 이미 서로 다른 UUID로 저장된 동명 노드를 자동 합치는 데이터 보정은 하지 않는다. 같은 프로필로 확정된 노드는 반영 때 `merged_into`로 합치고, edge·event의 물리 통합은 배포 뒤 별도 1회 정리에서 한다.
+수동 분석에서 뒤 회차의 prepare가 먼저 실행돼도, 앞 회차 원문에 같은 정확한 이름이 확인되고 작품 전체의 해당 노드가 하나라면 기존 ID를 재사용한다. 최초 관측 회차만 앞당기고 프로필 연결 회차는 유지한다. 현재 고정 인물 ID와 충돌하거나 동명 노드가 여러 개면 추측 병합하거나 새 중복 노드를 만들지 않고 보류한다. 이번 원문에 없는 미래 이름은 비교 문맥에 넣지 않으며, 기존 관계 ID·사용자 정정·삭제 억제는 유지하며, 일반 회차의 후발 반영만으로 후행 문맥을 무효화하지 않는다(GH367). 이미 서로 다른 UUID로 저장된 동명 노드를 자동 합치는 데이터 보정은 하지 않는다. 같은 프로필로 확정된 노드는 반영 때 `merged_into`로 합치고, 이미 저장된 데이터의 edge·event 물리 통합은 아래 1회 정리(GH391)로 한다.
 
 ### 확정 별칭과 같은 프로필 노드 병합 (GH382)
 
 - **별칭 조회 범위**: 일반 회차 분석(ordered 포함)은 관측 이름이 있으면 작품 전체에서 원문 회차가 선택 회차 이하인 확정 `CHARACTER_DISCOVERY` 후보의 `entity_name → matched_character_id`를 scalar 조회 한 번으로 읽는다(GH385: 포함 규칙이 모든 이름과 비교하므로 관측 이름으로 거르지 않는다). 설정집 출처·보관 회차·다른 작품 프로필·보관(`ARCHIVED`) 프로필은 제외하고, 후보·분석 Job 엔티티와 후보별 파기 확인을 하지 않는다. ordered 입력 상태의 `aliases`는 별칭별 확정 회차가 없어 쓰지 않고 대표 이름→`actualCharacterId`만 쓴다. 현재 대시보드(`ACTIVE`) 프로필의 대표 이름은 (id, name) scalar 조회 한 번으로 읽어 충돌 확인에만 쓰고 `WorkCharacter` 엔티티는 올리지 않는다(GH385). 관계 전용 백필은 기존 의미(종류 무제한, 후보를 만든 Job 원문과 현재 회차의 hash·key·version 일치, 파기 요청 없음)를 같은 scalar 조회 한 번으로 유지하고 보관 프로필만 뺀다.
-- **재사용과 보류**: 이름이 한 프로필로만 정해지고 그 프로필의 노드(병합되지 않은 노드)가 하나면 그 노드를 다시 쓴다. 같은 이름이 두 프로필에 걸리거나, 한 프로필에 노드가 이미 둘 이상(정리 전 분리 데이터)이면 보류한다. 같은 이름의 기존 노드가 다른 프로필에 연결돼 있으면 기존처럼 보류한다.
+- **재사용과 보류**: 이름이 한 프로필로만 정해지고 그 프로필의 노드(병합되지 않은 노드)가 하나면 그 노드를 다시 쓴다. 같은 이름이 두 프로필에 걸리거나, 한 프로필에 노드가 이미 둘 이상(분리 데이터, 1회 정리 뒤에도 다른 사람일 수 있는 노드는 남는다)이면 보류한다. 같은 이름의 기존 노드가 다른 프로필에 연결돼 있으면 기존처럼 보류한다.
 - **이름 포함 규칙 (GH385)**: 캐릭터 추출은 "비요른"처럼 짧은 이름을 포함 규칙으로 기존 인물에 바로 붙여 별칭 기록을 남기지 않으므로, 관계 노드도 같은 규칙으로 해소한다(`RelationshipNameRules`, AI `character_name_resolver`·`ordered_character_subjects`와 같은 정규화·제외 단어·포함 판정). 해소 근거는 확정 이름(위 조회의 별칭·대표 이름, ordered 대표 이름)이고, 현재 프로필 대표 이름은 회차 정보가 없어 혼자서는 해소하지 않는다.
   - 정확 일치가 먼저다. 정규화 결과(앞뒤 공백·따옴표·괄호 제거, 공백 한 칸, 소문자)가 같은 확정 이름이 있으면 여기서 끝난다. 그 프로필이 하나여도 같은 이름의 현재 프로필이 다른 프로필이면 보류한다. 관측되지 않은 확정 이름에도 같은 판정을 해 문맥 노드의 고정 인물 정보가 ordered 작업과 같다.
   - 정확 일치가 없는 관측 이름만 확정 이름·현재 프로필 이름과 포함으로 비교한다(둘 다 2글자 이상이고 한쪽이 다른 쪽을 포함). 겹치는 프로필이 둘 이상이면 보류(노드 없음)하고, 하나이며 그 프로필의 확정 이름이 겹쳤을 때만 해소한다. 현재 이름만 겹치면 지금처럼 미연결 새 노드다. 대명사·placeholder·조사 붙은 지칭어는 양쪽 모두 비교하지 않는다.
@@ -27,9 +27,133 @@
 - **의존성 hash**: 기존 동결 hash(`dependencyRevision`·`manualDependencyRevision` 등)의 입력과 계산은 raw id 그대로 둔다. 새 문맥이 별칭 노드의 edge를 프로필 노드 ref로 투영하면, 그 raw edge 쌍과 사용자 정정·삭제 hash를 `aliasDependencyPairs`·`aliasDependencyRevision`(`aliasDependencyVersion=1`)으로 따로 저장하고 조회·완료·반영 때 함께 검사한다. 필드가 없는 옛 문맥은 그대로 통과한다.
 - **미래 이름 금지**: 프로필 노드의 `first_episode_no`는 병합으로 앞당기지 않는다. 노드가 문맥에 보이는 회차는 병합 그룹에서 가장 이른 회차이고, 그 회차의 문맥 이름은 그때까지 알려진 이름(자기 이름이 아직이면 별칭)을 쓴다. 프로필 노드가 아직 보이지 않는 앞 회차에서 별칭으로 다시 쓰면, 그 별칭을 미연결 redirect 행(이름=별칭, 첫 회차=그 회차)으로 남겨 뒤 문맥에서도 노드가 보이게 한다.
 - **사용자 정정·삭제**: 정정·삭제 억제는 edge 행에 있으므로 병합 뒤에도 유지된다. 삭제된 관계는 문맥에 없어서 모델이 프로필 노드 쪽으로 같은 종류를 다시 ADD할 수 있다. 이때 병합 그룹 어느 노드 쌍의 같은 slot에 삭제 억제가 있으면 새 edge를 만들지 않는다.
-- **표시 이름**: 선택 회차에 등록된 노드가 그 프로필의 유일한 등록 노드이면 현재 프로필 이름(`ACTIVE`)을 조회 때 (id, name) scalar 조회 한 번으로 읽어 쓰고, `WorkCharacter` 엔티티는 올리지 않는다. 미등록 노드와, 한 프로필에 등록 노드가 둘 이상인 경우(1회 정리 전 분리 데이터)의 노드는 그 회차까지 최근 event의 관측 이름이다. 프로필 개명은 다음 조회에 바로 반영되고(revision 변경), 보관(`ARCHIVED`)되거나 삭제로 연결이 끊긴 프로필의 노드는 관측 이름으로 돌아간다. `node.name`·event 이름·Worker 문맥 이름은 바꾸지 않는다. 선택 회차 이전 원문에 아직 나오지 않은 전체 이름이 등록 노드의 표시 이름으로 보일 수 있다.
+- **표시 이름**: 선택 회차에 등록된 노드가 그 프로필의 유일한 등록 노드이면 현재 프로필 이름(`ACTIVE`)을 조회 때 (id, name) scalar 조회 한 번으로 읽어 쓰고, `WorkCharacter` 엔티티는 올리지 않는다. 미등록 노드와, 한 프로필에 등록 노드가 둘 이상인 경우(1회 정리 뒤에도 남는 분리 데이터)의 노드는 그 회차까지 최근 event의 관측 이름이다. 프로필 개명은 다음 조회에 바로 반영되고(revision 변경), 보관(`ARCHIVED`)되거나 삭제로 연결이 끊긴 프로필의 노드는 관측 이름으로 돌아간다. `node.name`·event 이름·Worker 문맥 이름은 바꾸지 않는다. 선택 회차 이전 원문에 아직 나오지 않은 전체 이름이 등록 노드의 표시 이름으로 보일 수 있다.
 - **동결 binding**: 병합 전에 옛 노드 UUID로 준비한 PREPARED/COMPLETED 문맥은 edge 집합·정정·억제가 바뀌지 않으므로 409 없이 완료·반영한다. finalize는 binding id를 해소하지 않으며, 그 Job이 옛 노드에 만든 edge도 조회에서는 프로필 노드로 보인다. 옛 노드 edge를 UPDATE한 event의 이름 방향은 해소한 끝점으로 맞춘다.
-- **1회 정리(별도 PR)**: 배포와 관계 백필 캠페인 완료 뒤, Java 서비스 + 내부 API-key 엔드포인트(dry-run)로 작품 단위 트랜잭션·Work 잠금 안에서 edge 끝점을 프로필 노드로 옮긴다. canonical key가 겹치면 근거를 합치고 정정 설명·삭제 억제를 보존하며, 자기 연결이 되는 edge는 보고 후 정리한다. 그 뒤 `(work_id, character_id) WHERE character_id IS NOT NULL AND merged_into_node_id IS NULL` unique index를 추가한다.
+- **1회 정리**: 이 절의 규칙 이전에 저장된 데이터는 아래 GH391 1회 정리로 정리한다. 정리 뒤에도 같은 프로필에 연결된 노드가 정당하게 남으므로(다른 사람일 수 있는 이름) `(work_id, character_id)` unique index는 넣지 않는다.
+
+### 1회 정리 (GH391)
+
+#382·#385 이전 규칙으로 저장된 관계도를 작품 단위로 한 번 정리한다. 별칭·짧은 이름 노드를 다음 반영과 같은 규칙으로 프로필 노드에 연결·병합하고, 같은 프로필에 분리 연결된 노드는 이름이 그 프로필로만 해소될 때만 합친 뒤, 선을 해소한 노드로 옮겨 같은 slot을 하나로 합친다.
+
+- **실행 수단**: 내부 API 키 엔드포인트 `POST /api/internal/v1/relationship-graph/cleanups`, body `{"workId": "...", "apply": false}`. `apply`를 생략하거나 false면 dry-run이다. 호출 전까지 아무 일도 하지 않으므로 별도 플래그가 없다. 응답에는 노드·프로필 이름이 있으므로 공개 이슈·PR에 그대로 붙이지 않는다. 로그는 workId와 건수만 남긴다.
+- **기준 회차(cutoff)**: 공개 세대(`relationship_backfill_works.published_generation`, 행이 없으면 0)의 마지막 APPLIED 회차. APPLIED가 없으면 아무것도 읽거나 쓰지 않는다. 연결·병합 회차(`character_linked_episode_no`·`merged_at_episode_no`)는 이 회차로 기록해 과거 화면에 프로필 이름을 소급하지 않는다.
+- **확정 이름**: cutoff 이하 확정 `CHARACTER_DISCOVERY`(ACTIVE 프로필)를 scalar 조회 한 번으로 읽는다. cutoff 분석을 만든 Job이 `ORDERED_PROVISIONAL`이면 런타임 ordered prepare처럼 현재 ACTIVE 대표 이름도 확정 근거로 넣고, 아니면 대표 이름은 충돌 확인에만 쓴다. 작품의 가장 최근 회차 Job이 아니라 cutoff 분석의 Job을 보는 이유는 실패한 뒤 회차 재분석(다른 모드)이 저장된 그래프의 해소 방식을 바꾸지 않기 때문이다.
+- **같은 프로필 연결 노드(먼저)**: ACTIVE 프로필에 병합되지 않은 연결 노드가 둘 이상이면 대표 이름과 정규화 결과가 같은 노드를 대표로 남긴다. 없으면 아래 ①②③을 통과한 노드 중 첫 회차·연결 회차·생성 시각·id가 가장 이른 노드를 대표로 고르고, 그런 노드도 없으면 그 묶음은 합치지 않고 노드마다 사유를 남긴다(데이터 오류로 다른 사람이 먼저 연결돼 있어도 그 노드로 합치지 않기 위해). 나머지는 ① 이름이 작품에서 유일하고 ② `RelationshipNameRules.resolveStrictly`(정확 일치에서 멈추지 않고 정확∪포함 프로필을 모두 모으며 확정 이름이 뒷받침해야 함)가 정확히 그 프로필이고 ③ 이름이 대표 이름의 짧은/긴 형태일 때만 합친다(`MERGE_LINKED`: `character_id`를 비우고 `merged_into`를 기록, 대표 노드의 첫 회차·연결 회차는 유지). 아니면 사유를 남긴다(`HELD_COLLISION`: 다른 ACTIVE 프로필과 정확히 같거나 그 이름에 포함, `OTHER_PROFILE`, `UNRESOLVED`, `NOT_REPRESENTATIVE_FORM`: 확정 별칭이어도 대표 이름과 무관, `DUPLICATE_NAME`, `AFTER_CUTOFF`). 보관 프로필에 연결된 노드는 합치거나 다시 연결하지 않고 `ARCHIVED_PROFILE`(이름이 다른 ACTIVE 프로필 하나로 해소되면 `OTHER_PROFILE`)로 보고만 한다.
+- **미연결 노드(다음)**: 첫 회차 순으로 `RelationshipNameRules.resolve`(런타임과 같은 정확 일치 우선)를 적용한다. 한 프로필로 해소되고 이름이 유일하면 그 프로필의 연결 노드가 없을 때 연결(`LINK`), 하나면 병합(`MERGE_UNLINKED`), 둘 이상이면 `SPLIT_PROFILE`로 건너뛴다. 여러 프로필이면 `HELD_COLLISION`이다. 프로필 노드가 없는 같은 프로필의 별칭 둘은 첫째가 연결되고 둘째가 그 노드로 합쳐진다.
+- **선**: 모든 선의 끝점을 해소한 노드로 바꾸고, 방향은 저장 canonical key를 세 방향으로 다시 계산해 맞는 것으로 복원한다(event가 없는 선도 처리, event 방향과 다르거나 맞는 방향이 없으면 작품 전체를 409로 중단). 새 key가 같은 선은 하나만 남긴다. 생존 선은 이미 대표 끝점인 선, 없으면 첫 event 회차가 가장 이른 선(동률은 생성 시각·id)이다. 생존 선은 삭제 억제를 OR로, 정정 설명은 자기 것을 우선해 잇고(둘 다 다르면 `CORRECTION_CONFLICT` 경고), version은 둘보다 크게 올려 옛 화면의 PATCH/DELETE가 409가 된다. 합쳐지는 선의 event는 생존 선으로 옮기고, 같은 분석의 event가 이미 있으면 근거만 합친다(같은 인용은 한 번, 설명·상태·방향은 생존 선 event 유지). 끝점 순서가 생존 선과 반대인 event는 source/target 이름을 맞바꿔 미등록 노드의 관측 이름이 뒤바뀌지 않게 한다. 해소 뒤 자기 자신을 잇는 선은 event와 함께 지우고 보고한다.
+- **범위 밖**: 같은 두 노드·axis·kind의 `DIRECTED` 선이 양방향(A→B, B→A)으로 따로 있는 것은 canonical slot이 달라 계약상 서로 다른 관계이므로 합치지 않는다. 정리 뒤 겹침은 canonical slot 기준 0이며, 순서 없는 쌍 기준으로는 이런 양방향 선이 남는다.
+- **게이트(apply만 409, dry-run은 `blockers`로 보고)**: `ANALYSIS_IN_PROGRESS`(PENDING·PREPARED·COMPLETED 분석), `CONTEXT_FROZEN`(문맥이 남은 INVALIDATED 분석: GH367 재개 때 의존성 hash가 raw 끝점으로 선을 다시 거르므로), `BACKFILL_ACTIVE`(관계 백필 캠페인이 이 작품을 완료하지 않음). 적용은 prepare·finalize·사용자 정정/삭제와 같은 Work 잠금(`findByIdForUpdate`) 아래에서 한다. 게이트를 통과한 작품에서는 정리 뒤 만들어지는 모든 문맥이 정리된 선·대표 노드로 binding된다.
+- **보존하는 것**: 노드 행은 지우지 않는다(APPLIED 분석의 `bindings.nodes`·`relationships`가 옛 UUID를 가리키고, 메모리 색인이 redirect로 해소한다). APPLIED 분석의 문맥·bindings는 바꾸지 않는다. 노드 이름·첫 회차, event의 `analysis_id`(세대 필터)도 그대로다. 합쳐져 사라진 선 id의 상세·PATCH·DELETE는 404다.
+- **적용 순서와 검증**: 노드·생존 선·근거 합치기는 JPA로 바꿔 flush하고, `updatable=false`인 선 끝점·key와 event의 선·이름은 JDBC 50건 batch로 바꾼다(같은 분석 event 삭제 → 이름 맞바꾸기·event 이동 → 선 삭제 → 생존 선 끝점·key 갱신, 문마다 바뀐 행 수를 계획과 대조). event에는 `edge_id` 색인이 없으므로 event 문은 모두 `work_id`로 범위를 좁힌다. 같은 트랜잭션에서 다시 읽어 병합 노드 끝점·자기 연결·key 재계산 불일치·slot 중복·병합 행 연결·행 수가 0/일치이고 다시 계획해도 할 일이 없어야 하며, 어긋나면 409로 전부 되돌린다. 두 번째 적용은 바꿀 것이 없다(`applied=false`). 분석·설정 후보·프로필·분석 Job 엔티티는 올리지 않는다(노드·선 엔티티, event 위치 투영, 근거를 합칠 event만 읽는다).
+- **보고서**: `apply`·`applied`·`cutoffEpisodeNo`·`orderedAnchors`·`blockers`, 건수(`nodesLinked`·`nodesMergedUnlinked`·`nodesMergedLinked`·`nodesHeld`·`nodesSkipped`·`edgesMoved`·`edgesMerged`·`edgesDeleted`·`eventsMoved`·`eventsNamesSwapped`·`eventsEvidenceMerged`·`eventsDeleted`), 정리 전후 행 수(dry-run은 예상), 노드별 결정(이름·단계·사유·해소된 프로필), 합친 선 묶음(삭제 억제·정정 보존 여부), 자기 연결 선, 경고. 관계 설명과 원문 근거는 넣지 않는다.
+
+#### 운영 실행 절차
+
+1. PR 머지 → `Publish Backend Image` → `Deploy API EC2` 자동 배포와 `/actuator/health`를 확인한다.
+2. 관계 백필 캠페인 상태를 확인한다(아래 B). 진행 중이면 그 작품은 `BACKFILL_ACTIVE`로 막히므로 캠페인 완료를 기다린다. 새 claim을 멈춰야 하면 `RELATIONSHIP_BACKFILL_ENABLED=false`.
+3. 사전 점검 SQL로 대상 작품을 정한다(RDS 허용 IPv4에서 psql, 읽기 전용).
+4. 대상 작품의 node·edge·event 백업 표를 만든다.
+5. 작품마다 dry-run 보고서를 검토한다(특히 `LINK`, `HELD_COLLISION`·`SKIPPED` 사유, `CORRECTION_CONFLICT`, `blockers`).
+6. 작품마다 apply → 사후 점검 SQL → 보고서 건수와 대조한다.
+7. 며칠 뒤 백업 표를 지우고, 건수만 이 문서의 검증 기록에 남긴다.
+
+호출은 API EC2의 SSM 세션 안에서 하고 키·응답을 디스크에 남기지 않는다. 배포 경로·사용자는 `deploy-api-ec2.yml`의 `API_EC2_DEPLOY_PATH`(기본 `/opt/catchhole`)·`API_EC2_DEPLOY_USER`이고, API 컨테이너는 호스트 `127.0.0.1:8080`에 열려 있다.
+
+```bash
+sudo runuser -u "$DEPLOY_USER" -- bash -lc '
+KEY=$(sed -n "s/^INTERNAL_API_KEY=//p" /opt/catchhole/api.env)
+curl -sS -X POST http://127.0.0.1:8080/api/internal/v1/relationship-graph/cleanups \
+  -H "X-Internal-Api-Key: $KEY" -H "Content-Type: application/json" \
+  -d "{\"workId\":\"<WORK_UUID>\",\"apply\":false}"'
+```
+
+사전 점검 SQL:
+
+```sql
+-- A. 진행 중·재개 가능 분석(대상 작품은 0이어야 apply 가능)
+select work_id, status, count(*) from relationship_graph_analyses where status in ('PENDING','PREPARED','COMPLETED') group by 1,2;
+select work_id, count(*) from relationship_graph_analyses where status='INVALIDATED' and context is not null and evidence_purged=false group by 1;
+-- B. 관계 백필
+select state, count(*) from relationship_backfill_works group by 1;
+select count(*) from relationship_backfill_items where state in ('WAITING','RUNNING');
+select count(*) from analysis_jobs where job_type='RELATIONSHIP_EXTRACTION' and status in ('PENDING','RUNNING');
+-- C. 대상 후보(병합·미연결 노드, 같은 프로필 분리 연결)
+select work_id, count(*) filter (where merged_into_node_id is not null) merged,
+       count(*) filter (where character_id is null and merged_into_node_id is null) unlinked, count(*) total
+from relationship_graph_nodes group by 1 order by merged desc, unlinked desc;
+select work_id, character_id, count(*) from relationship_graph_nodes
+ where character_id is not null and merged_into_node_id is null group by 1,2 having count(*)>1;
+-- D. 저장 key 무결성(mismatched 0, 복수 방향 0)
+select e.work_id,
+       count(*) filter (where e.canonical_key <> encode(sha256(convert_to(
+         (case when ev.direction='DIRECTED' or e.source_node_id::text < e.target_node_id::text
+               then e.source_node_id::text||'|'||e.target_node_id::text
+               else e.target_node_id::text||'|'||e.source_node_id::text end)
+         ||'|'||e.axis||'|'||e.kind||'|'||ev.direction,'UTF8')),'hex')) mismatched,
+       count(*) total
+from relationship_graph_edges e
+join lateral (select direction from relationship_graph_events x where x.work_id=e.work_id and x.edge_id=e.id limit 1) ev on true
+group by 1;
+select edge_id from relationship_graph_events group by 1 having count(distinct direction)>1;
+```
+
+백업(정리는 새 행을 만들지 않고 id를 보존하므로 백업 복원이 완전한 롤백이다):
+
+```sql
+create table relationship_graph_nodes_gh391_bak  as select * from relationship_graph_nodes  where work_id in (:works);
+create table relationship_graph_edges_gh391_bak  as select * from relationship_graph_edges  where work_id in (:works);
+create table relationship_graph_events_gh391_bak as select * from relationship_graph_events where work_id in (:works);
+```
+
+사후 점검 SQL(작품별 `:w`):
+
+```sql
+select count(*) from relationship_graph_edges e join relationship_graph_nodes n on n.id in (e.source_node_id, e.target_node_id)
+ where e.work_id=:w and n.merged_into_node_id is not null;                                              -- 0
+select count(*) from relationship_graph_edges where work_id=:w and source_node_id=target_node_id;       -- 0
+-- D의 식을 :w로 제한해 mismatched = 0
+with recursive canon as (select id, id root, 0 d from relationship_graph_nodes where work_id=:w and merged_into_node_id is null
+  union all select n.id, c.root, c.d+1 from relationship_graph_nodes n join canon c on n.merged_into_node_id=c.id where c.d<8)
+select count(*) from (
+  select case when ev.direction='DIRECTED' then cs.root::text||'|'||ct.root::text
+              else least(cs.root::text,ct.root::text)||'|'||greatest(cs.root::text,ct.root::text) end k, e.axis, e.kind, ev.direction
+  from relationship_graph_edges e join canon cs on cs.id=e.source_node_id join canon ct on ct.id=e.target_node_id
+  join lateral (select direction from relationship_graph_events x where x.work_id=e.work_id and x.edge_id=e.id limit 1) ev on true
+  where e.work_id=:w group by 1,2,3,4 having count(*)>1) g;                                              -- 0
+select (select count(*) from relationship_graph_edges where work_id=:w) edges_now,
+       (select count(*) from relationship_graph_edges_gh391_bak where work_id=:w) edges_before,           -- 차이 = edgesMerged+edgesDeleted
+       (select count(*) from relationship_graph_events where work_id=:w) events_now,
+       (select count(*) from relationship_graph_events_gh391_bak where work_id=:w) events_before,         -- 차이 = eventsEvidenceMerged+eventsDeleted
+       (select sum(jsonb_array_length(coalesce(evidence,'[]'))) from relationship_graph_events where work_id=:w) quotes_now,
+       (select sum(jsonb_array_length(coalesce(evidence,'[]'))) from relationship_graph_events_gh391_bak where work_id=:w) quotes_before; -- 같은 인용 중복분만 감소
+select count(*) filter (where suppressed) sup, count(*) filter (where corrected_summary is not null) cor
+from relationship_graph_edges where work_id=:w;            -- 백업 대비 감소분 = 두 선 모두 억제/정정이던 묶음 수
+select count(*) from relationship_graph_nodes where work_id=:w and merged_into_node_id is not null and character_id is not null; -- 0
+```
+
+롤백(작품별, 정리 뒤 이 작품에 새 관계 분석이 시작되지 않았을 때만). `:cleanup_at`은 apply 응답을 받은 시각이다. prepare는 새 노드를 저장하고 그 id를 `bindings`에 동결하므로, 진행 중이거나 재개할 수 있는 분석이 있는데 노드를 백업으로 바꾸면 그 분석의 완료·반영이 없는 노드·선 id를 가리켜 실패한다. 그래서 정리 apply의 게이트와 같은 조건을 Work 잠금 아래에서 확인하고, 하나라도 0이 아니면 `rollback;`으로 멈추고 수동 판단한다.
+
+```sql
+begin;
+select id from works where id=:w for update;                       -- prepare·finalize와 같은 Work 잠금
+select count(*) from relationship_graph_analyses where work_id=:w and status in ('PENDING','PREPARED','COMPLETED');   -- 0
+select count(*) from relationship_graph_analyses where work_id=:w and status='INVALIDATED'
+   and context is not null and evidence_purged=false;                                                              -- 0 (GH367 재개 대상)
+select count(*) from relationship_graph_analyses where work_id=:w and status='APPLIED' and updated_at > :cleanup_at; -- 0
+select count(*) from relationship_graph_nodes n where n.work_id=:w
+   and not exists (select 1 from relationship_graph_nodes_gh391_bak b where b.id=n.id);                             -- 0 (정리 뒤 prepare가 만든 노드)
+delete from relationship_graph_events where work_id=:w;
+delete from relationship_graph_edges  where work_id=:w;
+delete from relationship_graph_nodes  where work_id=:w;
+insert into relationship_graph_nodes  select * from relationship_graph_nodes_gh391_bak  where work_id=:w;
+insert into relationship_graph_edges  select * from relationship_graph_edges_gh391_bak  where work_id=:w;
+insert into relationship_graph_events select * from relationship_graph_events_gh391_bak where work_id=:w;
+commit;
+```
+
+#### 검증 기록
+
+- 2026-11-06 로컬 운영 사본(100화 시험 작품, ordered, 노드 85·선 220·event 391, 정정·삭제 0): dry-run은 행을 바꾸지 않았고 apply 보고서와 같았다. 노드 `LINK` 1·`MERGE_UNLINKED` 9·`MERGE_LINKED` 2, 미연결 보류 3·건너뜀 3, 같은 프로필 연결 노드 보류 4·건너뜀 6(보관 프로필 연결 노드 보고 5 포함). 선 이동 140·합침 22(묶음 18)·자기 연결 0, event 이동 43(이름 맞바꿈 1)·근거 합침 3. 노드 85(대표 85→74)·선 220→198·event 391→388, 인용 수는 같은 인용 중복 2만 감소. 사후 점검 SQL 전부 0, 100화 화면 노드 69→58, canonical slot 중복 0, 순서 없는 쌍 겹침 22→24(전부 양방향 `DIRECTED`). 두 번째 apply는 변경 0, 백업 롤백은 원래 행과 일치했다.
 
 ## 활성화와 작업 수명
 
@@ -179,7 +303,7 @@ Edge의 `lastVerifiedEpisodeNo`는 해당 쌍의 기술적 완료가 이어진 �
 
 Graph: `selectedEpisode,availableEpisodes,revision,nodes,edges,truncated,totalEdgeCount,analysisStatus,partial,updateIncomplete,incompleteEpisodeNos`.
 Episode: `id,episodeNo,title`. 프론트 회차 선택은 스포일러를 줄이기 위해 N화만 사용한다.
-Node: `id,name,description,profileRegistered`. `name`은 선택 회차에 등록된 노드가 그 프로필의 유일한 등록 노드면 현재 프로필 이름, 아니면 관측 이름이다(GH382). 1회 정리 전의 분리 데이터처럼 한 프로필에 등록 노드가 둘 이상이면 같은 프로필 이름을 반복하지 않고 각자의 관측 이름을 쓴다. v1 description은 null. 같은 프로필로 합친 노드는 프로필 노드 id 하나로 내려준다.
+Node: `id,name,description,profileRegistered`. `name`은 선택 회차에 등록된 노드가 그 프로필의 유일한 등록 노드면 현재 프로필 이름, 아니면 관측 이름이다(GH382). 1회 정리(GH391) 뒤에도 남는 분리 데이터처럼 한 프로필에 등록 노드가 둘 이상이면 같은 프로필 이름을 반복하지 않고 각자의 관측 이름을 쓴다. v1 description은 null. 같은 프로필로 합친 노드는 프로필 노드 id 하나로 내려준다.
 Edge: `id,sourceNodeId,targetNodeId,axis,kind,label,summary,direction,status,version,evidenceCount,lastVerifiedEpisodeNo,updateIncomplete`.
 Detail: `edge,sourceNode,targetNode,evidence,version`. 근거는 `episodeId,episodeNo,episodeTitle,quote,startOffset,endOffset`이며 선택 회차 이후 근거를 보내지 않는다.
 
@@ -193,7 +317,7 @@ PATCH 입력은 `{expectedVersion,summary}`이며 summary는 앞뒤 공백 없�
 
 Flyway V101이 `relationship_graph_analyses/nodes/edges/events`와 `analysis_jobs.relationship_analysis_enabled`를 추가한다. 관계 event는 analysis+edge마다 하나이며 회차별 읽기는 최신 유효 분석만 사용한다. 관계 edge와 node는 재분석 후에도 ID를 보존해 사용자 수정과 삭제를 유지한다.
 
-Flyway V118(GH382)는 `relationship_graph_nodes`에 `merged_into_node_id`(같은 표의 자기참조 FK, NO ACTION)와 `merged_at_episode_no`, 자기 자신·프로필 연결 노드의 병합을 막는 CHECK, `(work_id, character_id)` 부분 색인을 추가한다. 운영의 분리 데이터가 위반하므로 unique 제약은 1회 정리 뒤로 미룬다.
+Flyway V118(GH382)는 `relationship_graph_nodes`에 `merged_into_node_id`(같은 표의 자기참조 FK, NO ACTION)와 `merged_at_episode_no`, 자기 자신·프로필 연결 노드의 병합을 막는 CHECK, `(work_id, character_id)` 부분 색인을 추가한다. 1회 정리(GH391) 뒤에도 다른 사람일 수 있는 분리 연결 노드가 정당하게 남아 unique 제약은 넣지 않는다. 분리 프로필은 1회 정리 사전 점검 C로 추적한다.
 
 작품 파기는 관계 event→edge→node→analysis 순서로 삭제한다. 노드는 작품 단위 단일 DELETE라 자기참조 FK가 있어도 순서는 바뀌지 않는다. 회차 원문 파기는 해당 회차 이후의 동결 Context/decision/failure/binding과 복사된 인용을 지우고 후행 결과를 무효화한다. 캐릭터 삭제는 노드의 profile FK만 null로 만들고 관계 이력을 보존한다. 그 노드는 미등록으로 돌아가 표시 이름도 관측 이름으로 돌아간다. 병합된 노드는 `character_id`가 null이라 영향이 없다.
 
@@ -201,6 +325,8 @@ Flyway V118(GH382)는 `relationship_graph_nodes`에 `merged_into_node_id`(같은
 
 `EpisodeRelationshipGraphRulesTest`: Unicode 근거, coverage, END+ADD, 모호한 주체, 재활성화, 잘못된 참조/과거 쓰기.
 `EpisodeRelationshipGraphIntegrationTest`: H2의 회차 cutoff, 멱등, 설명 수정/삭제 억제, 실패 격리, 병렬·역순 수동 작업의 노드 ID 보존과 미래 프로필 비노출, 동명·고정 인물 충돌, HOLD 재사용/소비, 원문 version 및 파기.
+`RelationshipGraphCleanupRulesTest`: GH391 정리 계획(연결 노드 엄격 해소, 미연결 연결·병합·보류, key 방향 복원·중단, slot 합치기와 정정·억제 승계, 근거 합치기·이름 맞바꾸기, 자기 연결, 멱등성).
+`EpisodeRelationshipGraphIntegrationTest`의 GH391 시나리오: dry-run 무변경, 적용·게이트·동결 binding 호환·엔티티 미적재·HTTP 계약.
 `EpisodeRelationshipGraphPostgresIntegrationTest`: 같은 시나리오를 V1~V101 Flyway와 JPA validate를 사용하는 격리 PostgreSQL에서 검증한다(Docker 필요).
 
 ### 2026-10-29 최종 검증 기록
