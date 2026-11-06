@@ -51,7 +51,8 @@ public class AnalysisCandidateSourceGuard {
     }
 
     /**
-     * GH312 S3: release 회차(현재 report에 검토 종료 receipt)는 회차 전체 확정만 확정 설정을 쓴다. 사람의 개별·그룹 확정,
+     * release 회차는 반영 완료(APPLIED) 전까지만 사람의 확정을 막는다. 자동 반영 뒤 남은 후보는 일반 추출과 같은 개별·그룹 확정으로 처리한다.
+     * 사람의 개별·그룹 확정,
      * 저장 선택(reviewedApplicationMode), 승격·신규 대상 생성 진입점이 호출하며 수정·제외·연결·재비교·재개는 호출하지 않는다.
      * 자동 반영과 회차 전체 확정은 기존 assertCurrent만 사용한다.
      * #381: 같은 작품의 검수가 확정 설정을 잠근 동안(접수부터 검토 종료까지) 사람의 확정·승격도 409 VALIDATION_SETTINGS_LOCKED다.

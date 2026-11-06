@@ -25,8 +25,8 @@ import static org.monitoring.catchholebackend.domain.validation.processor.Valida
 import static org.monitoring.catchholebackend.domain.validation.exception.ValidationErrorCode.*;
 
 /**
- * Work 잠금 → (명시) report CAS → 평가 → READY면 기존 자동 반영 규칙(contributor)을 두 도메인 모두 실행하고 남은 후보가 없을 때만 APPLIED.
- * contributor가 일부 후보를 보류하거나 어떤 예외라도 나면 트랜잭션 전체를 되돌린 뒤 별도 트랜잭션에서 HELD_REVIEW와 사유를 기록한다.
+ * 검수 후 자동 반영도 일반 추출처럼 기존 contributor가 가능한 후보만 반영하고 나머지는 검토 대기로 남긴다.
+ * 기존 HELD 회차의 명시 반영은 전체 확정 규칙을 유지한다. 실제 저장 예외는 두 도메인을 함께 되돌린 뒤 HELD_REVIEW로 기록한다.
  */
 @Slf4j @Service @RequiredArgsConstructor
 public class ValidationSettingsApplicationServiceImpl implements ValidationSettingsApplicationService {
@@ -56,7 +56,12 @@ public class ValidationSettingsApplicationServiceImpl implements ValidationSetti
         var decision=gate.evaluate(completion.getReport());
         switch(decision.kind()) {
             case READY->applyPlan(receipt,decision,ValidationReviewTrigger.AUTOMATIC,null,null);
-            case HELD->hold(receipt,ValidationReviewTrigger.AUTOMATIC,null,null,decision.reasons(),null);
+            case HELD->{
+                // 후보별 검토 사유는 기존 자동 반영 규칙이 처리한다. 원문·회차 전체의 유효성 문제만 자동 반영을 막는다.
+                var blocking=decision.reasons().stream().filter(reason->reason.candidateType()==ValidationApplicationCandidateType.EPISODE).toList();
+                if(blocking.isEmpty())applyPlan(receipt,decision,ValidationReviewTrigger.AUTOMATIC,null,null);
+                else hold(receipt,ValidationReviewTrigger.AUTOMATIC,null,null,blocking,null);
+            }
             case NOT_READY->log.warn("SEALED 뒤에도 회차 전체 확정 평가가 준비되지 않았습니다. analysisJobId={}",job.getId());
         }
     }
@@ -105,17 +110,20 @@ public class ValidationSettingsApplicationServiceImpl implements ValidationSetti
     }
 
     /**
-     * 캐릭터 → 세계관 순서로 같은 트랜잭션에서 도메인마다 작가 결정 그룹을 공개 그룹 확정 본문으로 먼저 반영하고 나머지를 기존 자동 반영 규칙으로 반영한다.
-     * 확정된 후보는 검토 대기가 아니므로 자동 반영이 다시 반영하거나 보류하지 않는다. contributor의 검증 실패 흡수는 그대로지만
-     * 실행 뒤 검토 대기 후보가 하나라도 남거나 예외가 나면 이 트랜잭션은 부분 반영이므로 VALIDATION_APPLICATION_ROLLED_BACK으로 전체를 되돌린다.
+     * 캐릭터 → 세계관 순서로 같은 트랜잭션에서 기존 반영 규칙을 실행한다.
+     * 자동 경로는 작가 결정을 반영하지 않고 기존 자동 규칙만 실행하며, 남은 후보가 있어도 자동 단계 완료(APPLIED)를 기록한다.
+     * 기존 HELD 회차의 명시 반영은 작가 결정도 반영하며, 이때만 남은 후보가 전체 확정을 보류한다. 실제 예외는 항상 전체를 되돌린다.
      * receipt는 도메인 쓰기 전에 APPLIED로 기록한다. 같은 트랜잭션이라 실패하면 함께 되돌려지고, 확정 설정 변경의 report 무효화는 APPLIED report를 건너뛴다.
      */
     private ValidationSettingsApplication applyPlan(ValidationSettingsApplication receipt,ValidationApplicationGate.Decision decision,ValidationReviewTrigger trigger,String key,String hash) {
         var job=decision.plan().job();List<ValidationApplicationHoldReason> left;
         var r=receipt.getReport();r.advanceVersion();receipt.apply(trigger,key,hash,r.getVersion());var saved=save(receipt);
         try {
-            for(var contributor:orderedContributors()) {contributor.applyReviewedDecisions(job);contributor.applyAutomatically(job);}
-            em.flush();left=gate.leftovers(job);
+            for(var contributor:orderedContributors()) {
+                if(trigger==ValidationReviewTrigger.EXPLICIT)contributor.applyReviewedDecisions(job);
+                contributor.applyAutomatically(job);
+            }
+            em.flush();left=trigger==ValidationReviewTrigger.EXPLICIT?gate.leftovers(job):List.of();
         } catch(AppException e) {
             if(ValidationSettingsApplicationService.isRolledBack(e))throw e;
             throw rolledBack(List.of(ValidationApplicationHoldReason.episode(ValidationApplicationHoldCode.UNKNOWN_ERROR,e.getResultCode().getCode())),e.getResultCode().getCode());

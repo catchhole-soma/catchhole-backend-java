@@ -430,22 +430,26 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
     boolean existsUnfinishedOrderedAnalysisOtherThan(@Param("workId") UUID workId, @Param("excludedJobId") UUID excludedJobId);
 
     /**
-     * GH312: 회차의 현재 검수 report에 검토 종료 receipt가 없으면 true다. claim의 {@link AnalysisJobEligibility#DOMAIN},
+     * 확정 전 회차의 현재 검수 report에 검토 종료 receipt가 없으면 true다. claim의 {@link AnalysisJobEligibility#DOMAIN},
      * 늦은 lease callback, 후보 반영 출처 검사와 같은 규칙이며 퇴역 report와 receipt는 판단에 쓰지 않는다.
+     * DIAGNOSTIC_ONLY는 검토 종료가 없으므로 이 조건에서 제외하고 실행 중 쓰기 잠금은 ValidationSettingsLock이 맡는다.
      */
     @Query("""
             select count(r) > 0 from ValidationReport r where r.episode.id in :episodeIds and r.current = true
+              and r.mode = org.monitoring.catchholebackend.domain.validation.type.ValidationReportMode.BEFORE_CONFIRMATION
               and not exists (select c.id from ValidationReviewCompletion c where c.report.id = r.id)
             """)
     boolean existsValidationStagingForEpisodes(@Param("episodeIds") java.util.Collection<UUID> episodeIds);
 
     /**
-     * GH312 S3: 회차의 현재 검수 report에 검토 종료 receipt가 있으면(release 회차) true다. 이 회차의 확정 설정은
-     * 회차 전체 확정만 쓰므로 사람의 개별·그룹 확정·승격 경로를 막는 데 사용한다.
+     * 검토 종료 뒤 아직 반영 완료(APPLIED)가 아닌 회차만 사람의 확정을 막는다.
+     * 자동 반영이 끝난 회차는 남은 후보를 일반 추출과 같은 개별·그룹 확정으로 처리할 수 있다.
      */
     @Query("""
             select count(r) > 0 from ValidationReport r where r.episode.id in :episodeIds and r.current = true
               and exists (select c.id from ValidationReviewCompletion c where c.report.id = r.id)
+              and not exists (select a.id from ValidationSettingsApplication a where a.report.id = r.id
+                and a.status = org.monitoring.catchholebackend.domain.validation.type.ValidationApplicationStatus.APPLIED)
             """)
     boolean existsReleasedValidationForEpisodes(@Param("episodeIds") java.util.Collection<UUID> episodeIds);
 

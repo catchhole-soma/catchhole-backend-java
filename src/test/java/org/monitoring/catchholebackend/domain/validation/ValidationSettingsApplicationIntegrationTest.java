@@ -30,12 +30,13 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
- * GH312 S3 회차 전체 확정. 테스트 트랜잭션 없이 실제 커밋 경계로 release Job을 claim·완료한다. Worker claim은 DB 전체의 대기 Job을 고르므로
+ * 기존 HELD 데이터의 명시 전체 확정 호환성은 completeLegacyHeldExtraction으로, 현행 정상 자동 반영은 completeExtraction으로 검증한다.
+ * 테스트 트랜잭션 없이 실제 커밋 경계를 쓴다. Worker claim은 DB 전체의 대기 Job을 고르므로
  * 앞 테스트가 남긴 대기 검수·추출 Job과 섞이지 않게 메서드마다 새 Context/H2를 사용한다.
  */
 @SpringBootTest(properties="spring.config.import=") @ActiveProfiles("test") @DirtiesContext(classMode=DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 @TestPropertySource(locations="classpath:validation-execution-fixture.properties")
-@DisplayName("GH312 S3 검토 완료 회차의 설정 전체 확정")
+@DisplayName("구버전 HELD 회차의 전체 확정 호환성과 정상 자동 반영")
 class ValidationSettingsApplicationIntegrationTest extends ValidationSettingsApplicationFixture {
     @BeforeEach void chunks() {jdbc.execute("create table if not exists episode_chunks (id uuid primary key, episode_id uuid)");}
 
@@ -50,7 +51,7 @@ class ValidationSettingsApplicationIntegrationTest extends ValidationSettingsApp
         var invalid=inJob(r.job(),job->{var d=discovery(job,"에르웬");var s=stat(job,d.getProvisionalSubjectKey(),"에르웬",35,CharacterFactOperation.ADD);world(job,"엘프","서식지","북부");
             // 비교는 정상 완료였지만 현재 schema(NUMBER)와 맞지 않는 값이다. 조회의 valueValidation INVALID와 같은 판정이다.
             ReflectionTestUtils.setField(s,"attributeValue","많음");ReflectionTestUtils.setField(s,"valueJson",JSON.objectNode().put("value","많음"));return s.getId();});
-        completeExtraction(r);
+        completeLegacyHeldExtraction(r);
         var f=r.f();var row=applicationRow(f);
         assertThat(row.get("status")).isEqualTo("HELD_REVIEW");assertThat(((Number)row.get("attempt")).longValue()).isEqualTo(1);assertThat(row.get("trigger")).isEqualTo("AUTOMATIC");
         assertThat(row.get("applied_at")).isNull();assertThat(row.get("last_error_code")).isNull();
@@ -104,7 +105,7 @@ class ValidationSettingsApplicationIntegrationTest extends ValidationSettingsApp
         var r=release();var f=r.f();
         var ids=inJob(r.job(),job->{var d=discovery(job,"에르웬");var s=stat(job,d.getProvisionalSubjectKey(),"에르웬",35,CharacterFactOperation.REVIEW_REQUIRED);
             var w=world(job,"엘프","서식지","북부");var w2=world(job,"드워프","서식지","산");return List.of(d.getId(),s.getId(),w.getId(),w2.getId(),job.getBatch().getId());});
-        completeExtraction(r);assertThat(applicationRow(f).get("status")).isEqualTo("HELD_REVIEW");
+        completeLegacyHeldExtraction(r);assertThat(applicationRow(f).get("status")).isEqualTo("HELD_REVIEW");
         UUID discovery=ids.get(0),stat=ids.get(1),world=ids.get(2),world2=ids.get(3),batch=ids.get(4);
         blocked(()->characterReview.confirmSettingCandidate(f.member(),f.work(),stat,new SettingCandidateConfirmRequest(CharacterFactConfirmApplicationMode.HISTORY_ONLY,null)));
         blocked(()->characterReview.confirmSettingCandidateGroup(f.member(),f.work(),new SettingCandidateGroupConfirmRequest(batch,List.of(
@@ -167,7 +168,7 @@ class ValidationSettingsApplicationIntegrationTest extends ValidationSettingsApp
         var r=release();var f=r.f();
         var review=inJob(r.job(),job->{var d=discovery(job,"에르웬");stat(job,d.getProvisionalSubjectKey(),"에르웬",35,CharacterFactOperation.ADD);
             var d2=discovery(job,"비요른");var held=stat(job,d2.getProvisionalSubjectKey(),"비요른",50,CharacterFactOperation.REVIEW_REQUIRED);world(job,"엘프","서식지","북부");return held.getId();});
-        completeExtraction(r);
+        completeLegacyHeldExtraction(r);
         var summary=reviews.getValidationReview(f.member(),f.work(),f.report());
         assertThat(summary.application().holdReasons()).extracting(ValidationApplicationHoldReason::code,ValidationApplicationHoldReason::candidateId)
                 .containsExactly(tuple(ValidationApplicationHoldCode.DECISION_PENDING,review));
@@ -185,7 +186,7 @@ class ValidationSettingsApplicationIntegrationTest extends ValidationSettingsApp
         var r=release();var f=r.f();
         var review=inJob(r.job(),job->{var d=discovery(job,"에르웬");stat(job,d.getProvisionalSubjectKey(),"에르웬",35,CharacterFactOperation.ADD);
             var d2=discovery(job,"비요른");var held=stat(job,d2.getProvisionalSubjectKey(),"비요른",50,CharacterFactOperation.REVIEW_REQUIRED);world(job,"엘프","서식지","북부");return held.getId();});
-        completeExtraction(r);
+        completeLegacyHeldExtraction(r);
         UUID lockJob=queueValidationOnPriorEpisode(f);
         // 검토 대기 후보 제외는 확정 설정을 바꾸지 않아 잠금 중에도 허용한다.
         characterReview.dismissSettingCandidate(f.member(),f.work(),review);
@@ -217,7 +218,7 @@ class ValidationSettingsApplicationIntegrationTest extends ValidationSettingsApp
     void editedCandidateAppliesWithSavedDecision() {
         var r=release();var f=r.f();
         var stat=inJob(r.job(),job->{var d=discovery(job,"에르웬");world(job,"엘프","서식지","북부");return stat(job,d.getProvisionalSubjectKey(),"에르웬",35,CharacterFactOperation.REVIEW_REQUIRED).getId();});
-        completeExtraction(r);
+        completeLegacyHeldExtraction(r);
         assertThat(reviews.getValidationReview(f.member(),f.work(),f.report()).application().holdReasons())
                 .containsExactly(new ValidationApplicationHoldReason(ValidationApplicationHoldCode.DECISION_PENDING,ValidationApplicationCandidateType.CHARACTER,stat,"REVIEW_REQUIRED"));
         // 검수 회차의 확정은 막혀 있지만 값 수정과 반영 방식 저장은 결정 초안이다.
@@ -235,7 +236,7 @@ class ValidationSettingsApplicationIntegrationTest extends ValidationSettingsApp
     void worldDecisionDraftApplies() {
         var r=release();var f=r.f();
         var ids=inJob(r.job(),job->List.of(scopeUnresolvedWorld(job,"엘프","서식지","북부").getId(),job.getBatch().getId()));
-        completeExtraction(r);UUID world=ids.get(0),batch=ids.get(1);
+        completeLegacyHeldExtraction(r);UUID world=ids.get(0),batch=ids.get(1);
         assertThat(reviews.getValidationReview(f.member(),f.work(),f.report()).application().holdReasons())
                 .containsExactly(new ValidationApplicationHoldReason(ValidationApplicationHoldCode.DECISION_PENDING,ValidationApplicationCandidateType.WORLD_SETTING,world,"SCOPE_UNRESOLVED"));
         worldReview.updateCandidateDecisions(f.member(),f.work(),new WorldSettingCandidateDecisionUpdateRequest(batch,List.of(
@@ -252,7 +253,7 @@ class ValidationSettingsApplicationIntegrationTest extends ValidationSettingsApp
         var ids=inJob(r.job(),job->{var d=discovery(job,"에르웬");stat(job,d.getProvisionalSubjectKey(),"에르웬",35,CharacterFactOperation.ADD);
             var d2=discovery(job,"비요른");var s2=stat(job,d2.getProvisionalSubjectKey(),"비요른",50,CharacterFactOperation.REVIEW_REQUIRED);
             world(job,"엘프","서식지","북부");var w2=scopeUnresolvedWorld(job,"드워프","서식지","산");return List.of(s2.getId(),w2.getId(),job.getBatch().getId());});
-        completeExtraction(r);UUID stat=ids.get(0),world=ids.get(1),batch=ids.get(2);
+        completeLegacyHeldExtraction(r);UUID stat=ids.get(0),world=ids.get(1),batch=ids.get(2);
         assertThat(reviews.getValidationReview(f.member(),f.work(),f.report()).application().holdReasons()).extracting(ValidationApplicationHoldReason::code,ValidationApplicationHoldReason::candidateId)
                 .containsExactlyInAnyOrder(tuple(ValidationApplicationHoldCode.DECISION_PENDING,stat),tuple(ValidationApplicationHoldCode.DECISION_PENDING,world));
         characterReview.updateSettingCandidate(f.member(),f.work(),stat,new SettingCandidateUpdateRequest("stats.mental","50",CharacterFactConfirmApplicationMode.HISTORY_ONLY,updatedAt(stat)));
@@ -271,7 +272,7 @@ class ValidationSettingsApplicationIntegrationTest extends ValidationSettingsApp
     void undecidedReviewRequiredHolds() {
         var r=release();var f=r.f();
         var stat=inJob(r.job(),job->{var d=discovery(job,"에르웬");world(job,"엘프","서식지","북부");return stat(job,d.getProvisionalSubjectKey(),"에르웬",35,CharacterFactOperation.REVIEW_REQUIRED).getId();});
-        completeExtraction(r);long before=reportVersion(f);
+        completeLegacyHeldExtraction(r);long before=reportVersion(f);
         var held=apply(f,"undecided");
         assertThat(held.status()).isEqualTo(ValidationApplicationStatus.HELD_REVIEW);assertThat(held.attempt()).isEqualTo(2);assertThat(held.reportVersion()).isEqualTo(before+1);
         assertThat(held.holdReasons()).containsExactly(new ValidationApplicationHoldReason(ValidationApplicationHoldCode.DECISION_PENDING,ValidationApplicationCandidateType.CHARACTER,stat,"REVIEW_REQUIRED"));
@@ -283,7 +284,7 @@ class ValidationSettingsApplicationIntegrationTest extends ValidationSettingsApp
     void heldEpisodeReplacedAndRecheckedAppliesNewRelease() {
         var r=release();var f=r.f();
         var old=inJob(r.job(),job->{var d=discovery(job,"에르웬");world(job,"엘프","서식지","북부");return List.of(d.getId(),stat(job,d.getProvisionalSubjectKey(),"에르웬",35,CharacterFactOperation.REVIEW_REQUIRED).getId());});
-        completeExtraction(r);assertThat(applicationRow(f).get("status")).isEqualTo("HELD_REVIEW");
+        completeLegacyHeldExtraction(r);assertThat(applicationRow(f).get("status")).isEqualTo("HELD_REVIEW");
         String replaced="수정한 합성 원고";replace(f,replaced);
         assertThat(reportStatus(f.report())).as("file replacement invalidates the held report").isEqualTo("INVALIDATED");
         var oldJob=jobState(r.job());var oldCandidates=jdbc.queryForList("select review_status from setting_candidates where analysis_job_id=? union all select review_status from world_setting_candidates where analysis_job_id=?",String.class,r.job(),r.job());
@@ -307,7 +308,7 @@ class ValidationSettingsApplicationIntegrationTest extends ValidationSettingsApp
     void duplicateApplyReturnsSameReceipt() {
         var r=release();var f=r.f();
         var held=inJob(r.job(),job->{var d=discovery(job,"에르웬");world(job,"엘프","서식지","북부");return stat(job,d.getProvisionalSubjectKey(),"에르웬",35,CharacterFactOperation.REVIEW_REQUIRED).getId();});
-        completeExtraction(r);
+        completeLegacyHeldExtraction(r);
         long version=reportVersion(f);var request=new ValidationSettingsApplicationRequest(version,"tab-a");
         var first=applications.applySettings(f.member(),f.work(),f.report(),request);
         assertThat(first.status()).isEqualTo(ValidationApplicationStatus.HELD_REVIEW);assertThat(first.attempt()).isEqualTo(2);

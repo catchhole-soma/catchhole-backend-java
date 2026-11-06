@@ -300,8 +300,8 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             } else {
                 analysisRunStateService.seal(analysisJob);
                 if (analysisJob.isAutomaticReview() && settingsApplications.isReleaseJob(analysisJob)) {
-                    // GH312 S3: 검수 release Job은 기존 contributor 대신 회차 전체 확정이 두 도메인을 한 번에 반영하거나
-                    // 아무것도 쓰지 않고 보류를 기록한다. automaticAppliedAt은 APPLIED일 때만 이 서비스가 기록한다.
+                    // 검수 release도 기존 contributor의 선택적 자동 반영을 사용한다. 자동 처리 완료 receipt와
+                    // automaticAppliedAt은 이 서비스가 같은 트랜잭션에 기록하며 검토 대기 후보는 그대로 남긴다.
                     settingsApplications.applyAutomatically(analysisJob, rolledBackApplication);
                 } else if (analysisJob.isAutomaticReview()) {
                     java.util.Set<String> domains = new java.util.HashSet<>();

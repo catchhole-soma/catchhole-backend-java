@@ -175,11 +175,23 @@ release는 검수 계약대로 Work를 먼저 잠근 뒤 공개 생성 경로의
 공개 `createAnalysisJobs`는 회원 → Work 순서이고 설정집 업로드·재분석은 이미 Work → 회원 순서다. 같은 회원·작품에서 두 경로가 겹치면 PostgreSQL이 교착을 감지해 한쪽을 되돌릴 수 있다.
 S4는 공개 생성 순서를 바꾸지 않았고 결정적으로 재현하는 PostgreSQL 테스트도 두지 않았다. 대신 `domain.validation`의 새 코드는 Work를 먼저 잠그도록 AGENTS.md에 적었다(아래 알려진 한계).
 
-## 회차 전체 확정 (S3)
+## 검수 후 설정 반영 (S3)
 
-release 회차(현재 report에 검토 종료 receipt)의 캐릭터·세계관 후보는 `ValidationSettingsApplicationService`만 확정한다.
-**Work 잠금 → (명시) report CAS → 평가 → 두 도메인을 한 트랜잭션에서 반영하거나, 하나라도 반영할 수 없으면 아무것도 쓰지 않고 보류를 기록한다.**
-부분 성공은 없다. `ValidationReportStatus`에는 값을 추가하지 않고 V99 receipt 행으로 상태를 표현한다.
+release 회차(현재 report에 검토 종료 receipt)의 자동 반영은 `ValidationSettingsApplicationService`가 기존 contributor로 실행한다.
+후보별 보류는 다른 후보의 자동 반영을 막지 않으며, 완료 뒤 남은 후보는 일반 수동 확정으로 처리한다.
+실제 저장 예외는 두 도메인을 함께 되돌린다. `ValidationReportStatus`에는 값을 추가하지 않고 V99 receipt 행으로 상태를 표현한다.
+
+### 선택적 자동 반영 복원 (2026-11-07 사용자 결정)
+
+검수 후 추출도 일반 설정 추출과 같은 자동 반영 규칙을 사용한다. 캐릭터·세계관 contributor가 반영 가능한 후보를 처리하고,
+REVIEW_REQUIRED·값 형식 오류·대상/범위 미정 등은 해당 후보만 검토 대기로 남긴다. 후보 하나의 보류로 다른 정상 후보를 되돌리지 않는다.
+
+- 자동 경로의 `APPLIED`와 `automaticAppliedAt`은 **자동 처리 단계 완료**다. 모든 후보가 확정되었다는 뜻이 아니다.
+- APPLIED 뒤 남은 후보는 일반 후보 검토 화면의 개별·그룹 확정으로 처리한다. 다음 회차 등록도 가능하다. 진단 재검수(DIAGNOSTIC_ONLY)는 검토 종료 receipt 차단에서 제외한다. 진단 실행 중의 설정 잠금은 유지하지만 실행이 끝나면 기존 잔여 후보를 계속 확정할 수 있다.
+- 원문/회차 무효·출처 변경·미완료 추출은 여전히 전체 반영을 막는다. 실제 도메인 저장 예외는 두 도메인과 receipt를 함께 rollback한다.
+- 기존 버전의 HELD_REVIEW receipt는 자동으로 소급 변경하지 않는다. 명시적 전체 확정 API와 그 멱등·복구 규칙은 유지한다.
+  아래 전체 확정 평가/잔여 후보 rollback과 HELD 해소 예시는 이 기존 보류 데이터의 명시 반영에 해당한다.
+- 검토 종료 전 추출 차단·원문 변경 검증·작품 설정 잠금은 유지한다. API 필드·enum·DB schema는 변경하지 않는다.
 
 ### 저장 모델 (V99)
 
@@ -188,7 +200,7 @@ release 회차(현재 report에 검토 종료 receipt)의 캐릭터·세계관 �
 | 컬럼 | 의미 |
 | --- | --- |
 | `completion_id`, `extraction_job_id`, `extraction_job_generation` | 평가한 검토 종료 receipt와 그 receipt의 현재 release Job·세대 |
-| `status` | `HELD_REVIEW`(이번 시도는 확정 설정 쓰기 0) 또는 `APPLIED`(두 도메인 모두 성공). `FAILED`는 CHECK에만 예약했고 S3는 쓰지 않는다 |
+| `status` | `HELD_REVIEW`(이번 시도는 확정 설정 쓰기 0) 또는 `APPLIED`(두 도메인의 자동 처리 완료 또는 기존 보류 데이터의 명시 전체 확정 성공). `FAILED`는 CHECK에만 예약했고 S3는 쓰지 않는다 |
 | `hold_reasons` | HELD_REVIEW만. `[{code, candidateType(CHARACTER/WORLD_SETTING/EPISODE), candidateId?, detail?}]` |
 | `attempt` | receipt를 기록한 평가 수. 같은 키 재전송·APPLIED 뒤 요청은 늘리지 않는다 |
 | `trigger`, `idempotency_key`, `request_hash` | 마지막 기록 경로. EXPLICIT만 키·`{reportId, expectedReportVersion}` hash를 가진다(`(work_id, idempotency_key)` 부분 unique). AUTOMATIC 시도는 비운다 |
@@ -223,7 +235,7 @@ release 회차(현재 report에 검토 종료 receipt)의 캐릭터·세계관 �
 | `CANDIDATE_CHANGED` | 반영 단계에서 기존 규칙이 계획한 후보를 보류·미반영함(현재 설정 변경·의존·보호 등, detail은 원래 보류 사유 또는 `NOT_APPLIED`) |
 | `UNKNOWN_ERROR` | 반영 트랜잭션이 예외로 되돌려짐. detail과 `last_error_code`가 오류 코드 |
 
-### 반영
+### 기존 보류 데이터의 명시 전체 반영
 
 READY면 같은 트랜잭션에서 receipt를 먼저 APPLIED로 기록(`report.advanceVersion()`, flush)한 뒤 캐릭터 → 세계관 순서로 도메인마다
 ① 작가 결정 그룹을 `applyReviewedDecisions`로 반영하고 ② 나머지를 기존 contributor의 `applyAutomatically`로 반영한다.
@@ -251,8 +263,9 @@ contributor는 검증 실패를 보류 표시로 흡수하므로, 실행 뒤 그
 
 ### 자동 경로 (추출 완료)
 
-추출 완료 트랜잭션 안에서는 Job이 아직 RUNNING이라 공개 그룹 확정의 늦은 검토 경로를 탈 수 없다. 이때 작가 결정 그룹이 있으면(정상 흐름에서는 추출 중 후보 변경이 막혀 없다)
-`CANDIDATE_CHANGED`(detail `SAVED_DECISION_NEEDS_EXPLICIT_APPLICATION`)로 보류하고 명시 반영이 처리한다.
+자동 경로는 평가 사유 중 `candidateType=EPISODE`인 원문·회차 차단 사유만 전체 보류로 처리한다. 나머지는 일반 추출과 같은
+`applyAutomatically` contributor만 실행한다. 작가 결정의 강제 적용과 실행 뒤 잔여 후보 검사(`leftovers`)는 하지 않는다.
+검토 대기 후보가 남아도 APPLIED와 `automaticAppliedAt`을 기록하고, 실제 저장 예외만 전체 rollback한다.
 
 
 `AnalysisJobWorkerServiceImpl.completeAnalysisJob`이 seal 직후 `isReleaseJob`(현재 report의 receipt가 이 Job을 가리킴)이면 두 contributor 대신 `applyAutomatically`를 호출한다.
@@ -272,9 +285,9 @@ READY는 쓰기 전에 두 검사를 차례로 한다. 다른 회차 검수가 �
 반영이 되돌려지면 새 트랜잭션에서 같은 검사를 거쳐 그 사유로 HELD_REVIEW를 기록하고 200으로 반환한다. 키 열은 마지막 명시 요청 하나만 보관하므로
 이전 시도의 키는 재전송해도 새 평가로 처리된다(APPLIED 뒤에는 같은 APPLIED receipt). 동시 요청은 Work 잠금으로 직렬화되어 APPLIED는 하나다.
 
-### 수동 확정 차단
+### 자동 반영 완료 전 수동 확정 차단
 
-`AnalysisCandidateSourceGuard.assertManualWriteAllowed`는 대상 회차의 현재 report에 검토 종료 receipt가 있으면 `VALIDATION_RELEASE_MANUAL_CONFIRM_BLOCKED`(409)다.
+`AnalysisCandidateSourceGuard.assertManualWriteAllowed`는 대상 회차의 현재 report에 검토 종료 receipt가 있고 APPLIED receipt가 없으면 `VALIDATION_RELEASE_MANUAL_CONFIRM_BLOCKED`(409)다. 자동 처리 완료 뒤 남은 후보는 일반 확정 경로를 사용한다.
 캐릭터 개별 확정·그룹 확정(최종 결과 승인·신규 인물 포함), 승격 서비스 `promote`/`promoteNewCharacterGroup`,
 세계관 개별 확정·사람의 그룹 확정(`automatic=false`)이 후보를 읽은 직후 호출한다. 확정 재전송도 막힌다.
 값 수정·반영 방식 저장 PATCH(`reviewedApplicationMode`), 캐릭터 연결, 세계관 결정 초안, 제외·재비교·재개는 확정 설정을 쓰지 않는 결정 저장이라 막지 않으며,

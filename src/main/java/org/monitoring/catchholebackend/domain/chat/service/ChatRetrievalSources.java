@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.chat.service;
 
+import static org.monitoring.catchholebackend.domain.chat.dto.ChatContract.MAX_RETRIEVAL_SOURCES;
 import static org.monitoring.catchholebackend.domain.chat.exception.ChatErrorCode.*;
 
 import jakarta.persistence.EntityManager;
@@ -33,7 +34,7 @@ public class ChatRetrievalSources {
     }
 
     public void validate(ChatRun run, List<RetrievalReference> sources) {
-        if (sources == null || sources.size() > 12 || !sources.isEmpty() && run.operational())
+        if (sources == null || sources.size() > MAX_RETRIEVAL_SOURCES || !sources.isEmpty() && run.operational())
             throw new AppException(CHAT_SCOPE_INVALID);
         if (sources.isEmpty()) return;
         Map<UUID, Chunk> observed = new HashMap<>();

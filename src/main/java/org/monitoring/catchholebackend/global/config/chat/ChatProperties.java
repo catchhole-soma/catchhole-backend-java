@@ -21,6 +21,12 @@ public record ChatProperties(
         Duration executionTimeout,
         Duration usageGrace,
         String retrievalEmbeddingVersion) {
+    /**
+     * CHAT_MAX_BODY_BYTES로 올릴 수 있는 채팅 경로 본문 상한(1MiB). 기본값 131072는 그대로 둔다. 인용 60개를
+     * 담는 등록·완료 요청이 기본 128KiB를 넘을 수 있어, 운영자가 필요할 때만 올리도록 허용 범위를 넓혔다(#319).
+     */
+    private static final int MAX_BODY_BYTES_LIMIT = 1_048_576;
+
     public ChatProperties {
         if (retrievalEmbeddingVersion == null) retrievalEmbeddingVersion = "v1";
         if (maxBodyBytes == 0) maxBodyBytes = 131072;
@@ -34,7 +40,7 @@ public record ChatProperties(
         if (executionTimeout == null) executionTimeout = Duration.ofSeconds(120);
         if (usageGrace == null) usageGrace = Duration.ofMinutes(10);
         if (maxBodyBytes < 512
-                || maxBodyBytes > 131072
+                || maxBodyBytes > MAX_BODY_BYTES_LIMIT
                 || dispatchThreads < 1
                 || dispatchThreads > 64
                 || dispatchQueueCapacity < 1

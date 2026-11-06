@@ -54,7 +54,7 @@ class ValidationSettingsApplicationPostgresIntegrationTest extends ValidationSet
         var r=release();var f=r.f();
         var held=inJob(r.job(),job->{var d=discovery(job,"에르웬");stat(job,d.getProvisionalSubjectKey(),"에르웬",35,CharacterFactOperation.ADD);world(job,"엘프","서식지","북부");
             var d2=discovery(job,"비요른");return stat(job,d2.getProvisionalSubjectKey(),"비요른",50,CharacterFactOperation.REVIEW_REQUIRED).getId();});
-        completeExtraction(r);assertThat(applicationRow(f).get("status")).isEqualTo("HELD_REVIEW");
+        completeLegacyHeldExtraction(r);assertThat(applicationRow(f).get("status")).isEqualTo("HELD_REVIEW");
         characterReview.dismissSettingCandidate(f.member(),f.work(),held);
         long version=reportVersion(f);var go=new CountDownLatch(1);var ready=new CountDownLatch(2);List<Object> outcomes=new ArrayList<>();
         try(var pool=Executors.newFixedThreadPool(2)) {
