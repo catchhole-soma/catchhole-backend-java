@@ -406,7 +406,7 @@ class ChatRetrievalSourcesPostgresIntegrationTest {
                         e -> assertThat(e.getResultCode()).isEqualTo(ChatErrorCode.CHAT_LIMIT_EXCEEDED));
             }
             case "too-many" -> assertScope(() -> access.retrievalSources(r.id(), r.token(), r.runner(),
-                    new RetrievalSourcesRequest(Collections.nCopies(13, ref()))));
+                    new RetrievalSourcesRequest(Collections.nCopies(61, ref()))));
             case "too-long" -> assertScope(() -> register(r, ref(chunk, "😀".repeat(4001), 0, 4001)));
             default -> assertScope(() -> register(r, ref()));
         }
