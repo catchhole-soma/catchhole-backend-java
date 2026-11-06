@@ -67,10 +67,13 @@ import java.util.List;
 import java.util.UUID;
 
 @SpringBootTest(properties = "spring.config.import=")
+@org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 @ActiveProfiles("test")
 @DisplayName("회차별 관계 확정과 재시도는 원문·사용자 정정 경계를 보존한다")
 class EpisodeRelationshipGraphIntegrationTest {
     @Autowired RelationshipGraphService service;
+    @Autowired RelationshipGraphCleanupService cleanup;
+    @Autowired org.springframework.test.web.servlet.MockMvc mvc;
     @Autowired RelationshipHoldReviewGate holdGate;
     @Autowired org.monitoring.catchholebackend.domain.relationship.repository.RelationshipHoldClosureRepository holdClosures;
     @Autowired EntityManager em;
@@ -2627,5 +2630,501 @@ class EpisodeRelationshipGraphIntegrationTest {
                 .extracting(RelationshipHoldReviewGate.Entry::analysisId).isEqualTo(first);
     }
 
+    // ---------------------------------------------------------------------------------------
+    // GH391 관계도 1회 정리
 
+    /** 정리 전 운영 데이터 모양: 1화 미연결 "비요른"과 2화 프로필 노드 "비요른 얀델"이 같은 slot 선을 따로 가진다. */
+    private record AliasSplit(UUID characterId, UUID alias, UUID profile, UUID bora, UUID aliasEdge,
+            UUID movedEdge, UUID profileEdge) {}
+
+    private AliasSplit aliasSplit(boolean reversedProfileEdge) {
+        String first = "비요른과 보라는 함께 길을 떠났다.";
+        UUID j1 = jobWithSource(1, first, false);
+        Context c1 = prepareWith(j1, first, observation("O1", first, "비요른", "보라"));
+        apply(j1, c1, add(c1, "O1", Kind.COMPANIONSHIP, "함께 여행한다"), add(c1, "O1", Kind.FRIENDSHIP, "친구다"));
+        UUID alias = boundNodeId(j1, sourceRef(c1)), bora = boundNodeId(j1, targetRef(c1));
+        // The profile is created after 1화, so 1화 never knew the full name: a legacy split.
+        UUID characterId = character("비요른 얀델");
+        String second = "비요른 얀델과 보라는 다시 만났다.";
+        UUID j2 = jobWithSource(2, second, false);
+        Context c2 = prepareWith(j2, second, reversedProfileEdge
+                ? observation("O1", second, "보라", "비요른 얀델")
+                : observation("O1", second, "비요른 얀델", "보라"));
+        confirmDiscovery(j2, characterId, "비요른 얀델");
+        apply(j2, c2, add(c2, "O1", Kind.COMPANIONSHIP, "다시 함께 여행한다"));
+        UUID profile = boundNodeId(j2, reversedProfileEdge ? targetRef(c2) : sourceRef(c2));
+        assertThat(profile).isNotEqualTo(alias);
+        List<Edge> past = service.getRelationshipGraph(owner, workId, 1).edges();
+        UUID aliasEdge = past.stream().filter(e -> e.kind() == Kind.COMPANIONSHIP).findFirst().orElseThrow().id();
+        UUID movedEdge = past.stream().filter(e -> e.kind() == Kind.FRIENDSHIP).findFirst().orElseThrow().id();
+        UUID profileEdge = service.getRelationshipGraph(owner, workId, 2).edges().stream()
+                .filter(e -> endpoints(e).equals(java.util.Set.of(profile, bora))).findFirst().orElseThrow().id();
+        return new AliasSplit(characterId, alias, profile, bora, aliasEdge, movedEdge, profileEdge);
+    }
+
+    private List<org.monitoring.catchholebackend.domain.relationship.entity.RelationshipGraphEdge> graphEdges() {
+        return tx.execute(t -> {
+            em.clear();
+            return em.createQuery("select e from RelationshipGraphEdge e where e.workId=:work order by e.id",
+                            org.monitoring.catchholebackend.domain.relationship.entity.RelationshipGraphEdge.class)
+                    .setParameter("work", workId).getResultList();
+        });
+    }
+
+    /** Every stored column of the work's graph rows, for a byte-for-byte unchanged check. */
+    private List<String> graphRows() {
+        return tx.execute(t -> {
+            em.clear();
+            List<String> rows = new java.util.ArrayList<>();
+            em.createQuery("select n from RelationshipGraphNode n where n.workId=:work order by n.id",
+                            RelationshipGraphNode.class).setParameter("work", workId).getResultList()
+                    .forEach(n -> rows.add(String.join("|", "N", "" + n.getId(), "" + n.getCharacterId(),
+                            "" + n.getCharacterLinkedEpisodeNo(), n.getName(), "" + n.getFirstEpisodeNo(),
+                            "" + n.getMergedIntoNodeId(), "" + n.getMergedAtEpisodeNo(), "" + n.getUpdatedAt())));
+            em.createQuery("select e from RelationshipGraphEdge e where e.workId=:work order by e.id",
+                            org.monitoring.catchholebackend.domain.relationship.entity.RelationshipGraphEdge.class)
+                    .setParameter("work", workId).getResultList()
+                    .forEach(e -> rows.add(String.join("|", "E", "" + e.getId(), "" + e.getSourceNodeId(),
+                            "" + e.getTargetNodeId(), e.getCanonicalKey(), "" + e.getVersion(), "" + e.isSuppressed(),
+                            "" + e.getCorrectedSummary(), "" + e.getUpdatedAt())));
+            em.createQuery("select e from RelationshipGraphEvent e where e.workId=:work order by e.id",
+                            RelationshipGraphEvent.class).setParameter("work", workId).getResultList()
+                    .forEach(e -> rows.add(String.join("|", "V", "" + e.getId(), "" + e.getEdgeId(),
+                            e.getSourceName(), e.getTargetName(), "" + e.getEvidence(), "" + e.getUpdatedAt())));
+            return rows;
+        });
+    }
+
+    private String canonicalKey(UUID source, UUID target, Kind kind, Direction direction) {
+        return hasher.hash(org.monitoring.catchholebackend.domain.relationship.processor.RelationshipGraphRules
+                .canonical(source.toString(), target.toString(), Axis.SOCIAL, kind, direction));
+    }
+
+    private static void assertConflict(Throwable failure, String reason) {
+        assertThat(failure).isInstanceOfSatisfying(AppException.class, e -> {
+            assertThat(e.getResultCode()).isEqualTo(
+                    org.monitoring.catchholebackend.domain.relationship.exception.RelationshipGraphErrorCode.RELATIONSHIP_GRAPH_CONFLICT);
+            assertThat(e.getMessage()).contains(reason);
+        });
+    }
+
+    @Test
+    @DisplayName("GH391 dry-run은 보고서만 만들고 노드·선·event·version·수정 시각을 하나도 바꾸지 않는다")
+    void cleanupDryRunWritesNothing() {
+        AliasSplit split = aliasSplit(false);
+        List<String> before = graphRows();
+
+        var first = cleanup.cleanup(workId, false);
+        var second = cleanup.cleanup(workId, false);
+
+        assertThat(graphRows()).isEqualTo(before);
+        assertThat(second).isEqualTo(first);
+        assertThat(first.apply()).isFalse();
+        assertThat(first.applied()).isFalse();
+        assertThat(first.cutoffEpisodeNo()).isEqualTo(2);
+        assertThat(first.blockers()).isEmpty();
+        assertThat(first.counts().nodesMergedUnlinked()).isEqualTo(1);
+        assertThat(first.counts().edgesMoved()).isEqualTo(1);
+        assertThat(first.counts().edgesMerged()).isEqualTo(1);
+        assertThat(first.counts().eventsMoved()).isEqualTo(1);
+        assertThat(first.before()).isEqualTo(
+                new org.monitoring.catchholebackend.domain.relationship.dto.response.RelationshipGraphCleanupResponse.Totals(3, 3, 3, 3));
+        assertThat(first.after()).isEqualTo(
+                new org.monitoring.catchholebackend.domain.relationship.dto.response.RelationshipGraphCleanupResponse.Totals(3, 2, 2, 3));
+        assertThat(first.nodes()).singleElement().satisfies(n -> {
+            assertThat(n.nodeId()).isEqualTo(split.alias());
+            assertThat(n.name()).isEqualTo("비요른");
+            assertThat(n.action()).isEqualTo("MERGE_UNLINKED");
+            assertThat(n.profileName()).isEqualTo("비요른 얀델");
+            assertThat(n.targetNodeId()).isEqualTo(split.profile());
+            assertThat(n.targetNodeName()).isEqualTo("비요른 얀델");
+        });
+        assertThat(first.edgeGroups()).singleElement().satisfies(g -> {
+            assertThat(g.survivorEdgeId()).isEqualTo(split.profileEdge());
+            assertThat(g.mergedEdgeIds()).containsExactly(split.aliasEdge());
+        });
+    }
+
+    @Test
+    @DisplayName("GH391 적용은 별칭 노드의 선을 프로필 노드로 옮기고 같은 slot을 하나로 합치며 과거 화면의 관측 이름은 유지한다")
+    void cleanupMovesAliasEdgesOntoProfileNodeAndMergesSlots() {
+        AliasSplit split = aliasSplit(false);
+        assertThat(service.getRelationshipGraph(owner, workId, 2).totalEdgeCount()).isEqualTo(3);
+
+        var report = cleanup.cleanup(workId, true);
+
+        assertThat(report.applied()).isTrue();
+        assertMergedInto(split.alias(), split.profile(), 2, 1, "비요른");
+        assertProfileLink(split.profile(), split.characterId(), 2, 2);
+        var stored = graphEdges();
+        assertThat(stored).extracting(e -> e.getId())
+                .containsExactlyInAnyOrder(split.profileEdge(), split.movedEdge());
+        assertThat(stored).allSatisfy(e -> {
+            assertThat(java.util.Set.of(e.getSourceNodeId(), e.getTargetNodeId()))
+                    .containsExactlyInAnyOrder(split.profile(), split.bora());
+            assertThat(e.getCanonicalKey()).isEqualTo(
+                    canonicalKey(e.getSourceNodeId(), e.getTargetNodeId(), e.getKind(), Direction.MUTUAL));
+        });
+        assertThat(relationshipEvents()).hasSize(3).allSatisfy(e ->
+                assertThat(e.getEdgeId()).isIn(split.profileEdge(), split.movedEdge()));
+        assertThat(relationshipEvents()).filteredOn(e -> e.getEdgeId().equals(split.profileEdge()))
+                .extracting(RelationshipGraphEvent::getEpisodeNo).containsExactly(1, 2);
+
+        Graph latest = service.getRelationshipGraph(owner, workId, 2);
+        assertThat(latest.totalEdgeCount()).isEqualTo(2);
+        assertThat(latest.nodes()).extracting(n -> n.id()).containsExactlyInAnyOrder(split.profile(), split.bora());
+        assertThat(latest.nodes()).filteredOn(n -> n.id().equals(split.profile())).singleElement()
+                .satisfies(n -> {
+                    assertThat(n.name()).isEqualTo("비요른 얀델");
+                    assertThat(n.profileRegistered()).isTrue();
+                });
+        Graph past = service.getRelationshipGraph(owner, workId, 1);
+        assertThat(past.edges()).extracting(Edge::id)
+                .containsExactlyInAnyOrder(split.profileEdge(), split.movedEdge());
+        assertThat(past.nodes()).filteredOn(n -> n.id().equals(split.profile())).singleElement()
+                .satisfies(n -> {
+                    assertThat(n.name()).isEqualTo("비요른");
+                    assertThat(n.profileRegistered()).isFalse();
+                });
+        assertThatThrownBy(() -> service.getRelationshipEdge(owner, workId, split.aliasEdge(), 2))
+                .isInstanceOfSatisfying(AppException.class, failure -> assertThat(failure.getResultCode())
+                        .isEqualTo(org.monitoring.catchholebackend.domain.relationship.exception.RelationshipGraphErrorCode.RELATIONSHIP_GRAPH_NOT_FOUND));
+        assertThat(service.getRelationshipEdge(owner, workId, split.profileEdge(), 2).evidence()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("GH391 생존 선과 반대 순서로 옮긴 event는 source/target 이름을 맞바꿔 과거 화면에서 이름이 뒤바뀌지 않는다")
+    void cleanupSwapsMovedEventNamesToSurvivorOrientation() {
+        AliasSplit split = aliasSplit(true);
+
+        var report = cleanup.cleanup(workId, true);
+
+        assertThat(report.counts().eventsNamesSwapped()).isEqualTo(1);
+        assertThat(relationshipEvents()).filteredOn(e -> e.getEdgeId().equals(split.profileEdge()))
+                .allSatisfy(e -> assertThat(e.getSourceName()).isEqualTo("보라"));
+        Graph past = service.getRelationshipGraph(owner, workId, 1);
+        assertThat(past.nodes()).filteredOn(n -> n.id().equals(split.profile())).singleElement()
+                .extracting(n -> n.name()).isEqualTo("비요른");
+        assertThat(past.nodes()).filteredOn(n -> n.id().equals(split.bora())).singleElement()
+                .extracting(n -> n.name()).isEqualTo("보라");
+    }
+
+    @Test
+    @DisplayName("GH391 합친 선은 삭제 억제·정정 설명을 잇고 version을 둘보다 올리며 이후 재분석의 ADD가 되살리지 않는다")
+    void cleanupPreservesCorrectionSuppressionAndVersion() {
+        AliasSplit split = aliasSplit(false);
+        Edge aliasEdge = service.getRelationshipGraph(owner, workId, 2).edges().stream()
+                .filter(e -> e.id().equals(split.aliasEdge())).findFirst().orElseThrow();
+        service.deleteRelationshipEdge(owner, workId, aliasEdge.id(), aliasEdge.version());
+        Edge profileEdge = service.getRelationshipGraph(owner, workId, 2).edges().stream()
+                .filter(e -> e.id().equals(split.profileEdge())).findFirst().orElseThrow();
+        service.correctRelationshipEdge(owner, workId, profileEdge.id(),
+                new Correction(profileEdge.version(), "사용자가 정정한 동행"));
+        long aliasVersion = aliasEdge.version() + 1, profileVersion = profileEdge.version() + 1;
+
+        var report = cleanup.cleanup(workId, true);
+
+        assertThat(report.edgeGroups()).singleElement().satisfies(g -> {
+            assertThat(g.suppressed()).isTrue();
+            assertThat(g.corrected()).isTrue();
+            assertThat(g.correctionConflict()).isFalse();
+        });
+        assertThat(graphEdges()).filteredOn(e -> e.getId().equals(split.profileEdge())).singleElement()
+                .satisfies(e -> {
+                    assertThat(e.isSuppressed()).isTrue();
+                    assertThat(e.getCorrectedSummary()).isEqualTo("사용자가 정정한 동행");
+                    assertThat(e.getVersion()).isEqualTo(Math.max(aliasVersion, profileVersion) + 1);
+                });
+        assertThat(service.getRelationshipGraph(owner, workId, 2).edges())
+                .noneMatch(e -> e.kind() == Kind.COMPANIONSHIP);
+
+        String text = "비요른 얀델과 보라는 또 만났다.";
+        UUID third = jobWithSource(3, text, false);
+        Context context = prepareWith(third, text, observation("O1", text, "비요른 얀델", "보라"));
+        assertThat(boundNodeId(third, sourceRef(context))).isEqualTo(split.profile());
+        assertThat(context.relationships()).noneMatch(r -> r.kind() == Kind.COMPANIONSHIP);
+        apply(third, context, add(context, "O1", Kind.COMPANIONSHIP, "되살아나면 안 되는 동행"));
+        assertThat(service.getRelationshipGraph(owner, workId, 3).edges())
+                .noneMatch(e -> e.kind() == Kind.COMPANIONSHIP);
+        assertThat(graphEdges()).filteredOn(e -> e.getKind() == Kind.COMPANIONSHIP).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("GH391 같은 분석이 두 선에 남긴 event는 근거를 하나로 합쳐 상세 근거 수를 보존한다")
+    void cleanupMergesEvidenceOfSameAnalysis() {
+        String text = "비요른은 보라를 도왔다. 비요른 얀델은 보라와 웃었다.";
+        String firstQuote = "비요른은 보라를 도왔다.", secondQuote = "비요른 얀델은 보라와 웃었다.";
+        int secondStart = text.codePointCount(0, text.indexOf(secondQuote));
+        UUID id = jobWithSource(1, text, false);
+        Context context = prepareWith(id, text,
+                new Observation("O1", new Endpoint("비요른", "비요른"), new Endpoint("보라", "보라"), "돕는다",
+                        List.of(new Evidence(0, firstQuote.codePointCount(0, firstQuote.length()), firstQuote))),
+                new Observation("O2", new Endpoint("비요른 얀델", "비요른 얀델"), new Endpoint("보라", "보라"), "웃는다",
+                        List.of(new Evidence(secondStart,
+                                secondStart + secondQuote.codePointCount(0, secondQuote.length()), secondQuote))));
+        UUID characterId = character("비요른 얀델");
+        confirmDiscovery(id, characterId, "비요른 얀델");
+        apply(id, context, add(context, "O1", Kind.COMPANIONSHIP, "돕는다"),
+                add(context, "O2", Kind.COMPANIONSHIP, "함께 웃는다"));
+        assertThat(service.getRelationshipGraph(owner, workId, 1).edges()).hasSize(2);
+
+        var report = cleanup.cleanup(workId, true);
+
+        assertThat(report.counts().eventsEvidenceMerged()).isEqualTo(1);
+        assertThat(report.counts().eventsMoved()).isZero();
+        assertThat(relationshipEvents()).singleElement().satisfies(e -> {
+            assertThat(e.getAnalysisId()).isEqualTo(id);
+            assertThat(e.getEvidence()).hasSize(2);
+            assertThat(e.getSummary()).isEqualTo("함께 웃는다");
+        });
+        Edge merged = service.getRelationshipGraph(owner, workId, 1).edges().getFirst();
+        assertThat(service.getRelationshipGraph(owner, workId, 1).edges()).hasSize(1);
+        assertThat(merged.evidenceCount()).isEqualTo(2);
+        assertThat(service.getRelationshipEdge(owner, workId, merged.id(), 1).evidence())
+                .extracting(e -> e.quote()).containsExactlyInAnyOrder(firstQuote, secondQuote);
+    }
+
+    @Test
+    @DisplayName("GH391 같은 프로필에 연결된 노드는 이름이 그 프로필로만 해소될 때만 합치고 프로필 연결은 대표 노드에만 남긴다")
+    void cleanupMergesLinkedSplitNodeOnlyWhenNameResolves() {
+        String text = "브라운 로트밀러와 로트밀러와 미샤 칼스타인과 테일론 칼스타인은 보라를 만났다.";
+        UUID id = jobWithSource(1, text, false);
+        Context context = prepareWith(id, text, observation("O1", text, "브라운 로트밀러", "보라"),
+                observation("O2", text, "로트밀러", "보라"), observation("O3", text, "미샤 칼스타인", "보라"),
+                observation("O4", text, "테일론 칼스타인", "보라"));
+        apply(id, context, add(context, "O1", Kind.COMPANIONSHIP, "만난다"), add(context, "O2", Kind.COMPANIONSHIP, "만난다"),
+                add(context, "O3", Kind.COMPANIONSHIP, "만난다"), add(context, "O4", Kind.TRUST, "믿는다"));
+        UUID brown = character("브라운 로트밀러"), misha = character("미샤 칼스타인");
+        confirmedAliasAt(1, text, brown, "브라운 로트밀러");
+        confirmedAliasAt(1, text, misha, "미샤 칼스타인");
+        confirmedAliasAt(1, text, misha, "테일론 칼스타인");
+        java.util.Map<String, UUID> node = new java.util.HashMap<>();
+        for (String ref : List.of("O1", "O2", "O3", "O4")) {
+            var observation = context.observations().stream().filter(o -> o.ref().equals(ref)).findFirst().orElseThrow();
+            node.put(ref, boundNodeId(id, observation.sourceNodeRefs().getFirst()));
+        }
+        // Already split production data: two nodes linked to each profile.
+        tx.executeWithoutResult(t -> java.util.Map.of("O1", brown, "O2", brown, "O3", misha, "O4", misha)
+                .forEach((ref, profile) -> em.createNativeQuery(
+                                "update relationship_graph_nodes set character_id = ?1, character_linked_episode_no = 1 where id = ?2")
+                        .setParameter(1, profile).setParameter(2, node.get(ref)).executeUpdate()));
+
+        var report = cleanup.cleanup(workId, true);
+
+        assertThat(report.counts().nodesMergedLinked()).isEqualTo(1);
+        assertThat(report.nodes()).filteredOn(n -> n.nodeId().equals(node.get("O4"))).singleElement()
+                .satisfies(n -> {
+                    assertThat(n.action()).isEqualTo("SKIPPED");
+                    assertThat(n.reason()).isEqualTo("NOT_REPRESENTATIVE_FORM");
+                });
+        assertMergedInto(node.get("O2"), node.get("O1"), 1, 1, "로트밀러");
+        assertProfileLink(node.get("O1"), brown, 1, 1);
+        assertProfileLink(node.get("O4"), misha, 1, 1);
+        assertProfileLink(node.get("O3"), misha, 1, 1);
+        Graph graph = service.getRelationshipGraph(owner, workId, 1);
+        assertThat(graph.nodes()).extracting(n -> n.id()).doesNotContain(node.get("O2"));
+        // The profile now has one registered node, which therefore shows the profile name.
+        assertThat(graph.nodes()).filteredOn(n -> n.id().equals(node.get("O1"))).singleElement()
+                .extracting(n -> n.name()).isEqualTo("브라운 로트밀러");
+        assertThat(graph.edges()).filteredOn(e -> e.kind() == Kind.COMPANIONSHIP).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("GH391 진행 중이거나 문맥이 남은 무효 분석이 있으면 적용을 409로 보류하고 dry-run은 사유를 보고한다")
+    void cleanupRejectsWhileContextIsFrozen() {
+        AliasSplit split = aliasSplit(false);
+        UUID third = job(3);
+        prepare(third);
+        List<String> before = graphRows();
+
+        assertThat(cleanup.cleanup(workId, false).blockers()).containsExactly("ANALYSIS_IN_PROGRESS");
+        assertConflict(catchThrowable(() -> cleanup.cleanup(workId, true)), "ANALYSIS_IN_PROGRESS");
+        tx.executeWithoutResult(t -> analyses.findById(third).orElseThrow().invalidate());
+        assertThat(cleanup.cleanup(workId, false).blockers()).containsExactly("CONTEXT_FROZEN");
+        assertConflict(catchThrowable(() -> cleanup.cleanup(workId, true)), "CONTEXT_FROZEN");
+
+        assertThat(graphRows()).isEqualTo(before);
+        tx.executeWithoutResult(t -> assertThat(em.find(RelationshipGraphNode.class, split.alias()).isMerged()).isFalse());
+    }
+
+    @Test
+    @DisplayName("GH391 관계 백필을 아직 완료하지 않은 작품은 적용하지 않는다")
+    void cleanupSkipsWorkInActiveBackfill() {
+        aliasSplit(false);
+        tx.executeWithoutResult(t -> em.persist(
+                org.monitoring.catchholebackend.domain.relationship.entity.RelationshipBackfillWork
+                        .create(workId, "relationship-backfill-20261030-v1")));
+        List<String> before = graphRows();
+
+        assertThat(cleanup.cleanup(workId, false).blockers()).containsExactly("BACKFILL_ACTIVE");
+        assertConflict(catchThrowable(() -> cleanup.cleanup(workId, true)), "BACKFILL_ACTIVE");
+        assertThat(graphRows()).isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("GH391 정리 뒤 새 분석은 합친 선을 문맥 관계로 받아 갱신하고 별칭 의존성 필드를 만들지 않는다")
+    void finalizeAfterCleanupUsesConsolidatedEdges() {
+        AliasSplit split = aliasSplit(false);
+        cleanup.cleanup(workId, true);
+
+        String text = "비요른과 보라는 다시 걸었다.";
+        UUID third = jobWithSource(3, text, false);
+        Context context = prepareWith(third, text, observation("O1", text, "비요른", "보라"));
+        assertThat(boundNodeId(third, sourceRef(context))).isEqualTo(split.profile());
+        var companion = context.relationships().stream().filter(r -> r.kind() == Kind.COMPANIONSHIP)
+                .findFirst().orElseThrow();
+        assertThat(UUID.fromString(analyses.findById(third).orElseThrow().getBindings()
+                .path("relationships").path(companion.ref()).asText())).isEqualTo(split.profileEdge());
+        assertThat(analyses.findById(third).orElseThrow().getBindings().has("aliasDependencyVersion")).isFalse();
+        apply(third, context, action(context, Operation.UPDATE, Kind.COMPANIONSHIP, "3화 동행"));
+
+        assertThat(service.getRelationshipGraph(owner, workId, 3).edges())
+                .filteredOn(e -> e.kind() == Kind.COMPANIONSHIP).singleElement().satisfies(e -> {
+                    assertThat(e.id()).isEqualTo(split.profileEdge());
+                    assertThat(e.summary()).isEqualTo("3화 동행");
+                });
+        // The 3화 event names follow the context names, oriented by the survivor's endpoints.
+        assertThat(relationshipEvents()).filteredOn(e -> e.getEpisodeNo() == 3).singleElement()
+                .satisfies(e -> {
+                    assertThat(e.getEdgeId()).isEqualTo(split.profileEdge());
+                    assertThat(e.getSourceName()).isEqualTo("비요른 얀델");
+                    assertThat(e.getTargetName()).isEqualTo("보라");
+                });
+    }
+
+    @Test
+    @DisplayName("GH391 정리로 합친 별칭 노드의 실패 쌍과 보류 관측은 다음 문맥에서 프로필 노드 쌍으로 계속 해소된다")
+    void blockedPairAndHeldObservationSurviveCleanup() {
+        String text = "비요른과 보라와 라라는 함께 길을 떠났다.";
+        UUID first = jobWithSource(1, text, false);
+        tx.executeWithoutResult(t -> jobs.findById(first).orElseThrow().enableRelationshipPartialResults());
+        Context c1 = prepareWith(first, text,
+                observation("O1", text, "비요른", "보라"), observation("O2", text, "비요른", "라라"));
+        service.completeRelationshipAnalysis(first, lease, new Complete(1, c1.contextToken(),
+                List.of(new Decision(List.of("O2"), Operation.HOLD, null, null, null, null, null, null, null,
+                        null, TemporalScope.UNKNOWN, "관계를 확정할 근거가 부족하다")),
+                List.of(new org.monitoring.catchholebackend.domain.relationship.dto.RelationshipGraphContract.GroupFailure(
+                        List.of("O1"), "RELATIONSHIP_ENDPOINTS_UNGROUNDED"))));
+        tx.executeWithoutResult(t -> service.finalizeRelationshipAnalysis(jobs.findById(first).orElseThrow()));
+        UUID characterId = character("비요른 얀델");
+        UUID profile = profileNodeAt(2, "비요른 얀델과 다라는 함께 길을 떠났다.", "비요른 얀델", "다라", characterId);
+
+        var report = cleanup.cleanup(workId, true);
+        assertThat(report.counts().nodesMergedUnlinked()).isEqualTo(1);
+
+        String later = "비요른 얀델과 보라와 라라는 다시 만났다.";
+        UUID third = jobWithSource(3, later, false);
+        tx.executeWithoutResult(t -> jobs.findById(third).orElseThrow().enableRelationshipPartialResults());
+        Context c3 = prepareWith(third, later,
+                observation("O1", later, "비요른 얀델", "보라"), observation("O2", later, "비요른 얀델", "라라"));
+        String profileRef = c3.observations().getFirst().sourceNodeRefs().getFirst();
+        assertThat(boundNodeId(third, profileRef)).isEqualTo(profile);
+        assertThat(c3.blockedPairs()).singleElement().satisfies(blocked -> {
+            assertThat(blocked.firstFailedEpisodeNo()).isEqualTo(1);
+            assertThat(java.util.Set.of(blocked.sourceNodeRef(), blocked.targetNodeRef()))
+                    .containsExactlyInAnyOrder(profileRef, c3.observations().getFirst().targetNodeRefs().getFirst());
+        });
+        assertThat(c3.heldObservations()).singleElement().satisfies(held -> {
+            assertThat(held.source().name()).isEqualTo("비요른");
+            assertThat(held.sourceNodeRefs()).containsExactly(profileRef);
+            assertThat(held.sourceEpisodeNo()).isEqualTo(1);
+        });
+    }
+
+    @Test
+    @DisplayName("GH391 두 번째 적용은 바꿀 것이 없고 정리는 분석·설정 후보·프로필·분석 Job 엔티티를 올리지 않는다")
+    void cleanupIsIdempotentAndDoesNotHydrateAnalyses() {
+        aliasSplit(false);
+        var statistics = em.getEntityManagerFactory().unwrap(org.hibernate.SessionFactory.class).getStatistics();
+        boolean previouslyEnabled = statistics.isStatisticsEnabled();
+        statistics.setStatisticsEnabled(true);
+        statistics.clear();
+        org.monitoring.catchholebackend.domain.relationship.dto.response.RelationshipGraphCleanupResponse first;
+        try {
+            first = cleanup.cleanup(workId, true);
+            for (Class<?> heavy : List.of(
+                    org.monitoring.catchholebackend.domain.relationship.entity.RelationshipGraphAnalysis.class,
+                    SettingCandidate.class, WorkCharacter.class, AnalysisJob.class))
+                assertThat(statistics.getEntityStatistics(heavy.getName()).getLoadCount()).as(heavy.getSimpleName())
+                        .isZero();
+            System.out.println("GH391 cleanup statistics: prepared=" + statistics.getPrepareStatementCount()
+                    + " queries=" + statistics.getQueryExecutionCount()
+                    + " entityLoads=" + statistics.getEntityLoadCount()
+                    + " nodeLoads=" + statistics.getEntityStatistics(RelationshipGraphNode.class.getName()).getLoadCount()
+                    + " edgeLoads=" + statistics.getEntityStatistics(
+                            org.monitoring.catchholebackend.domain.relationship.entity.RelationshipGraphEdge.class.getName()).getLoadCount()
+                    + " eventLoads=" + statistics.getEntityStatistics(RelationshipGraphEvent.class.getName()).getLoadCount()
+                    + " workLoads=" + statistics.getEntityStatistics(Work.class.getName()).getLoadCount()
+                    + " analysisLoads=" + statistics.getEntityStatistics(
+                            org.monitoring.catchholebackend.domain.relationship.entity.RelationshipGraphAnalysis.class.getName()).getLoadCount()
+                    + " candidateLoads=" + statistics.getEntityStatistics(SettingCandidate.class.getName()).getLoadCount()
+                    + " characterLoads=" + statistics.getEntityStatistics(WorkCharacter.class.getName()).getLoadCount()
+                    + " jobLoads=" + statistics.getEntityStatistics(AnalysisJob.class.getName()).getLoadCount());
+        } finally {
+            statistics.setStatisticsEnabled(previouslyEnabled);
+        }
+        assertThat(first.applied()).isTrue();
+        List<String> after = graphRows();
+
+        var second = cleanup.cleanup(workId, true);
+
+        assertThat(second.apply()).isTrue();
+        assertThat(second.applied()).isFalse();
+        assertThat(second.counts()).isEqualTo(
+                new org.monitoring.catchholebackend.domain.relationship.dto.response.RelationshipGraphCleanupResponse.Counts(
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
+        assertThat(second.before()).isEqualTo(first.after()).isEqualTo(second.after());
+        assertThat(graphRows()).isEqualTo(after);
+    }
+
+    @Test
+    @DisplayName("GH391 정리 뒤에도 작품 파기의 단일 노드 DELETE가 병합 노드 행까지 지운다")
+    void purgeAfterCleanupDeletesAllRows() {
+        aliasSplit(false);
+        cleanup.cleanup(workId, true);
+        assertThat(nodeCount()).isEqualTo(3);
+
+        tx.executeWithoutResult(t -> {
+            for (String table : List.of(
+                    "relationship_graph_events", "relationship_graph_edges", "relationship_graph_nodes"))
+                em.createNativeQuery("delete from " + table + " where work_id = ?1")
+                        .setParameter(1, workId).executeUpdate();
+        });
+        assertThat(nodeCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("GH391 정리 엔드포인트는 내부 API 키가 있어야 하고 기본은 dry-run이다")
+    void cleanupEndpointRequiresInternalKeyAndDefaultsToDryRun() throws Exception {
+        aliasSplit(false);
+        String body = "{\"workId\":\"" + workId + "\"}";
+        String path = "/api/internal/v1/relationship-graph/cleanups";
+        var json = org.springframework.http.MediaType.APPLICATION_JSON;
+        List<String> before = graphRows();
+
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(path)
+                        .contentType(json).content(body))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isUnauthorized());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(path)
+                        .header("X-Internal-Api-Key", "local-development-internal-api-key")
+                        .contentType(json).content(body))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.data.apply").value(false))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.data.counts.nodesMergedUnlinked").value(1))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.data.nodes[0].name").value("비요른"));
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(path)
+                        .header("X-Internal-Api-Key", "local-development-internal-api-key")
+                        .contentType(json).content("{\"workId\":\"" + UUID.randomUUID() + "\",\"apply\":true}"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNotFound());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(path)
+                        .header("X-Internal-Api-Key", "local-development-internal-api-key")
+                        .contentType(json).content("{\"apply\":true}"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isBadRequest());
+        assertThat(graphRows()).isEqualTo(before);
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(path)
+                        .header("X-Internal-Api-Key", "local-development-internal-api-key")
+                        .contentType(json).content("{\"workId\":\"" + workId + "\",\"apply\":true}"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.data.applied").value(true));
+    }
 }
