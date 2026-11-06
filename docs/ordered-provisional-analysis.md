@@ -100,6 +100,54 @@ V44~48은 기존 Job·후보·비교 batch/decision 컬럼을 보완한다. 수�
 ID·번호·hash·S3 version, 입력 hash, journal 포맷/완성 상태를 함께 검증한다. 동일 이벤트의
 동일 내용은 한 번 적용하고 다른 내용은 거절한다. 현재 후보를 편집해도 저장 당시 값은 바뀌지 않는다.
 
+## 자동 누적 claim 입력 format 2 (#387, 플래그)
+
+`analysis.automatic-input.live-settings-enabled`(환경변수 `ANALYSIS_AUTOMATIC_INPUT_LIVE_SETTINGS_ENABLED`, 기본 false)를 켜면
+자동 누적 회차의 claim은 캐릭터·세계관을 복사하지 않고 `automatic_input_state`에 아래 객체만 저장한다.
+
+```json
+{"formatVersion": 2, "fingerprintVersion": 1, "fingerprint": "<64 hex>", "references": { ... }}
+```
+
+- `references`는 format 1과 같은 규칙으로 claim 때 고정한다(사람의 반려 hash, 앞 회차 미확정 참고, 설정집 manifest).
+  Worker 입력 동일성과 GH287 선택 정보가 이 고정에 기대기 때문이다. `input_state_hash`는 이 객체의 hash다.
+- 캐릭터·세계관은 실행 중 필요할 때 지금 DB에서 대상별로 읽고(`AnalysisLiveStateReader`), 이 Job의 변경 기록 중
+  그 대상 경로에 닿는 것만 저장 순서대로 적용한다. 값은 format 1의 claim 사본에서 같은 대상을 읽은 값과 같다.
+- claim 응답(알려진 인물·semantic 현재 문맥)은 현재값만 읽는다. 이력 Fact·slot 근거 사본·세계관 경로별 출처는 claim 응답이
+  쓰지 않으므로 만들지 않는다.
+- 지문은 대상별 읽기 값을 바꾸는 쓰기마다 달라지는 scalar hash다. 인물: id·이름·snapshotVersion·Fact 수·마지막 Fact 생성 시각·
+  확정 인물 발견 id. 세계관: id·version·확정 현재값 후보 수. 회차 번호 변경은 지문에 넣지 않으며 기존처럼 영향 실행을 무효화한다.
+
+### 지문이 다를 때
+
+실행 중에는 GH201이 확정 설정 쓰기를 막으므로 지문이 claim 때와 같다. 대상 읽기·변경 추가·seal·재개·재claim은 지문을 먼저
+확인하고, 다르면 409 `ANALYSIS_RUN_STATE_CONFLICT`를 낸다. 그 호출이 되돌려진 뒤 새 트랜잭션에서 실행을 기존
+무효화(`invalidateFrom`)로 닫는다. GH201을 거치지 않는 legacy 단건 캐릭터 비교의 EXCLUDE가 대표 서사 시점을 바꾸면
+format 2 실행이 이 경로로 무효화된다. format 1은 고정 사본만 읽어 이 변경을 모른 채 진행했다(받아들인 동작 변경).
+
+### 확정 근거 검증 범위
+
+format 2는 실행이 실제로 읽는 대상의 확정 근거만 검증한다. claim은 다른 인물의 slot 근거·이력을 읽지 않으므로
+관련 없는 인물의 근거 연결이 깨져 있어도 실행이 실패하지 않는다. 실행이 어떤 대상을 처음 읽다가
+`ANALYSIS_CURRENT_EVIDENCE_INVALID`가 나면 그 Worker 호출을 되돌리고, 새 트랜잭션에서 그 lease의 Job을 claim 입력 실패와
+같은 모양으로 마감한다: `FAILED`, 실패 코드 `UNEXPECTED_ERROR`, 진단 단계 `CLAIM_INPUT`(원인 `CURRENT_EVIDENCE_*`),
+journal `INCOMPLETE`, 미정산 예약 해제, 회차 `FAILED`. Job이 RUNNING으로 남아 Worker가 같은 오류를 반복하지 않으며,
+근거를 고친 뒤 기존 재시도 API로 같은 Job을 다시 시작한다.
+
+### seal과 완료
+
+format 2의 `outputStateHash`는 `{inputStateHash, changes}`의 hash다. 자동 누적 journal은 저장된 시작 상태에서 replay되지
+않는다(replay는 수동 누적의 S0뿐이고 AI는 이 값을 읽지 않는다). seal은 반영 전 인물 식별 색인을 그 처리의 Job에만 고정한다.
+같은 완료 트랜잭션의 자동 반영이 인물을 만든 뒤에도 설정집 동일 인물 검증이 claim 때 이름을 읽게 하기 위함이다.
+그 밖의 대상 읽기는 반영이 값을 바꿨으면 지문이 달라져 거절되므로 이 Job의 변경을 두 번 적용하지 않는다.
+
+### 호환과 배포
+
+- 플래그를 켜기 전에 claim한 Job(format 1)과 그 재시도는 저장 사본을 그대로 읽는다. 입력은 claim 때 비어 있을 때만 만든다.
+- 플래그를 끄면 새 claim만 format 1로 돌아가고 이미 format 2인 Job은 그대로 format 2로 읽는다.
+- 이 단계 이전 이미지로 되돌리려면 진행·대기·재개 대기인 format 2 Job이 없어야 한다(이전 코드는 format 2를 읽지 못한다).
+- AI Worker는 바꾸지 않는다. Worker는 `inputStateHash` 문자열만 비교한다.
+
 ## 현재 코드의 동시성 경계
 
 `AnalysisJobClaimRepository`는 대기 Job을 작품별로 고른 뒤 Work row에 PostgreSQL
