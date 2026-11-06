@@ -221,6 +221,52 @@ class RelationshipGraphCleanupRulesTest {
     }
 
     @Test
+    @DisplayName("대표 이름과 같은 노드가 없으면 그 프로필로만 해소되는 노드 중에서 대표 노드를 고르고 잘못 먼저 연결된 다른 사람으로 합치지 않는다")
+    void fallbackCanonicalMustResolveToTheProfile() {
+        UUID misha = profile("미샤 칼스타인"), taylon = profile("테일론 칼스타인");
+        confirm("미샤 칼스타인", misha);
+        confirm("테일론 칼스타인", taylon);
+        // A data error linked the other person first; no node carries the representative name.
+        NodeRow wrongFirst = node("테일론 칼스타인", misha, 10);
+        NodeRow shortName = node("미샤", misha, 20);
+        NodeRow longName = node("미샤 칼스타인님", misha, 30);
+
+        Plan plan = plan();
+
+        assertThat(action(plan, wrongFirst)).satisfies(a -> {
+            assertThat(a.kind()).isEqualTo(NodeActionKind.SKIPPED);
+            assertThat(a.reason()).isEqualTo(Reason.OTHER_PROFILE);
+            assertThat(a.resolvedProfileIds()).containsExactly(taylon);
+        });
+        assertThat(untouched(plan, shortName)).isTrue();
+        assertThat(action(plan, longName)).satisfies(a -> {
+            assertThat(a.kind()).isEqualTo(NodeActionKind.MERGE_LINKED);
+            assertThat(a.targetNodeId()).isEqualTo(shortName.id());
+        });
+        assertThat(plan.nodes()).noneMatch(a -> wrongFirst.id().equals(a.targetNodeId()));
+    }
+
+    @Test
+    @DisplayName("대표 이름과 같은 노드도, 그 프로필로만 해소되는 노드도 없으면 그 묶음은 합치지 않고 노드마다 사유를 남긴다")
+    void groupWithoutVerifiedCanonicalStaysSplit() {
+        UUID misha = profile("미샤 칼스타인"), taylon = profile("테일론 칼스타인");
+        confirm("미샤 칼스타인", misha);
+        confirm("테일론 칼스타인", taylon);
+        NodeRow wrongFirst = node("테일론 칼스타인", misha, 10);
+        NodeRow family = node("칼스타인", misha, 20);
+
+        Plan plan = plan();
+
+        assertThat(action(plan, wrongFirst).reason()).isEqualTo(Reason.OTHER_PROFILE);
+        assertThat(action(plan, family)).satisfies(a -> {
+            assertThat(a.kind()).isEqualTo(NodeActionKind.HELD);
+            assertThat(a.reason()).isEqualTo(Reason.HELD_COLLISION);
+        });
+        assertThat(plan.count(NodeActionKind.MERGE_LINKED)).isZero();
+        assertThat(plan.isEmpty()).isTrue();
+    }
+
+    @Test
     @DisplayName("미연결 노드는 다음 반영과 같은 규칙으로 연결·병합·보류·건너뜀을 정한다")
     void unlinkedNodeLinksMergesHoldsOrSkips() {
         UUID bjorn = profile("비요른 얀델"), ragnar = profile("라그나 페프로크");

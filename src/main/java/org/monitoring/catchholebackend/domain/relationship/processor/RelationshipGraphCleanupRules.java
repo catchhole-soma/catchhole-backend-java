@@ -277,21 +277,14 @@ public final class RelationshipGraphCleanupRules {
             }
             if (members.size() < 2) continue;
             String normalizedRepresentative = RelationshipNameRules.normalize(representative);
-            NodeRow canonical = canonicalOf(members, normalizedRepresentative);
+            Map<UUID, LinkedCheck> checks = new HashMap<>();
+            for (NodeRow node : members)
+                checks.put(node.id(), checkLinked(node, profile, normalizedRepresentative, input, nameCounts));
+            NodeRow canonical = canonicalOf(members, normalizedRepresentative, checks);
             for (NodeRow node : members) {
                 if (node == canonical) continue;
-                List<UUID> resolved = List.of();
-                Reason reason = null;
-                if (nameCounts.getOrDefault(node.name(), 0L) != 1) reason = Reason.DUPLICATE_NAME;
-                else {
-                    resolved = RelationshipNameRules.resolveStrictly(node.name(), input.confirmed(), input.profiles());
-                    if (resolved.size() > 1) reason = Reason.HELD_COLLISION;
-                    else if (resolved.isEmpty()) reason = Reason.UNRESOLVED;
-                    else if (!resolved.getFirst().equals(profile)) reason = Reason.OTHER_PROFILE;
-                    else if (!RelationshipNameRules.overlaps(
-                            RelationshipNameRules.normalize(node.name()), normalizedRepresentative))
-                        reason = Reason.NOT_REPRESENTATIVE_FORM;
-                }
+                List<UUID> resolved = checks.get(node.id()).resolved();
+                Reason reason = checks.get(node.id()).reason();
                 if (reason == Reason.HELD_COLLISION) {
                     actions.add(new NodeAction(node.id(), node.name(), Phase.LINKED, NodeActionKind.HELD,
                             profile, null, reason, resolved));
@@ -307,13 +300,36 @@ public final class RelationshipGraphCleanupRules {
         }
     }
 
-    /** 대표 이름과 정규화 결과가 같은 노드, 없거나 여럿이면 가장 먼저 나온 노드. */
-    private static NodeRow canonicalOf(List<NodeRow> members, String normalizedRepresentative) {
-        List<NodeRow> named =
-                members.stream()
-                        .filter(n -> RelationshipNameRules.normalize(n.name()).equals(normalizedRepresentative))
-                        .toList();
-        return (named.isEmpty() ? members : named).stream().min(EARLIEST).orElseThrow();
+    /** 연결 노드 검사 결과. {@code reason}이 null이면 이름이 그 프로필로만 해소되는 대표 이름의 형태다. */
+    private record LinkedCheck(Reason reason, List<UUID> resolved) {}
+
+    private static LinkedCheck checkLinked(
+            NodeRow node, UUID profile, String normalizedRepresentative, Input input, Map<String, Long> nameCounts) {
+        if (nameCounts.getOrDefault(node.name(), 0L) != 1) return new LinkedCheck(Reason.DUPLICATE_NAME, List.of());
+        List<UUID> resolved = RelationshipNameRules.resolveStrictly(node.name(), input.confirmed(), input.profiles());
+        Reason reason = null;
+        if (resolved.size() > 1) reason = Reason.HELD_COLLISION;
+        else if (resolved.isEmpty()) reason = Reason.UNRESOLVED;
+        else if (!resolved.getFirst().equals(profile)) reason = Reason.OTHER_PROFILE;
+        else if (!RelationshipNameRules.overlaps(RelationshipNameRules.normalize(node.name()), normalizedRepresentative))
+            reason = Reason.NOT_REPRESENTATIVE_FORM;
+        return new LinkedCheck(reason, resolved);
+    }
+
+    /**
+     * 대표 이름과 정규화 결과가 같은 노드(여럿이면 가장 먼저 나온 노드). 없으면 검사를 통과한(이름이 그 프로필로만 해소되는 대표
+     * 이름의 형태인) 노드 중 가장 먼저 나온 노드. 그런 노드도 없으면 null이고 그 묶음은 합치지 않는다. 데이터 오류로 다른 사람이
+     * 먼저 연결돼 있어도 그 노드로 합치지 않기 위해서다.
+     */
+    private static NodeRow canonicalOf(
+            List<NodeRow> members, String normalizedRepresentative, Map<UUID, LinkedCheck> checks) {
+        return members.stream()
+                .filter(n -> RelationshipNameRules.normalize(n.name()).equals(normalizedRepresentative))
+                .min(EARLIEST)
+                .orElseGet(() -> members.stream()
+                        .filter(n -> checks.get(n.id()).reason() == null)
+                        .min(EARLIEST)
+                        .orElse(null));
     }
 
     /** 2-2: 미연결 노드는 다음 반영과 같은 이름 규칙으로 프로필 하나에 해소되면 연결하거나 합친다. */
