@@ -69,6 +69,9 @@ class ValidationSettingsApplicationPostgresIntegrationTest extends ValidationSet
         assertThat(characters(f)).as("applied once").isEqualTo(2);assertThat(facts(f)).isEqualTo(1);assertThat(worldSettings(f)).isEqualTo(1);
     }
 
+    @Test @DisplayName("PostgreSQL에서도 설정집 자동 분석이 대기·실행 중이면 회차 전체 확정은 409로 아무것도 쓰지 않고, 분석이 끝나면 반영된다")
+    void explicitApplyWaitsForUnfinishedOrderedAnalysisOnPostgres() {applyWaitsForUnfinishedOrderedAnalysis();}
+
     @Test @DisplayName("PostgreSQL에서도 세계관 반영 실패는 캐릭터 쓰기까지 되돌리고 추출 완료와 보류만 남긴다")
     void worldFailureRollsBackOnPostgres() {
         var r=release();applicable(r);

@@ -389,7 +389,8 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             UUID settingCandidateId,
             Collection<AnalysisJobStatus> statuses
     );
-    @Query("""
+    /** GH201 진행·대기·같은 입력으로 재개할 순차 분석. 확정 설정 변경 거절과 회차 전체 확정 안내(D2, #387)가 같은 조건을 쓴다. */
+    String UNFINISHED_ORDERED_ANALYSIS = """
             select count(job) > 0 from AnalysisJob job
             left join job.episode episode
             where job.work.id = :workId
@@ -416,8 +417,17 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
                              and (newer.createdAt > job.createdAt
                                   or (newer.createdAt = job.createdAt and newer.id > job.id))
                        )))
-            """)
+            """;
+
+    @Query(UNFINISHED_ORDERED_ANALYSIS)
     boolean existsUnfinishedOrderedAnalysis(@Param("workId") UUID workId);
+
+    /**
+     * D2(#387) 검수 회차의 APPLY_SETTINGS 안내용. 그 report의 release Job 자신은 빼고 묻는다. release Job이 추출 중이거나 실패했을 때의
+     * 명시 반영은 지금처럼 NOT_READY·보류로 처리되고, 회차 전체 확정 READY는 release Job이 SUCCEEDED·SEALED라 위 조건에 걸리지 않는다.
+     */
+    @Query(UNFINISHED_ORDERED_ANALYSIS + "  and job.id <> :excludedJobId")
+    boolean existsUnfinishedOrderedAnalysisOtherThan(@Param("workId") UUID workId, @Param("excludedJobId") UUID excludedJobId);
 
     /**
      * GH312: 회차의 현재 검수 report에 검토 종료 receipt가 없으면 true다. claim의 {@link AnalysisJobEligibility#DOMAIN},

@@ -104,6 +104,21 @@ class ValidationReviewGateTest {
         assertThat(retired.allowedActions()).as("a retired report is never rechecked").isEmpty();
     }
 
+    @Test @DisplayName("D2: 같은 작품의 다른 순차 분석이 끝나지 않았으면 반영 전 report에 APPLY_SETTINGS를 안내하지 않고 다른 행동·단계는 그대로다")
+    void applySettingsWaitsForUnfinishedOrderedAnalysis() {
+        var receipt=new Completion(java.util.UUID.randomUUID(),ValidationReviewTrigger.EXPLICIT,java.time.LocalDateTime.now(),java.util.UUID.randomUUID());
+        var held=new ValidationReviewGate.Application(ValidationApplicationStatus.HELD_REVIEW,1,java.util.List.of(),null,1);
+        java.util.function.BiFunction<ValidationReviewGate.Application,Boolean,ValidationReviewGate.Review> review=(application,waits)->ValidationReviewGate.evaluate(new Input(true,
+                ValidationPreparationStatus.READY,ValidationReportStatus.WAITING_FOR_ERROR_REVIEW,ValidationReportMode.BEFORE_CONFIRMATION,COMPLETED,DECIDED,true,receipt,null,application,ValidationExtractionState.SUCCEEDED,false,waits));
+        for(var application:java.util.Arrays.asList(null,held)) {
+            var open=review.apply(application,false);var waiting=review.apply(application,true);
+            assertThat(open.allowedActions()).containsExactly(ValidationReviewAction.APPLY_SETTINGS);
+            assertThat(waiting.allowedActions()).as("the explicit apply would get 409 ANALYSIS_REVIEW_WAIT_REQUIRED").isEmpty();
+            assertThat(waiting.reviewStage()).isEqualTo(open.reviewStage());assertThat(waiting.completionMode()).isEqualTo(open.completionMode());
+            assertThat(waiting.holdReasons()).isEqualTo(open.holdReasons());
+        }
+    }
+
     @Test @DisplayName("분기마다 허용 판단을 분리한다")
     void allowedJudgmentsPerBranch() {
         assertThat(ValidationJudgmentValue.allowedFor(ValidationBranch.SETTING)).containsExactly(ValidationJudgmentValue.PENDING,ValidationJudgmentValue.NEEDS_FIX,ValidationJudgmentValue.NOT_CONFLICT);

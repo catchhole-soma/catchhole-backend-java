@@ -199,6 +199,8 @@ class ValidationSettingsApplicationIntegrationTest extends ValidationSettingsApp
         assertThat(applied.status()).isEqualTo(ValidationApplicationStatus.APPLIED);assertThat(applied.attempt()).isEqualTo(2);
         assertThat(characters(f)).isEqualTo(2);assertThat(worldSettings(f)).isEqualTo(1);
     }
+    @Test @DisplayName("같은 작품의 설정집 자동 분석이 대기·실행 중이면 회차 전체 확정은 409로 아무것도 쓰지 않고 APPLY_SETTINGS를 안내하지 않으며, 분석이 끝나면 둘 다 돌아온다")
+    void explicitApplyWaitsForUnfinishedOrderedAnalysis() {applyWaitsForUnfinishedOrderedAnalysis();}
     /** 앞 회차(100)에 막 접수된 QUEUED 검수 하나. 다음 회차 등록 차단과 별개로 같은 작품의 잠금만 만든다. */
     UUID queueValidationOnPriorEpisode(Fixture f) {
         return tx.execute(s->{
