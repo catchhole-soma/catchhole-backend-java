@@ -28,6 +28,7 @@ import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode;
 import org.monitoring.catchholebackend.domain.aitoken.dto.request.AiTokenReserveRequest;
 import org.monitoring.catchholebackend.domain.aitoken.service.AiTokenService;
 import org.monitoring.catchholebackend.domain.aitoken.type.AiTokenPurpose;
@@ -326,7 +327,7 @@ class OrderedAnalysisPostgresIntegrationTest {
     }
 
     @Test
-    @DisplayName("현재 slot이 비어도 미래 회차 Fact 이력이 있으면 과거 S0 생성을 거절한다")
+    @DisplayName("현재 slot이 비어도 미래 회차 Fact 이력이 있으면 수동 S0·자동 생성 모두 과거 시작을 거절한다")
     void rejectsFutureFactHistoryEvenWhenCurrentSlotIsAbsent() {
         Run run = run(10);
         tx.executeWithoutResult(status -> {
@@ -342,7 +343,7 @@ class OrderedAnalysisPostgresIntegrationTest {
     }
 
     @Test
-    @DisplayName("설정 slot이 없는 미래 회차 인물 발견도 과거 S0에 포함하지 않는다")
+    @DisplayName("설정 slot이 없는 미래 회차 인물 발견도 수동 S0·자동 생성 모두 과거 시작을 거절한다")
     void rejectsFutureDiscoveryWithoutAnyCurrentFact() {
         Run run = run(10);
         tx.executeWithoutResult(status -> {
@@ -356,11 +357,17 @@ class OrderedAnalysisPostgresIntegrationTest {
     }
 
     private void assertPastRunRejected(Run run, int episodeNo) {
-        assertThatThrownBy(() -> tx.executeWithoutResult(status -> {
-            Work work = works.findByIdForUpdate(run.workId()).orElseThrow();
-            Episode episode = episodes.findById(run.episodes().get(episodeNo - 1)).orElseThrow();
-            states.initializeRun(List.of(AnalysisJob.create(work, null, episode, AnalysisJobType.SETTING_EXTRACTION)));
-        })).isInstanceOf(AppException.class);
+        // #387 자동 생성은 S0를 capture하지 않고 scalar 조회로 같은 오류를 낸다.
+        for (AnalysisReviewMode mode : AnalysisReviewMode.values()) {
+            assertThatThrownBy(() -> tx.executeWithoutResult(status -> {
+                Work work = works.findByIdForUpdate(run.workId()).orElseThrow();
+                Episode episode = episodes.findById(run.episodes().get(episodeNo - 1)).orElseThrow();
+                AnalysisJob job = AnalysisJob.create(work, null, episode, AnalysisJobType.SETTING_EXTRACTION);
+                job.configureReviewMode(mode);
+                states.initializeRun(List.of(job));
+            })).isInstanceOfSatisfying(AppException.class, error -> assertThat(error.getResultCode())
+                    .isEqualTo(org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErrorCode.ANALYSIS_FUTURE_HISTORY_CONFLICT));
+        }
     }
 
     private Run run(int count) {

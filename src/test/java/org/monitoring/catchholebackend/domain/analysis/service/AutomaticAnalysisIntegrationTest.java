@@ -1185,7 +1185,7 @@ class AutomaticAnalysisIntegrationTest {
     }
 
     @Test
-    @DisplayName("원문 파기는 다음 회차에 복사된 근거와 보류 정보 및 새 실행 시작 snapshot의 근거를 지운다")
+    @DisplayName("원문 파기는 다음 회차에 복사된 근거와 보류 정보 및 수동 새 실행 S0의 근거를 지우고 자동 새 실행은 표지만 남긴다")
     void purgesCopiedIdentityEvidenceAndPendingReferences() {
         Run run = run(2);
         WorkerAnalysisJobPayload first = claim();
@@ -1200,13 +1200,18 @@ class AutomaticAnalysisIntegrationTest {
         complete(first);
         WorkerAnalysisJobPayload second = claim();
         assertThat(input(second).toString()).contains("에르웬라고 말했다.", "파기할 보류 근거");
-        UUID freshRunRoot = tx.execute(status -> {
+        List<UUID> freshRunRoots = tx.execute(status -> {
             AnalysisJob next = jobs.findById(second.analysisJobId()).orElseThrow();
             AnalysisJob fresh = AnalysisJob.create(next.getWork(), next.getBatch(), next.getEpisode(), AnalysisJobType.SETTING_EXTRACTION);
             fresh.configureReviewMode(AnalysisReviewMode.AUTOMATIC);
             states.initializeRun(List.of(fresh));
-            assertThat(fresh.getRunBaseState().toString()).contains("에르웬라고 말했다.");
-            return fresh.getId();
+            // #387 자동 누적은 생성 때 설정을 복사하지 않는다. 근거는 claim 때 automatic_input_state에만 들어간다.
+            assertThat(fresh.getRunBaseState()).isEqualTo(JSON.objectNode().put("automaticInputCapturedAtClaim", true));
+            AnalysisJob manual = AnalysisJob.create(next.getWork(), next.getBatch(), next.getEpisode(), AnalysisJobType.SETTING_EXTRACTION);
+            manual.configureReviewMode(AnalysisReviewMode.MANUAL);
+            states.initializeRun(List.of(manual));
+            assertThat(manual.getRunBaseState().toString()).contains("에르웬라고 말했다.");
+            return List.of(fresh.getId(), manual.getId());
         });
         tx.executeWithoutResult(status -> {
             entities.lock(entities.find(Work.class, run.workId()), jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
@@ -1218,7 +1223,13 @@ class AutomaticAnalysisIntegrationTest {
             assertThat(secondJob.getJournalStatus()).isEqualTo(AnalysisJournalStatus.INVALIDATED);
             assertThat(secondJob.getAutomaticInputState().toString()).doesNotContain("에르웬라고 말했다.", "파기할 보류 근거");
             assertThat(secondJob.getAutomaticInputState().path("references").size()).isZero();
-            assertThat(jobs.findById(freshRunRoot).orElseThrow().getRunBaseState().toString()).doesNotContain("에르웬라고 말했다.");
+            JsonNode automaticBase = jobs.findById(freshRunRoots.get(0)).orElseThrow().getRunBaseState();
+            assertThat(automaticBase.path("automaticInputCapturedAtClaim").asBoolean()).isTrue();
+            assertThat(automaticBase.has("characters")).isFalse();
+            assertThat(automaticBase.has("worldSettings")).isFalse();
+            JsonNode manualBase = jobs.findById(freshRunRoots.get(1)).orElseThrow().getRunBaseState();
+            assertThat(manualBase.path("sourceEvidencePurged").asBoolean()).isTrue();
+            assertThat(manualBase.toString()).doesNotContain("에르웬라고 말했다.");
         });
     }
 

@@ -59,6 +59,8 @@ class DirectSettingMutationAnalysisIntegrationTest {
     @Autowired AnalysisRunStateService states;
     @Autowired CharacterService characters;
     @Autowired WorldSettingService worldSettings;
+    @Autowired List<AnalysisStateSource> stateSources;
+    @Autowired org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal journal;
     private TransactionTemplate tx;
 
     @BeforeEach
@@ -73,6 +75,7 @@ class DirectSettingMutationAnalysisIntegrationTest {
     void completedAnalysisKeepsHistoricalResult(String action) {
         Fixture fixture = fixture(State.COMPLETED, action.equals("character-restore"), !action.equals("world-protect"));
         JsonNode base = tx.execute(status -> entities.find(AnalysisJob.class, fixture.job()).getRunBaseState());
+        JsonNode input = tx.execute(status -> entities.find(AnalysisJob.class, fixture.job()).getAutomaticInputState());
 
         mutate(fixture, action);
 
@@ -82,6 +85,7 @@ class DirectSettingMutationAnalysisIntegrationTest {
             assertThat(job.getJournalStatus()).isEqualTo(AnalysisJournalStatus.SEALED);
             assertThat(job.getJournalInvalidationReason()).isNull();
             assertThat(job.getRunBaseState()).isEqualTo(base);
+            assertThat(job.getAutomaticInputState()).isEqualTo(input);
             assertThat(job.getInputStateHash()).isEqualTo("b".repeat(64));
             assertThat(job.getStateJournal().path("testEvidence").asText()).isEqualTo("당시 근거");
             WorkCharacter character = entities.find(WorkCharacter.class, fixture.character());
@@ -306,7 +310,10 @@ class DirectSettingMutationAnalysisIntegrationTest {
             states.initializeRun(List.of(job));
             ReflectionTestUtils.setField(job, "status", state.status);
             ReflectionTestUtils.setField(job, "journalStatus", state.journal);
-            ReflectionTestUtils.setField(job, "automaticInputState", job.getRunBaseState());
+            // #387 자동 누적의 run_base_state는 표지뿐이다. 완료 입력은 claim 때처럼 현재 설정을 capture해 고정한다.
+            var input = journal.emptyState();
+            stateSources.forEach(source -> input.set(source.domain(), source.capture(work)));
+            ReflectionTestUtils.setField(job, "automaticInputState", input);
             if (state == State.COMPLETED || state == State.INVALIDATED) {
                 ReflectionTestUtils.setField(job, "automaticAppliedAt", LocalDateTime.now());
             }

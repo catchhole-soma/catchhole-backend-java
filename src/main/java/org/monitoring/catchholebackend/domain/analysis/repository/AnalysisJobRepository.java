@@ -99,6 +99,38 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             """)
     Integer findLatestConfirmedWorldSourceEpisodeNo(@Param("workId") UUID workId);
 
+    /*
+     * #387 자동 누적 생성의 미래 출처 검사. 위 네 조회는 지금의 회차 번호를 보고, 아래 세 조회는 추출 Job에 고정한
+     * source_episode_no를 본다(회차 이동 뒤 둘이 다르다). 설정집 Job은 NULL이라 max에서 빠진다.
+     */
+    @Query("""
+            select max(job.sourceEpisodeNo) from CharacterSnapshotSource source
+            join source.workCharacter owner join source.sourceFact fact join fact.extractedByJob job
+            where owner.work.id = :workId
+              and owner.status = org.monitoring.catchholebackend.domain.character.type.CharacterStatus.ACTIVE
+            """)
+    Integer findLatestCurrentCharacterSourceJobEpisodeNo(@Param("workId") UUID workId);
+
+    @Query("""
+            select max(job.sourceEpisodeNo) from SettingCandidate candidate join candidate.analysisJob job
+            where candidate.work.id = :workId
+              and candidate.candidateKind = org.monitoring.catchholebackend.domain.character.type.SettingCandidateKind.CHARACTER_DISCOVERY
+              and candidate.reviewStatus = org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.CONFIRMED
+              and exists (select owner.id from WorkCharacter owner
+                          where owner.id = candidate.matchedCharacterId and owner.work.id = :workId
+                            and owner.status = org.monitoring.catchholebackend.domain.character.type.CharacterStatus.ACTIVE)
+            """)
+    Integer findLatestConfirmedDiscoveryJobEpisodeNo(@Param("workId") UUID workId);
+
+    @Query("""
+            select max(job.sourceEpisodeNo) from WorldSettingCandidate candidate
+            join candidate.targetWorldSetting setting join candidate.analysisJob job
+            where setting.work.id = :workId
+              and candidate.reviewStatus = org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus.CONFIRMED
+              and candidate.historyOnly = false
+            """)
+    Integer findLatestConfirmedWorldSourceJobEpisodeNo(@Param("workId") UUID workId);
+
     @Query("select candidate.id from SettingCandidate candidate where candidate.analysisJob.id = :jobId")
     List<UUID> findCharacterSourceCandidateIds(@Param("jobId") UUID jobId);
 

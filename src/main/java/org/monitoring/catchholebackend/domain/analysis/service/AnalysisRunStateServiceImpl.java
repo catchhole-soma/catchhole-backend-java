@@ -53,13 +53,16 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
         }
         // 현재 slot에서 사라진 REMOVE와 인물 발견도 미래 시점의 확정 이력이다.
         if (!first.isSettingBookSource()) assertNoFutureConfirmedHistory(first.getWork().getId(), first.getEpisode().getEpisodeNo());
-        ObjectNode base = journal.emptyState();
+        // #387 자동 누적은 run_base_state를 읽지 않고 회차마다 claim 때 입력을 고정한다. 생성 때 전체 설정을 복사하지 않는다.
+        boolean automatic = first.isAutomaticReview();
+        ObjectNode base = automatic ? automaticRunBaseMarker() : journal.emptyState();
         Set<String> domains = new HashSet<>();
         for (AnalysisStateSource source : stateSources) {
             if (!List.of("characters", "worldSettings", "references").contains(source.domain())
                     || !domains.add(source.domain())) {
                 throw conflict();
             }
+            if (automatic) continue;
             JsonNode captured = source.capture(first.getWork());
             if (captured == null || !captured.isObject()) {
                 throw conflict();
@@ -72,8 +75,12 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
             throw conflict();
         }
         if (!first.isSettingBookSource()) {
-            assertNoFutureSource(base.path("characters"), first.getEpisode().getEpisodeNo());
-            assertNoFutureSource(base.path("worldSettings"), first.getEpisode().getEpisodeNo());
+            if (automatic) {
+                assertNoFutureFrozenSource(first.getWork().getId(), first.getEpisode().getEpisodeNo());
+            } else {
+                assertNoFutureSource(base.path("characters"), first.getEpisode().getEpisodeNo());
+                assertNoFutureSource(base.path("worldSettings"), first.getEpisode().getEpisodeNo());
+            }
         }
         UUID runId = UUID.randomUUID();
         UUID predecessor = null;
@@ -82,6 +89,7 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
             AnalysisJob job = jobs.get(index);
             if (!Objects.equals(job.getWork().getId(), first.getWork().getId())
                     || job.getSourceKind() != first.getSourceKind()
+                    || job.getReviewMode() != first.getReviewMode()
                     || !job.isSettingBookSource() && (job.getEpisode() == null || job.getEpisode().getEpisodeNo() <= previousEpisodeNo)) {
                 throw conflict();
             }
@@ -670,6 +678,33 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
                 throw new AppException(AnalysisJobErrorCode.ANALYSIS_FUTURE_HISTORY_CONFLICT);
             }
         }
+    }
+
+    /**
+     * #387 자동 누적 생성의 미래 출처 검사. 수동 S0 순회({@link #assertNoFutureSource})가 보던 값 중 회차 이동 뒤
+     * 지금 회차 번호와 다를 수 있는 추출 Job의 고정 회차 번호를 scalar로 확인한다. 지금 회차 번호는
+     * {@link #assertNoFutureConfirmedHistory}가 이미 본다.
+     */
+    private void assertNoFutureFrozenSource(UUID workId, int firstEpisodeNo) {
+        Integer[] latestSources = {
+                analysisJobRepository.findLatestCurrentCharacterSourceJobEpisodeNo(workId),
+                analysisJobRepository.findLatestConfirmedDiscoveryJobEpisodeNo(workId),
+                analysisJobRepository.findLatestConfirmedWorldSourceJobEpisodeNo(workId)
+        };
+        for (Integer sourceEpisodeNo : latestSources) {
+            if (sourceEpisodeNo != null && sourceEpisodeNo >= firstEpisodeNo) {
+                throw new AppException(AnalysisJobErrorCode.ANALYSIS_FUTURE_HISTORY_CONFLICT);
+            }
+        }
+    }
+
+    /**
+     * #387 자동 누적 run의 seq 0 run_base_state. V77 CHECK가 seq 0에 object를 요구해 저장하며, 아무도 읽지 않는다.
+     * characters·worldSettings·references key가 없어 잘못 replay하면 변경 경로 검증에서 거절된다.
+     */
+    private static ObjectNode automaticRunBaseMarker() {
+        return com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode()
+                .put("automaticInputCapturedAtClaim", true);
     }
 
     private AppException conflict() {
