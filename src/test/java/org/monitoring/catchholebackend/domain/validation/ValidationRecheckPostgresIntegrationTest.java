@@ -222,7 +222,8 @@ class ValidationRecheckPostgresIntegrationTest {
             var applied=org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob.create(work,null,em.find(Episode.class,f.target()),org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION);
             applied.configureReviewMode(org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode.AUTOMATIC);states.initializeRun(List.of(applied));
             applied.claim("synthetic-no-llm","합성 확정 완료",java.time.LocalDateTime.now().plusMinutes(1));assertThat(states.prepareInput(applied)).isTrue();
-            assertThat(applied.getAutomaticInputState().path("worldSettings").toString()).contains(hashA);
+            // 고정 입력(format 1)과 #387 format 2의 대상별 읽기 모두 claim 입력의 그 세계관 대상이다.
+            assertThat(states.getInputTarget(applied,"worldSettings","world:"+f.world()).toString()).contains(hashA);
             states.seal(applied);applied.completeAutomaticApplication();applied.succeed(null,0,0);return applied.getId();
         });
         var cleanupStarted=new CountDownLatch(1);var allowCleanup=new CountDownLatch(1);

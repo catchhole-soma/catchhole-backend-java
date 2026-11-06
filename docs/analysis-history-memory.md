@@ -13,6 +13,9 @@ Job을 읽으면 그 큰 본문까지 JDBC 결과와 Hibernate 관리 상태에 
 
 ## 다음 회차의 입력 준비
 
+아래 3·5는 claim 입력 format 1(#387 플래그를 켜기 전 claim)의 조립이다. 기본인 format 2 claim은 캐릭터·세계관을 모으지 않고
+4의 참고 정보와 설정 지문만 저장하며, 캐릭터·세계관은 실행 중 대상별로 읽는다([ADR-0005](adr/0005-automatic-analysis-live-settings-input.md)).
+
 1. 기존 claim 잠금과 원문 세대 검증을 수행한다.
 2. 자동 분석의 선행 run 구성은 scalar 출처/state view로 확인한다. 순서·predecessor 연결·작품·출처 종류·현재 원문,
    선행 `SUCCEEDED + SEALED + automaticAppliedAt` 조건은 그대로 유지한다.
@@ -64,6 +67,6 @@ Job을 읽으면 그 큰 본문까지 JDBC 결과와 Hibernate 관리 상태에 
 | 미확정 참고 후보 조회 | 전체 조회 후 선별 | 기존 유지 | DB 상태 필터 |
 | hash 중간 문자열·UTF-8 전체 복사 | 기존 유지 | 기존 유지 | 버퍼 출력 |
 
-수동 순차 실행의 이력 재생, 현재 Job의 쓰기 잠금, 분석에 필요한 전체 고정 입력,
-근거 자체와 최종 Worker 응답의 크기는 여전히 비용이 있다. 모든 Job 조회를 제거하거나 무제한 회차를 보장하는 변경은 아니다.
+수동 순차 실행의 이력 재생, 현재 Job의 쓰기 잠금, format 1 claim의 전체 고정 입력,
+근거 자체와 최종 Worker 응답의 크기는 여전히 비용이 있다. 자동 누적의 전체 고정 입력은 #387 format 2가 새 claim에서 없앴다. 모든 Job 조회를 제거하거나 무제한 회차를 보장하는 변경은 아니다.
 전후 측정·동등성 증거와 재현 한계는 [메모리 검증 기록](load-tests/gh374-analysis-history-memory.md)에 둔다.

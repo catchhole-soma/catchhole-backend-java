@@ -99,6 +99,38 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             """)
     Integer findLatestConfirmedWorldSourceEpisodeNo(@Param("workId") UUID workId);
 
+    /*
+     * #387 자동 누적 생성의 미래 출처 검사. 위 네 조회는 지금의 회차 번호를 보고, 아래 세 조회는 추출 Job에 고정한
+     * source_episode_no를 본다(회차 이동 뒤 둘이 다르다). 설정집 Job은 NULL이라 max에서 빠진다.
+     */
+    @Query("""
+            select max(job.sourceEpisodeNo) from CharacterSnapshotSource source
+            join source.workCharacter owner join source.sourceFact fact join fact.extractedByJob job
+            where owner.work.id = :workId
+              and owner.status = org.monitoring.catchholebackend.domain.character.type.CharacterStatus.ACTIVE
+            """)
+    Integer findLatestCurrentCharacterSourceJobEpisodeNo(@Param("workId") UUID workId);
+
+    @Query("""
+            select max(job.sourceEpisodeNo) from SettingCandidate candidate join candidate.analysisJob job
+            where candidate.work.id = :workId
+              and candidate.candidateKind = org.monitoring.catchholebackend.domain.character.type.SettingCandidateKind.CHARACTER_DISCOVERY
+              and candidate.reviewStatus = org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.CONFIRMED
+              and exists (select owner.id from WorkCharacter owner
+                          where owner.id = candidate.matchedCharacterId and owner.work.id = :workId
+                            and owner.status = org.monitoring.catchholebackend.domain.character.type.CharacterStatus.ACTIVE)
+            """)
+    Integer findLatestConfirmedDiscoveryJobEpisodeNo(@Param("workId") UUID workId);
+
+    @Query("""
+            select max(job.sourceEpisodeNo) from WorldSettingCandidate candidate
+            join candidate.targetWorldSetting setting join candidate.analysisJob job
+            where setting.work.id = :workId
+              and candidate.reviewStatus = org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus.CONFIRMED
+              and candidate.historyOnly = false
+            """)
+    Integer findLatestConfirmedWorldSourceJobEpisodeNo(@Param("workId") UUID workId);
+
     @Query("select candidate.id from SettingCandidate candidate where candidate.analysisJob.id = :jobId")
     List<UUID> findCharacterSourceCandidateIds(@Param("jobId") UUID jobId);
 
@@ -357,7 +389,8 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             UUID settingCandidateId,
             Collection<AnalysisJobStatus> statuses
     );
-    @Query("""
+    /** GH201 진행·대기·같은 입력으로 재개할 순차 분석. 확정 설정 변경 거절과 회차 전체 확정 안내(D2, #387)가 같은 조건을 쓴다. */
+    String UNFINISHED_ORDERED_ANALYSIS = """
             select count(job) > 0 from AnalysisJob job
             left join job.episode episode
             where job.work.id = :workId
@@ -384,8 +417,17 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
                              and (newer.createdAt > job.createdAt
                                   or (newer.createdAt = job.createdAt and newer.id > job.id))
                        )))
-            """)
+            """;
+
+    @Query(UNFINISHED_ORDERED_ANALYSIS)
     boolean existsUnfinishedOrderedAnalysis(@Param("workId") UUID workId);
+
+    /**
+     * D2(#387) 검수 회차의 APPLY_SETTINGS 안내용. 그 report의 release Job 자신은 빼고 묻는다. release Job이 추출 중이거나 실패했을 때의
+     * 명시 반영은 지금처럼 NOT_READY·보류로 처리되고, 회차 전체 확정 READY는 release Job이 SUCCEEDED·SEALED라 위 조건에 걸리지 않는다.
+     */
+    @Query(UNFINISHED_ORDERED_ANALYSIS + "  and job.id <> :excludedJobId")
+    boolean existsUnfinishedOrderedAnalysisOtherThan(@Param("workId") UUID workId, @Param("excludedJobId") UUID excludedJobId);
 
     /**
      * 확정 전 회차의 현재 검수 report에 검토 종료 receipt가 없으면 true다. claim의 {@link AnalysisJobEligibility#DOMAIN},

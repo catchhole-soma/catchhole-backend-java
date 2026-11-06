@@ -86,6 +86,13 @@ public interface WorkCharacterRepository extends JpaRepository<WorkCharacter, UU
 
     List<WorkCharacter> findAllByWorkIdOrderByCreatedAtDesc(UUID workId);
 
+    /** #387 자동 누적 live 대상별 읽기. 전체 capture와 같은 조건·순서에서 요청한 인물만 읽는다. */
+    List<WorkCharacter> findAllByWorkIdAndStatusAndIdInOrderByCreatedAtDesc(
+            UUID workId,
+            CharacterStatus status,
+            java.util.Collection<UUID> ids
+    );
+
     /** #381 검수 live 설정 색인 순서(생성 역순, 같은 시각이면 id)의 id·이름·snapshotVersion. */
     @Query("""
             select new org.monitoring.catchholebackend.domain.character.repository.CharacterSettingVersion(

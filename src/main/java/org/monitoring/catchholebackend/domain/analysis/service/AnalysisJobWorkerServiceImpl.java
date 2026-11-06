@@ -122,18 +122,17 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
         }
 
         AnalysisJob analysisJob = claimed.get();
+        com.fasterxml.jackson.databind.JsonNode input;
         try {
             if (!analysisRunStateService.prepareInput(analysisJob)) return Optional.empty();
+            // known/provisional identities와 semantic 값은 같은 입력에서 파생한다. #387 format 2는 여기서 현재 설정을 읽으므로
+            // 그 읽기의 확정 근거 오류도 claim 입력 실패로 같은 경계에서 마감한다.
+            input = analysisJob.isOrderedProvisional() ? analysisRunStateService.getInputCurrentSubjects(analysisJob) : null;
         } catch (org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException exception) {
             // Only a deterministic captured-evidence error reaches this path. Source/run conflicts
             // and storage failures retain their existing invalidation/retry behavior.
             analysisJob.claim(request.modelName(), request.currentStep(), now.plus(LEASE_DURATION));
-            var diagnostics = new tools.jackson.databind.ObjectMapper().valueToTree(exception.getErrorContext().get("failureDiagnostics"));
-            ((tools.jackson.databind.node.ObjectNode) diagnostics).put("stage", "CLAIM_INPUT")
-                    .put("requestId", org.slf4j.MDC.get("requestId")).put("traceId", org.slf4j.MDC.get("traceId"));
-            finishFailure(analysisJob, new WorkerAnalysisJobFailRequest(AnalysisFailureCode.UNEXPECTED_ERROR, exception.getMessage(), diagnostics));
-            analysisJob.markJournalIncomplete();
-            aiTokenService.releaseReservedForAnalysisJob(analysisJob.getId(), AiTokenUsageOutcome.USAGE_UNAVAILABLE);
+            finishClaimInputFailure(analysisJob, exception.getMessage(), exception.getErrorContext().get("failureDiagnostics"));
             return Optional.empty();
         }
         analysisJob.claim(request.modelName(), request.currentStep(), now.plus(LEASE_DURATION));
@@ -181,8 +180,6 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                         knownCharacters.stream().map(WorkCharacter::getId).toList(),
                         CharacterFactType.STATUS
                 );
-        // known/provisional identities와 semantic 값은 같은 frozen input object에서 파생한다.
-        var input = analysisJob.isOrderedProvisional() ? analysisRunStateService.getInputState(analysisJob) : null;
         org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerSemanticCurrentContextPayload semantic = null;
         if (analysisJob.isOrderedProvisional() && Boolean.TRUE.equals(request.supportsSemanticCurrentContext())) {
             try {
@@ -341,6 +338,61 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
         );
         rejectRelationshipOnly(analysisJob);
         finishFailure(analysisJob, request);
+    }
+
+    /** claim 입력(확정 설정의 근거 연결) 오류의 결정적 실패. 같은 Job 재시도로 다시 claim할 수 있게 journal은 INCOMPLETE다. */
+    private void finishClaimInputFailure(AnalysisJob analysisJob, String message, Object failureDiagnostics) {
+        var diagnostics = new tools.jackson.databind.ObjectMapper().valueToTree(failureDiagnostics);
+        ((tools.jackson.databind.node.ObjectNode) diagnostics).put("stage", "CLAIM_INPUT")
+                .put("requestId", org.slf4j.MDC.get("requestId")).put("traceId", org.slf4j.MDC.get("traceId"));
+        finishFailure(analysisJob, new WorkerAnalysisJobFailRequest(AnalysisFailureCode.UNEXPECTED_ERROR, message, diagnostics));
+        analysisJob.markJournalIncomplete();
+        aiTokenService.releaseReservedForAnalysisJob(analysisJob.getId(), AiTokenUsageOutcome.USAGE_UNAVAILABLE);
+    }
+
+    /**
+     * #387 format 2는 확정 근거를 claim 때 모든 인물에 대해 검증하지 않고 실행이 실제로 읽는 대상만 검증한다. 실행 중 처음 읽은 대상의
+     * 근거 연결 오류는 그 읽기를 부른 Worker 호출을 되돌린 뒤 여기서 새 트랜잭션으로 Job을 claim 입력 실패와 같은 진단으로 마감한다.
+     * 마감하지 않으면 Job이 RUNNING으로 남아 Worker가 같은 오류를 반복한다. 이미 다른 경로로 끝났거나 lease가 바뀐 Job은 건드리지 않는다.
+     */
+    @org.springframework.transaction.event.TransactionalEventListener(phase = org.springframework.transaction.event.TransactionPhase.AFTER_ROLLBACK)
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
+    public void failForInvalidLiveInputEvidence(org.monitoring.catchholebackend.domain.analysis.event.AnalysisLiveInputEvidenceFailedEvent event) {
+        if (event.leaseToken() == null) return;
+        AnalysisJob analysisJob;
+        try {
+            analysisJobLeaseService.lockWorkForUpdate(event.analysisJobId());
+            analysisJob = analysisJobLeaseService.getRunningAnalysisJobForUpdate(event.analysisJobId(), event.leaseToken());
+        } catch (AppException exception) {
+            log.warn("확정 근거 오류로 마감할 분석 작업이 이미 끝났거나 lease가 바뀌었습니다. analysisJobId={}, code={}",
+                    event.analysisJobId(), exception.getResultCode().getCode());
+            return;
+        }
+        log.warn("자동 누적 실행 중 읽은 확정 설정의 근거 연결이 올바르지 않아 작업을 실패로 마감합니다. analysisJobId={}", analysisJob.getId());
+        finishClaimInputFailure(analysisJob, event.message(), event.failureDiagnostics());
+    }
+
+    /**
+     * #387 format 2 실행 중 확정 설정이 바뀌어(지문 불일치) 대상을 읽지 못한 Worker 호출이 되돌려진 뒤, 그 실행을 기존 무효화 경로로 닫는다.
+     * 다음 claim에서 같은 확인으로 무효화되기를 lease 만료까지 기다리지 않게 하기 위함이다. 새 트랜잭션에서 지문을 다시 확인한다.
+     */
+    @org.springframework.transaction.event.TransactionalEventListener(phase = org.springframework.transaction.event.TransactionPhase.AFTER_ROLLBACK)
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
+    public void invalidateAfterLiveInputChanged(org.monitoring.catchholebackend.domain.analysis.event.AnalysisLiveInputChangedEvent event) {
+        try {
+            analysisJobLeaseService.lockWorkForUpdate(event.analysisJobId());
+        } catch (AppException exception) {
+            return;
+        }
+        AnalysisJob analysisJob = analysisJobRepository.findById(event.analysisJobId()).orElse(null);
+        // 끝난 실행(SEALED)은 이후의 정상 설정 수정으로 지문이 달라지므로 무효화하지 않는다. 진행(PENDING)·재개 대기(INCOMPLETE)
+        // 실행만 닫는다. 재개 대기를 빼면 재시도가 매번 409로 끝나고 GH201 잠금과 새 분석 거절이 풀리지 않는다.
+        var journalStatus = analysisJob == null ? null : analysisJob.getJournalStatus();
+        if (journalStatus != org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.PENDING
+                && journalStatus != org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.INCOMPLETE) return;
+        if (!analysisRunStateService.isLiveInputStale(analysisJob)) return;
+        log.warn("자동 누적 실행 중 확정 설정이 바뀌어 같은 입력으로 계속할 수 없으므로 실행을 무효화합니다. analysisJobId={}", analysisJob.getId());
+        analysisRunStateService.invalidateFrom(analysisJob, "실행 중 확정 설정이 바뀌어 같은 입력으로 계속할 수 없습니다.");
     }
 
     private void finishFailure(AnalysisJob analysisJob, WorkerAnalysisJobFailRequest request) {

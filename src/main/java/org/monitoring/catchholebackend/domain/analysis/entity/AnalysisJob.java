@@ -683,6 +683,24 @@ public class AnalysisJob extends BaseEntity {
     @jakarta.persistence.Transient
     private long stateJournalRevision;
 
+    /*
+     * #387 format 2 자동 누적 Job을 seal한 처리 안에서만 쓰는 반영 전 인물 식별 색인. DB에는 저장하지 않는다.
+     * 같은 완료 트랜잭션의 자동 반영이 확정 설정을 바꾼 뒤에도 그 뒤의 읽기(설정집 동일 인물 검증)가 claim 때와 같은 이름을 보게 한다.
+     */
+    @jakarta.persistence.Transient
+    private JsonNode sealedLiveInputIdentities;
+
+    public void pinSealedLiveInputIdentities(JsonNode identities) {
+        if (journalStatus != AnalysisJournalStatus.SEALED || identities == null || !identities.isObject()) {
+            throw new IllegalStateException("봉인한 자동 누적 실행에서만 반영 전 인물 식별 색인을 고정할 수 있습니다.");
+        }
+        sealedLiveInputIdentities = identities.deepCopy();
+    }
+
+    public JsonNode getSealedLiveInputIdentities() {
+        return journalStatus == AnalysisJournalStatus.SEALED && sealedLiveInputIdentities != null ? sealedLiveInputIdentities.deepCopy() : null;
+    }
+
     public JsonNode getStateJournal() {
         return stateJournal == null ? null : stateJournal.deepCopy();
     }

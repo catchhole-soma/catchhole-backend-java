@@ -93,6 +93,7 @@ class CharacterNarrativeTimeRollbackTest {
         when(job.getStateJournal()).thenReturn(log);
         when(states.getInputState(job)).thenReturn(baseline);
         when(states.getProjectedState(job)).thenAnswer(call -> projected.get());
+        org.monitoring.catchholebackend.support.AnalysisRunStateStubs.sliceWholeState(states);
         doAnswer(call -> {
             List<AnalysisStateChange> changes = call.getArgument(2);
             recorded.addAll(changes);

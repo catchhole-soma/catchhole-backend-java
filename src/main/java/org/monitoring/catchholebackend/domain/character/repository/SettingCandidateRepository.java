@@ -44,6 +44,30 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
             """)
     List<SettingCandidate> findConfirmedDiscoveries(@Param("workId") UUID workId);
 
+    /** #387 자동 누적 live 대상별 읽기. findConfirmedDiscoveries와 같은 조건·순서에서 요청한 인물에 연결된 것만 읽는다. */
+    @Query("""
+            select candidate from SettingCandidate candidate
+            where candidate.work.id = :workId
+              and candidate.candidateKind = org.monitoring.catchholebackend.domain.character.type.SettingCandidateKind.CHARACTER_DISCOVERY
+              and candidate.reviewStatus = org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.CONFIRMED
+              and candidate.matchedCharacterId in :characterIds
+            order by candidate.createdAt, candidate.id
+            """)
+    List<SettingCandidate> findConfirmedDiscoveriesForCharacters(
+            @Param("workId") UUID workId, @Param("characterIds") Collection<UUID> characterIds);
+
+    /** #387 자동 누적 live 읽기 지문. findConfirmedDiscoveries와 같은 조건의 (연결 인물, 후보) id만 읽는다. */
+    @Query("""
+            select new org.monitoring.catchholebackend.domain.character.repository.CharacterDiscoveryStamp(
+                candidate.matchedCharacterId, candidate.id)
+            from SettingCandidate candidate
+            where candidate.work.id = :workId
+              and candidate.candidateKind = org.monitoring.catchholebackend.domain.character.type.SettingCandidateKind.CHARACTER_DISCOVERY
+              and candidate.reviewStatus = org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.CONFIRMED
+              and candidate.matchedCharacterId is not null
+            """)
+    List<CharacterDiscoveryStamp> findConfirmedDiscoveryStamps(@Param("workId") UUID workId);
+
     /**
      * 관계도 노드 해소에 쓰는 작품 전체 확정 이름 목록(대표 이름·별칭)을 scalar로 한 번 읽는다. 관측 이름과 포함 규칙으로
      * 비교하므로 관측 이름으로 거르지 않는다(GH385). 후보·분석 Job 엔티티와 JSON 열을 올리지 않는다.

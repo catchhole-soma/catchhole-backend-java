@@ -62,11 +62,12 @@ public class CharacterAnalysisStateService implements AnalysisJournalContributor
                 continue;
             }
             String key = candidate.getProvisionalSubjectKey();
-            JsonNode current = prepared.projectedState().path("characters").path(key);
+            JsonNode current = prepared.projectedTarget(domain(), key);
             if (current.isMissingNode()) {
                 SettingCandidate discovery = discoveries.computeIfAbsent(key, ref -> getCurrentDiscovery(job, ref));
+                // 반려 대조는 references만 읽는다.
                 java.util.Optional<JsonNode> rejected = discovery.isUserModified() ? java.util.Optional.empty()
-                        : matching.match(discovery, prepared.projectedState());
+                        : matching.match(discovery, prepared.projectedSubset(domain(), List.of()));
                 if (rejected.isPresent()) {
                     preserveRejectedDiscovery(job, prepared, discovery, candidate, rejected.get());
                     continue;
@@ -96,7 +97,7 @@ public class CharacterAnalysisStateService implements AnalysisJournalContributor
             if (!candidate.isCharacterDiscovery() && !candidate.isUserModified()
                     && candidate.getReviewStatus() == SettingCandidateReviewStatus.PENDING_REVIEW
                     && candidate.getComparisonStatus() == CharacterFactComparisonStatus.PENDING) {
-                matching.match(candidate, prepared.projectedState()).ifPresent(reference -> {
+                matching.match(candidate, prepared.projectedSubset(domain(), List.of())).ifPresent(reference -> {
                     candidate.preservePriorHumanRejection(reference);
                     prepared.append(
                             List.of(rejectionPolicy.referenceChange(candidate.getId(), reference)));
@@ -209,8 +210,8 @@ public class CharacterAnalysisStateService implements AnalysisJournalContributor
         }
         String ref = actualCharacterId == null ? provisionalSubjectKey
                 : CharacterAnalysisStateMapper.persistedRef(actualCharacterId);
-        JsonNode target = (prepared == null ? runStateService.getProjectedState(job) : prepared.projectedState())
-                .path("characters").path(ref);
+        JsonNode target = prepared == null ? runStateService.getProjectedTarget(job, domain(), ref)
+                : prepared.projectedTarget(domain(), ref);
         if (!target.isObject() || !target.path("slots").isObject()
                 || !target.path("name").isTextual()
                 || actualCharacterId != null
@@ -289,7 +290,7 @@ public class CharacterAnalysisStateService implements AnalysisJournalContributor
                                     org.monitoring.catchholebackend.domain.character.type.CharacterFactType.valueOf(removed.path("factType").asText()), removed.path("factKey").asText()))));
                 }
             }
-            JsonNode baseline = runStateService.getInputState(job).path("characters").path(ref);
+            JsonNode baseline = runStateService.getInputTarget(job, domain(), ref);
             ObjectNode restoredNarrative = narrativeWithoutHeldContributions(job, ref, baseline, heldIds, prepared);
             JsonNode restoredTime = restoredNarrative.path("currentNarrativeTime");
             if (!Objects.equals(org.monitoring.catchholebackend.domain.character.processor.CharacterNarrativeTime.value(priorTarget.path("currentNarrativeTime")),
@@ -405,7 +406,7 @@ public class CharacterAnalysisStateService implements AnalysisJournalContributor
             AnalysisRunStateService.PreparedState prepared) {
         var excluded = new java.util.HashSet<String>();
         newlyHeld.forEach(id -> excluded.add(id.toString()));
-        for (JsonNode reference : (prepared == null ? runStateService.getProjectedState(job) : prepared.projectedState()).path("references")) {
+        for (JsonNode reference : prepared == null ? runStateService.getProjectedReferences(job) : prepared.projectedReferences()) {
             if (ref.equals(reference.path("targetRef").asText()) && reference.hasNonNull("automaticReviewHoldReason")) {
                 reference.path("sourceCandidateIds").forEach(id -> excluded.add(id.asText()));
             }
@@ -509,7 +510,7 @@ public class CharacterAnalysisStateService implements AnalysisJournalContributor
         if (candidate.getAnalysisJob().isAutomaticReview()) {
             String ref = candidate.getProvisionalSubjectKey() == null
                     ? CharacterAnalysisStateMapper.persistedRef(candidate.getMatchedCharacterId()) : candidate.getProvisionalSubjectKey();
-            for (JsonNode reference : (prepared == null ? runStateService.getProjectedState(candidate.getAnalysisJob()) : prepared.projectedState()).path("references")) {
+            for (JsonNode reference : prepared == null ? runStateService.getProjectedReferences(candidate.getAnalysisJob()) : prepared.projectedReferences()) {
                 if ("characters".equals(reference.path("domain").asText()) && ref.equals(reference.path("targetRef").asText())
                         && proposed.slot().factType().name().equals(reference.path("factType").asText())
                         && proposed.slot().factKey().equals(reference.path("factKey").asText())

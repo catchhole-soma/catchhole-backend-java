@@ -220,6 +220,19 @@ DATABASE_POOL_MINIMUM_IDLE=2
 docker compose --env-file api.env -f compose.api.prod.yml logs --tail=200 backend
 ```
 
+## 자동 누적 claim 입력 format 2 (#387)
+
+자동 반영 순차 분석의 claim이 확정 설정 전체를 복사하지 않고 설정 지문과 참고 정보만 저장한다. 플래그 `ANALYSIS_AUTOMATIC_INPUT_LIVE_SETTINGS_ENABLED`는 base YAML과 Compose 모두 기본 true라서 새 이미지와 함께 켜진다(2026-11-07 결정). `api.env`에 넣을 값은 없고 AI Worker도 바꾸지 않는다. 배포 전에 claim한 분석 Job은 저장된 사본으로 그대로 끝난다.
+
+끄기: `.api-deploy.lock`을 잡은 셸에서 `api.env`를 백업하고 `ANALYSIS_AUTOMATIC_INPUT_LIVE_SETTINGS_ENABLED=false`를 넣는다. 그다음 backend만 재생성하고 값을 확인한다.
+
+```bash
+docker compose --env-file api.env -f compose.api.prod.yml up -d backend
+docker compose --env-file api.env -f compose.api.prod.yml exec -T backend printenv ANALYSIS_AUTOMATIC_INPUT_LIVE_SETTINGS_ENABLED
+```
+
+끄면 새 claim만 이전 형식(설정 사본)이 되고 이미 claim한 Job은 저장된 형식으로 끝난다. 이 변경 이전 이미지로 되돌리는 것은 끄기와 다르다. 이전 이미지는 새 형식 Job을 읽지 못하므로 [ADR-0005](../docs/adr/0005-automatic-analysis-live-settings-input.md) 6.4의 확인 SQL이 0이어야 한다.
+
 ## Amazon RDS와 연결 session 시간대
 
 Amazon RDS의 PostgreSQL session 시간대는 `Asia/Seoul`로 고정한다. Amazon RDS 콘솔의 **파라미터 그룹**에서 실제 PostgreSQL 주 버전과 같은 패밀리의 사용자 정의 DB 파라미터 그룹을 만들고 `timezone=Asia/Seoul`로 설정한다. 예를 들어 PostgreSQL 16을 사용하면 `postgres16` 패밀리를 선택한다. 기본 DB 파라미터 그룹은 직접 수정하지 않는다.
@@ -442,6 +455,8 @@ GitHub Actions가 사용하는 AWS Identity and Access Management 사용자 또�
 데이터베이스 마이그레이션이 이전 이미지와 호환되는지 먼저 확인한다. 호환되지 않는 마이그레이션이 적용됐다면 이전 이미지를 단순 실행하지 말고 호환 코드를 새 이미지로 배포한다.
 
 **V83(#252) 이후에는 정수 토큰 계정을 사용하는 이전 Java 이미지로 되돌리지 않는다.** 계정이 소수형이고 예약 정책 컬럼이 필수이므로 소수 잔액을 읽고 예약 당시 정책을 지키는 호환 수정본으로 배포한다. 적용 시에도 구 Java writer를 중지하고 새 Java를 시작한다. 현재 단일 backend Compose 교체 방식을 유지하며 별도 구버전 API 인스턴스를 병행하지 않는다. 상세 정책은 [AI 사용량 문서](../docs/ai-token-usage.md)를 따른다.
+
+#387 이전 이미지로 되돌릴 때는 새 형식 claim 입력을 가진 미완료 분석 Job이 없어야 한다([ADR-0005](../docs/adr/0005-automatic-analysis-live-settings-input.md) 6.4).
 
 호환되는 경우 `api.env`의 `BACKEND_IMAGE`를 기록해 둔 SHA 태그로 변경한다.
 

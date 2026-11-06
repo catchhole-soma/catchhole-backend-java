@@ -25,6 +25,7 @@ public class AnalysisSemanticCurrentContextMapper {
     public static final int MAX_UTF8_BYTES = 1_048_576;
     private final tools.jackson.databind.ObjectMapper wireMapper;
     private final AnalysisStateJournal journal;
+    private final org.monitoring.catchholebackend.domain.analysis.processor.AnalysisLiveStateReader liveState;
     private final com.fasterxml.jackson.databind.ObjectMapper jsonValues = new com.fasterxml.jackson.databind.ObjectMapper();
 
     public WorkerSemanticCurrentContextPayload toResponse(AnalysisJob job, JsonNode input) {
@@ -32,7 +33,7 @@ public class AnalysisSemanticCurrentContextMapper {
         if (!job.isOrderedProvisional() || !job.hasCurrentSourceVersion() || input == null || !input.isObject()
                 || job.getAnalysisRunId() == null || job.getRunGeneration() == null || job.getRunGeneration() < 1
                 || !hash(job.getInputStateHash()) || !hash(job.getSourceContentHash())
-                || !job.getInputStateHash().equals(journal.hash(input))) {
+                || !sameInput(job, input)) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_RUN_STATE_CONFLICT);
         }
         JsonNode characters = object(input, "characters");
@@ -95,6 +96,19 @@ public class AnalysisSemanticCurrentContextMapper {
                 List.copyOf(resultCharacters), List.copyOf(resultWorlds));
         if (wireMapper.writeValueAsBytes(result).length > MAX_UTF8_BYTES) throw invalid();
         return result;
+    }
+
+    /**
+     * format 1은 claim 입력 전체가 저장 사본이라 그 hash를 비교한다. #387 format 2의 입력은 지금 DB에서 읽은 현재값이므로
+     * 저장 입력(지문 + references)의 hash와 지금 지문을 비교한다.
+     */
+    private boolean sameInput(AnalysisJob job, JsonNode input) {
+        if (!org.monitoring.catchholebackend.domain.analysis.processor.AnalysisAutomaticInputFormat.isLive(job)) {
+            return job.getInputStateHash().equals(journal.hash(input));
+        }
+        String fingerprint = org.monitoring.catchholebackend.domain.analysis.processor.AnalysisAutomaticInputFormat.fingerprint(job);
+        return job.getInputStateHash().equals(journal.hash(job.getAutomaticInputState()))
+                && fingerprint != null && fingerprint.equals(liveState.fingerprint(job.getWork().getId()));
     }
 
     private void addProperty(List<WorkerSemanticCurrentContextPayload.Property> properties, Set<List<String>> paths,

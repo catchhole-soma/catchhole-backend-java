@@ -37,6 +37,7 @@ public class ValidationSettingsApplicationServiceImpl implements ValidationSetti
     private final ValidationSettingsApplicationRepository applications;
     private final ValidationApplicationGate gate;
     private final org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock settingsLock;
+    private final org.monitoring.catchholebackend.domain.analysis.service.AnalysisRunStateService analysisRunState;
     private final ValidationReviewMapper mapper;
     private final AnalysisStateJournal journal;
     private final List<AnalysisAutomaticApplicationContributor> contributors;
@@ -100,6 +101,9 @@ public class ValidationSettingsApplicationServiceImpl implements ValidationSetti
             case READY->{
                 // #381: 작가의 회차 전체 확정은 다른 회차의 검수가 확정 설정을 잠근 동안 쓰지 않는다. 보류 기록(HELD)은 설정을 쓰지 않아 막지 않는다.
                 settingsLock.assertUnlocked(workId);
+                // D2(#387, GH201): 같은 작품의 순차 분석이 진행·대기·재개 대기면 확정 설정을 쓰지 않고 409 ANALYSIS_REVIEW_WAIT_REQUIRED다.
+                // 이 report의 release Job은 READY일 때 SUCCEEDED·SEALED라 조건에 걸리지 않는다. 보류(HELD)와 NOT_READY는 설정을 쓰지 않아 그대로다.
+                analysisRunState.assertSettingMutationAllowed(workId);
                 yield applyPlan(receipt,decision,ValidationReviewTrigger.EXPLICIT,request.idempotencyKey(),hash);
             }
         });

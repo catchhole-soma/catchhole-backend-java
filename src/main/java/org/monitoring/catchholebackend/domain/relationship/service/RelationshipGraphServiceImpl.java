@@ -190,6 +190,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                     RelationshipGraphAnalysis analysis = requiredAnalysis(job);
                     Context saved = preparedRetry(analysis, request);
                     if (saved != null) return saved;
+                    assertLeasedOrderedInput(job);
                     BuiltContext built = buildContext(job, request);
                     analysis.prepareContext(
                             hash(mapper.toJson(request)),
@@ -296,6 +297,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         assertLegacyManualEditsUnchanged(analysis, saved);
         Prepare request = mapper.toPrepareCachedObservations(
                 analysis.getSourceHash(), saved, analysis.getRejectedObservationCount());
+        assertLeasedOrderedInput(job);
         BuiltContext rebuilt = buildContext(job, request);
         analysis.prepareContext(hash(mapper.toJson(request)), rebuilt.context().contextToken(),
                 mapper.toJson(rebuilt.context()), rebuilt.bindings(), analysis.getRejectedObservationCount());
@@ -663,12 +665,12 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         for (var node : allNodes)
             if (node.getFirstEpisodeNo() <= cutoff)
                 addDistinct(byName, node.getName(), index.canonicalNode(node));
-        JsonNode input =
-                job.isOrderedProvisional() ? runState.getInputState(job) : mapper.toJson(Map.of());
+        JsonNode orderedIdentities =
+                job.isOrderedProvisional() ? runState.getInputCharacterIdentities(job) : mapper.toJson(Map.of());
         // Ordered input contributes only representative names. Its alias strings carry no
         // per-alias episode, so aliases always come from the cutoff-bounded database query.
         Map<String, List<UUID>> confirmed = new HashMap<>();
-        for (JsonNode character : input.path("characters")) {
+        for (JsonNode character : orderedIdentities) {
             if (character.path("actualCharacterId").isTextual())
                 confirmed.computeIfAbsent(character.path("name").asText(), x -> new ArrayList<>())
                         .add(UUID.fromString(character.path("actualCharacterId").asText()));
@@ -1729,6 +1731,14 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         if (!job.isRelationshipAnalysisEnabled()) conflict();
         sourceGuard.assertCurrent(job, job.getEpisode());
         return job;
+    }
+
+    /**
+     * #387 lease 확인은 자동 누적의 고정 입력을 다시 hash하지 않는다. lease 아래에서 그 입력의 인물 이름을 읽어 노드를 묶기
+     * 전에 hash를 직접 확인한다. 완료된 앞 회차를 읽는 백필 경로(canPrepareCachedObservations)에는 쓰지 않는다.
+     */
+    private void assertLeasedOrderedInput(AnalysisJob job) {
+        if (job.isOrderedProvisional() && job.isAutomaticReview()) runState.assertValidInput(job);
     }
 
     private void requireEligible(AnalysisJob job) {

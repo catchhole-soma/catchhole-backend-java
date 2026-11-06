@@ -58,6 +58,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 class SettingBookAnalysisIntegrationTest {
     @Autowired MockMvc mvc;
+    /** #387 기본은 format 2다. ANALYSIS_AUTOMATIC_INPUT_LIVE_SETTINGS_ENABLED=false로 같은 시나리오를 format 1에서도 돌린다. */
+    @org.springframework.beans.factory.annotation.Value("${analysis.automatic-input.live-settings-enabled:true}") protected boolean liveInput;
     @Autowired org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter mvcAdapter;
     @Autowired MemberRepository members;
     @Autowired WorkRepository works;
@@ -275,7 +277,7 @@ class SettingBookAnalysisIntegrationTest {
         JsonNode claim=semanticClaim("SETTING_BOOK",200);
         var origin=jobs.findById(UUID.fromString(book.path("latestAnalysisJob").path("id").asText())).orElseThrow();
         JsonNode input=states.getInputState(origin);
-        assertSemanticCarrier(claim,input);
+        assertSemanticCarrier(claim,input,origin.getAutomaticInputState());
         var typeSet=new java.util.HashSet<String>();
         claim.path("semanticCurrentContext").path("characters").forEach(owner -> owner.path("currentSlots").forEach(slot -> typeSet.add(slot.path("factType").asText())));
         assertThat(typeSet).containsExactlyInAnyOrder(java.util.Arrays.stream(CharacterFactType.values()).map(Enum::name).toArray(String[]::new));
@@ -367,10 +369,15 @@ class SettingBookAnalysisIntegrationTest {
     }
 
     private void assertSemanticCarrier(JsonNode claim,JsonNode input) {
+        assertSemanticCarrier(claim,input,input);
+    }
+
+    /** stored는 저장된 claim 입력이다. format 1은 input과 같고 #387 format 2는 지문·references만 담는다. inputStateHash는 저장 입력의 hash다. */
+    private void assertSemanticCarrier(JsonNode claim,JsonNode input,JsonNode stored) {
         JsonNode carrier=claim.path("semanticCurrentContext"), context=claim.path("analysisContext");
         assertThat(carrier.isObject()).isTrue(); assertThat(carrier.path("complete").asBoolean()).isTrue();
         for(String field:java.util.List.of("formatVersion","runId","generation","inputStateHash","sourceHash")) assertThat(carrier.path(field)).isEqualTo(context.path(field));
-        assertThat(carrier.path("inputStateHash").asText()).isEqualTo(new org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal().hash(input));
+        assertThat(carrier.path("inputStateHash").asText()).isEqualTo(new org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal().hash(stored));
         var expected = new java.util.LinkedHashMap<String,JsonNode>();
         input.path("characters").forEach(owner -> owner.path("slots").forEach(slot -> expected.put(
                 (owner.path("actualCharacterId").isNull()?owner.path("provisionalSubjectKey").asText():owner.path("actualCharacterId").asText())+":"+slot.path("factType").asText()+":"+slot.path("factKey").asText(),slot)));
@@ -1404,6 +1411,8 @@ class SettingBookAnalysisIntegrationTest {
         worldTarget.put("subjectName","엘프");worldTarget.put("normalizedSubjectName","엘프");worldTarget.put("version",1);worldTarget.putObject("propertiesJson").put("서식지","북부");worldTarget.putObject("provenanceByPath");
         states.appendValidatedChanges(job,job.getInputStateHash(),java.util.List.of(new org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateChange("world-decision:"+decision.getId(),
                 java.util.List.of("worldSettings",worldKey),worldTarget,false,"ADD",java.util.List.of(candidate.getId()))));
+        // #387 설정집 Job의 대상별 읽기(임시 인물·세계관과 setting-book-input references)가 전체 상태의 같은 경로와 같다.
+        assertThat(org.monitoring.catchholebackend.support.AnalysisRunStateEquivalence.assertMatchesWholeState(states,job)).isEqualTo(2);
         job.updateCheckpointStage(org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage.WORLD_COMPARISONS_FINISHED);
         worker.completeAnalysisJob(job.getId(),payload.leaseToken(),new org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysisJobCompleteRequest(null,null,null));
         em.flush();
@@ -1425,9 +1434,15 @@ class SettingBookAnalysisIntegrationTest {
         assertThat(states.prepareInput(next)).isTrue();
         JsonNode input=states.getInputState(next);
         assertThat(input.path("characters").elements().next().path("slots").elements().next().path("provenance").path("sourceKind").asText()).isEqualTo("SETTING_BOOK");
+        // 설정집이 반영한 실제 인물·세계관을 읽는 다음 회차 입력도 같다.
+        assertThat(org.monitoring.catchholebackend.support.AnalysisRunStateEquivalence.assertMatchesWholeState(states,next)).isEqualTo(2);
+        // #387 format 2의 live 읽기도 설정집 출처 provenance를 가진 이 claim 입력과 같다.
+        assertThat(org.monitoring.catchholebackend.support.AnalysisLiveStateEquivalence.assertLiveMatchesClaimInput(liveState,stateJournal,states,next)).isEqualTo(2);
     }
 
     @Autowired org.monitoring.catchholebackend.domain.analysis.service.AnalysisJobLeaseService leases;
+    @Autowired org.monitoring.catchholebackend.domain.analysis.processor.AnalysisLiveStateReader liveState;
+    @Autowired org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal stateJournal;
 
     @Test void editAndArchiveCancelPendingAndRunningComparisonLeasesButKeepCompletedHistory() throws Exception {
         for (boolean archive : java.util.List.of(false,true)) {
@@ -3047,6 +3062,15 @@ class SettingBookAnalysisIntegrationTest {
         duplicate.put("proposedScopeName", "거주집단"); duplicate.put("proposedSettingName", "서식지"); duplicate.put("proposedValue", "북부"); duplicate.put("comparisonReason", "이동된 기존 값과 중복");
         completeWorldBatch(origin.getId(), lease, dependentBatch.comparisonBatchId(), movedContext, duplicate);
         if (staleMove) { actual.updateProperty("서식지", "서식지", "작가가 정한 동부"); em.flush(); }
+        if (staleMove && liveInput) {
+            // #387 format 2는 GH201을 우회한 이 쓰기를 지문으로 잡아 같은 입력으로 완료하지 않는다(커밋 뒤 실행 무효화는 AutomaticAnalysisIntegrationTest).
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> worldWorker.claimNextWorldSettingComparisonBatch(origin.getId(), lease))
+                    .isInstanceOfSatisfying(org.monitoring.catchholebackend.global.exception.AppException.class,
+                            error -> assertThat(error.getResultCode().getCode()).isEqualTo("ANALYSIS_RUN_STATE_CONFLICT"));
+            assertThat(worldCandidateRepository.findById(published.getFirst().candidateId()).orElseThrow().isPendingReview()).isTrue();
+            assertThat(actual.getPropertyValue("서식지")).isEqualTo("작가가 정한 동부"); assertThat(actual.hasProperty("거주집단", "서식지")).isFalse();
+            return;
+        }
         assertThat(worldWorker.claimNextWorldSettingComparisonBatch(origin.getId(), lease)).isEmpty();
         origin.updateCheckpointStage(org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage.WORLD_COMPARISONS_FINISHED);
         worker.completeAnalysisJob(origin.getId(), lease, new org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysisJobCompleteRequest(null,null,null));

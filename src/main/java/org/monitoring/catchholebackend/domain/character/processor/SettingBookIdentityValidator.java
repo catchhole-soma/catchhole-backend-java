@@ -37,11 +37,12 @@ public class SettingBookIdentityValidator {
     private final ObjectStorageService storage;
     private final AnalysisCandidateSourceGuard sourceGuard;
     private final WorkCharacterRepository characters;
+    private final org.monitoring.catchholebackend.domain.analysis.service.AnalysisRunStateService runState;
 
     public ValidatedIdentities validate(AnalysisJob job, List<SettingCandidate> candidates) {
         if (!job.isSettingBookSource() || !job.isAutomaticReview() || !job.isOrderedProvisional()) return ValidatedIdentities.empty();
-        JsonNode input = job.getAutomaticInputState();
-        Map<String, Set<String>> supplied = suppliedActualNames(input);
+        // 자동 반영(applyAutomatically)은 원문 현재성을 먼저 확인하므로 claim 입력의 실행 검증도 통과한다.
+        Map<String, Set<String>> supplied = suppliedActualNames(runState.getInputCharacterIdentities(job));
         Map<String, List<SettingCandidate>> byName = new LinkedHashMap<>();
         for (SettingCandidate candidate : candidates) {
             if (candidate.getEntityName() != null) byName.computeIfAbsent(name(candidate.getEntityName()), ignored -> new ArrayList<>()).add(candidate);
@@ -61,8 +62,7 @@ public class SettingBookIdentityValidator {
         var denied = new ValidatedIdentities(Set.copyOf(required), Map.of(), Map.of());
         // Completion applies contributors after sealing, immediately before RUNNING becomes SUCCEEDED.
         if (job.getJournalStatus() != AnalysisJournalStatus.SEALED
-                || job.getStatus() != AnalysisJobStatus.RUNNING && job.getStatus() != AnalysisJobStatus.SUCCEEDED
-                || input == null || !input.path("characters").isObject()) return denied;
+                || job.getStatus() != AnalysisJobStatus.RUNNING && job.getStatus() != AnalysisJobStatus.SUCCEEDED) return denied;
         try {
             sourceGuard.assertCurrent(job, null);
         } catch (AppException staleSource) {
@@ -190,10 +190,9 @@ public class SettingBookIdentityValidator {
                 ? new Span(from, to) : null;
     }
 
-    private Map<String, Set<String>> suppliedActualNames(JsonNode input) {
+    private Map<String, Set<String>> suppliedActualNames(JsonNode identities) {
         Map<String, Set<String>> result = new HashMap<>();
-        if (input == null || !input.path("characters").isObject()) return result;
-        input.path("characters").properties().forEach(entry -> {
+        identities.properties().forEach(entry -> {
             JsonNode target = entry.getValue();
             UUID id = targetId(entry.getKey());
             if (!entry.getKey().startsWith("character:") || id == null || !text(target, "actualCharacterId", id.toString())) return;

@@ -16,6 +16,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
+import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErrorCode;
 import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateChange;
 import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
@@ -39,7 +40,7 @@ class PreparedAnalysisStateTest {
     private final AnalysisStateJournal journal = spy(new AnalysisStateJournal());
     private final AnalysisRunStateServiceImpl service = new AnalysisRunStateServiceImpl(jobs, journal, List.of(),
             mock(ApplicationEventPublisher.class), mock(AnalysisPendingReferenceSource.class), jobSources,
-            mock(org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock.class));
+            mock(org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock.class), null);
     private AnalysisJob job;
     private Episode episode;
 
@@ -165,8 +166,94 @@ class PreparedAnalysisStateTest {
     }
 
     @Test
-    @DisplayName("도메인 상태를 조립한 뒤 한 번 복사해도 원본·기준 상태·고정 입력이 서로 분리된다")
-    void freezesCapturedSourcesAtPersistenceBoundary() {
+    @DisplayName("lease 확인은 자동 누적 입력을 다시 hash하지 않고, 입력을 읽는 소비자는 변조된 입력을 각자 거절한다")
+    void leaseCheckSkipsAutomaticHashWhileInputConsumersStillReject() {
+        clearInvocations(journal);
+        service.assertValidLeaseInput(job);
+        verify(journal, never()).hash(any());
+
+        ((ObjectNode) job.getAutomaticInputState().at("/characters/hero/historyFacts/0")).put("quote", "저장 입력 변조");
+        service.assertValidLeaseInput(job);
+        verify(journal, never()).hash(any());
+        var change = change("event", List.of("references", "value"), com.fasterxml.jackson.databind.node.TextNode.valueOf("값"));
+        List<Runnable> consumers = List.of(() -> service.assertValidInput(job), () -> service.prepareState(job),
+                () -> service.getProjectedState(job), () -> service.appendValidatedChanges(job, job.getInputStateHash(), List.of(change)),
+                () -> service.seal(job));
+        for (Runnable consumer : consumers) {
+            assertThat(rejected(consumer).getResultCode()).isEqualTo(AnalysisJobErrorCode.ANALYSIS_RUN_STATE_CONFLICT);
+        }
+        assertThat(job.getStateJournal().path("changes")).isEmpty();
+        assertThat(job.getJournalStatus()).isEqualTo(org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.PENDING);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"invalidated", "incomplete", "sourceChanged", "nullHash",
+            "missingInput", "brokenChain", "predecessorIncomplete"})
+    @DisplayName("lease 확인은 hash 없이도 무효화·미완료·원문 변경·hash 없음·입력 없음·선행 회차 오류를 전체 검증과 같은 코드로 거절한다")
+    void leaseCheckKeepsScalarRejections(String scenario) {
+        AnalysisJob target = job;
+        switch (scenario) {
+            case "invalidated" -> job.invalidateJournal("원문 변경");
+            case "incomplete" -> job.markJournalIncomplete();
+            case "sourceChanged" -> episode.updateContent(25, "수정", "changed", "v2", "c".repeat(64), 100);
+            case "nullHash" -> ReflectionTestUtils.setField(job, "inputStateHash", null);
+            case "missingInput" -> ReflectionTestUtils.setField(job, "automaticInputState", null);
+            case "brokenChain" -> when(jobSources.findRunMembers(any(), any())).thenReturn(List.of());
+            default -> target = automaticSuccessorOf(job);
+        }
+        AnalysisJob checked = target;
+        clearInvocations(journal);
+        AppException lease = rejected(() -> service.assertValidLeaseInput(checked));
+        verify(journal, never()).hash(any());
+        AppException full = rejected(() -> service.assertValidInput(checked));
+
+        assertThat(lease.getResultCode()).isEqualTo("predecessorIncomplete".equals(scenario)
+                ? AnalysisJobErrorCode.ANALYSIS_RUN_PREDECESSOR_INCOMPLETE : AnalysisJobErrorCode.ANALYSIS_RUN_STATE_CONFLICT);
+        assertThat(lease.getResultCode()).isEqualTo(full.getResultCode());
+    }
+
+    @Test
+    @DisplayName("수동 누적의 lease 확인은 지금처럼 S0를 replay해 hash를 확인한다")
+    void manualLeaseCheckStillReplaysAndHashes() {
+        JsonNode base = job.getAutomaticInputState().deepCopy();
+        AnalysisJob manual = AnalysisJob.create(job.getWork(), null, episode, AnalysisJobType.SETTING_EXTRACTION);
+        ReflectionTestUtils.setField(manual, "id", UUID.randomUUID());
+        manual.initializeOrderedRun(UUID.randomUUID(), 1, 0, null, base);
+        manual.prepareOrderedInput(journal.hash(base));
+        manual.claim("test", "comparison", LocalDateTime.now().plusMinutes(10));
+        when(jobs.findAllByAnalysisRunIdAndRunGenerationOrderByRunSequenceAsc(manual.getAnalysisRunId(), 1L))
+                .thenReturn(List.of(manual));
+
+        clearInvocations(journal);
+        service.assertValidLeaseInput(manual);
+        verify(journal).hash(any());
+
+        ObjectNode tampered = (ObjectNode) base.deepCopy();
+        ((ObjectNode) tampered.at("/characters/hero/historyFacts/0")).put("quote", "S0 변조");
+        ReflectionTestUtils.setField(manual, "runBaseState", tampered);
+        assertThat(rejected(() -> service.assertValidLeaseInput(manual)).getResultCode())
+                .isEqualTo(AnalysisJobErrorCode.ANALYSIS_RUN_STATE_CONFLICT);
+    }
+
+    private AnalysisJob automaticSuccessorOf(AnalysisJob predecessor) {
+        Episode next = Episode.create(predecessor.getWork(), null, 26, "26화", "next", "v1", "c".repeat(64), 100);
+        ReflectionTestUtils.setField(next, "id", UUID.randomUUID());
+        AnalysisJob successor = AnalysisJob.create(predecessor.getWork(), null, next, AnalysisJobType.SETTING_EXTRACTION);
+        ReflectionTestUtils.setField(successor, "id", UUID.randomUUID());
+        successor.configureReviewMode(AnalysisReviewMode.AUTOMATIC);
+        successor.initializeOrderedRun(predecessor.getAnalysisRunId(), 1, 1, predecessor.getId(), null);
+        ObjectNode input = journal.emptyState();
+        successor.captureAutomaticInput(input);
+        successor.prepareOrderedInput(journal.hash(input));
+        successor.claim("test", "comparison", LocalDateTime.now().plusMinutes(10));
+        // 선행 회차(job)는 RUNNING이라 아직 SUCCEEDED·SEALED·자동 반영 완료가 아니다.
+        when(jobSources.findRunMembers(any(), any())).thenAnswer(ignored -> List.of(sourceView(predecessor), sourceView(successor)));
+        return successor;
+    }
+
+    @Test
+    @DisplayName("자동 누적 생성은 설정을 capture하지 않고 표지만 저장하며, claim 때 한 번 복사한 입력은 원본과 분리된다")
+    void automaticRunStoresMarkerWithoutCaptureAndFreezesInputAtClaim() {
         var nodes = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance;
         ObjectNode characters = nodes.objectNode();
         characters.putObject("hero").putArray("historyFacts").addObject().put("quote", "보존 근거");
@@ -174,38 +261,194 @@ class PreparedAnalysisStateTest {
         worlds.putObject("town").put("value", "보존 세계관");
         ObjectNode references = nodes.objectNode();
         references.putObject("existing").put("quote", "기존 참고");
-        var capturedSources = List.of(source("characters", characters), source("worldSettings", worlds),
-                source("references", references));
+        Map<String, Integer> captures = new LinkedHashMap<>();
+        var capturedSources = List.of(source("characters", characters, captures), source("worldSettings", worlds, captures),
+                source("references", references, captures));
         var pending = mock(AnalysisPendingReferenceSource.class);
         ObjectNode advisory = nodes.objectNode();
         advisory.putObject("pending").put("quote", "미확정 근거");
         when(pending.capture(any())).thenReturn(advisory);
         var capturingService = new AnalysisRunStateServiceImpl(jobs, journal, capturedSources,
                 mock(ApplicationEventPublisher.class), pending, jobSources,
-                mock(org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock.class));
+                mock(org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock.class), null);
         AnalysisJob target = AnalysisJob.create(job.getWork(), null, episode, AnalysisJobType.SETTING_EXTRACTION);
         ReflectionTestUtils.setField(target, "id", UUID.randomUUID());
         target.configureReviewMode(AnalysisReviewMode.AUTOMATIC);
         when(jobSources.findRunMembers(any(), any())).thenAnswer(ignored -> List.of(sourceView(target)));
 
         capturingService.initializeRun(List.of(target));
+        assertThat(captures).isEmpty();
+        assertThat(target.getRunBaseState()).isEqualTo(nodes.objectNode().put("automaticInputCapturedAtClaim", true));
+        UUID workId = job.getWork().getId();
+        verify(jobs).findLatestCurrentCharacterSourceJobEpisodeNo(workId);
+        verify(jobs).findLatestConfirmedDiscoveryJobEpisodeNo(workId);
+        verify(jobs).findLatestConfirmedWorldSourceJobEpisodeNo(workId);
+
         assertThat(capturingService.prepareInput(target)).isTrue();
+        assertThat(captures).containsExactly(Map.entry("characters", 1), Map.entry("worldSettings", 1), Map.entry("references", 1));
         assertThat(references.has("pending")).isFalse();
         ((ObjectNode) characters.at("/hero/historyFacts/0")).put("quote", "원본 변경");
         ((ObjectNode) worlds.path("town")).put("value", "원본 변경");
         ((ObjectNode) advisory.path("pending")).put("quote", "참고 변경");
-        assertThat(target.getRunBaseState().at("/characters/hero/historyFacts/0/quote").asText()).isEqualTo("보존 근거");
         assertThat(target.getAutomaticInputState().at("/characters/hero/historyFacts/0/quote").asText()).isEqualTo("보존 근거");
         assertThat(target.getAutomaticInputState().at("/worldSettings/town/value").asText()).isEqualTo("보존 세계관");
         assertThat(target.getAutomaticInputState().at("/references/pending/quote").asText()).isEqualTo("미확정 근거");
-        assertThat(target.getRunBaseState().at("/references/pending").isMissingNode()).isTrue();
+        assertThat(target.getRunBaseState()).isEqualTo(nodes.objectNode().put("automaticInputCapturedAtClaim", true));
         capturingService.assertValidInput(target);
     }
 
-    private AnalysisStateSource source(String domain, ObjectNode captured) {
+    @Test
+    @DisplayName("수동 누적 생성은 지금처럼 세 도메인을 capture해 저장 경계에서 한 번 복사한 S0로 replay한다")
+    void manualRunFreezesCapturedSourcesAtPersistenceBoundary() {
+        var nodes = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance;
+        ObjectNode characters = nodes.objectNode();
+        characters.putObject("hero").putArray("historyFacts").addObject().put("quote", "보존 근거");
+        ObjectNode worlds = nodes.objectNode();
+        worlds.putObject("town").put("value", "보존 세계관");
+        ObjectNode references = nodes.objectNode();
+        references.putObject("existing").put("quote", "기존 참고");
+        Map<String, Integer> captures = new LinkedHashMap<>();
+        var capturingService = new AnalysisRunStateServiceImpl(jobs, journal,
+                List.of(source("characters", characters, captures), source("worldSettings", worlds, captures),
+                        source("references", references, captures)),
+                mock(ApplicationEventPublisher.class), mock(AnalysisPendingReferenceSource.class), jobSources,
+                mock(org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock.class), null);
+        AnalysisJob target = AnalysisJob.create(job.getWork(), null, episode, AnalysisJobType.SETTING_EXTRACTION);
+        ReflectionTestUtils.setField(target, "id", UUID.randomUUID());
+        target.configureReviewMode(AnalysisReviewMode.MANUAL);
+
+        capturingService.initializeRun(List.of(target));
+        assertThat(captures).containsExactly(Map.entry("characters", 1), Map.entry("worldSettings", 1), Map.entry("references", 1));
+        verify(jobs, never()).findLatestCurrentCharacterSourceJobEpisodeNo(any());
+        verify(jobs, never()).findLatestConfirmedDiscoveryJobEpisodeNo(any());
+        verify(jobs, never()).findLatestConfirmedWorldSourceJobEpisodeNo(any());
+        ((ObjectNode) characters.at("/hero/historyFacts/0")).put("quote", "원본 변경");
+        ((ObjectNode) worlds.path("town")).put("value", "원본 변경");
+        ((ObjectNode) references.path("existing")).put("quote", "원본 변경");
+        assertThat(target.getRunBaseState().at("/characters/hero/historyFacts/0/quote").asText()).isEqualTo("보존 근거");
+        assertThat(target.getRunBaseState().at("/worldSettings/town/value").asText()).isEqualTo("보존 세계관");
+        assertThat(target.getRunBaseState().at("/references/existing/quote").asText()).isEqualTo("기존 참고");
+        assertThat(target.getRunBaseState().has("automaticInputCapturedAtClaim")).isFalse();
+
+        when(jobs.findAllByAnalysisRunIdAndRunGenerationOrderByRunSequenceAsc(target.getAnalysisRunId(), 1L))
+                .thenReturn(List.of(target));
+        assertThat(capturingService.prepareInput(target)).isTrue();
+        assertThat(capturingService.getInputState(target)).isEqualTo(target.getRunBaseState());
+        assertThat(target.getAutomaticInputState()).isNull();
+        assertThat(captures).containsExactly(Map.entry("characters", 1), Map.entry("worldSettings", 1), Map.entry("references", 1));
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"currentCharacterSource", "confirmedDiscovery", "confirmedWorldSource"})
+    @DisplayName("자동 생성의 고정 회차 검사는 수동 S0 순회와 같은 오류 코드·HTTP 상태·빈 context로 거절하고 앞 회차는 허용한다")
+    void automaticFrozenSourceCheckRejectsWithSameErrorAsManualWalk(String query) {
+        var nodes = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance;
+        ObjectNode characters = nodes.objectNode();
+        characters.putObject("character:hero").putObject("slots").putObject("STAT:level")
+                .putObject("provenance").putArray("currentSourceTimes").addObject().put("sourceEpisodeNo", 25);
+        var walkingService = new AnalysisRunStateServiceImpl(jobs, journal,
+                List.of(source("characters", characters, new LinkedHashMap<>()),
+                        source("worldSettings", nodes.objectNode(), new LinkedHashMap<>())),
+                mock(ApplicationEventPublisher.class), mock(AnalysisPendingReferenceSource.class), jobSources,
+                mock(org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock.class), null);
+        AnalysisJob manual = AnalysisJob.create(job.getWork(), null, episode, AnalysisJobType.SETTING_EXTRACTION);
+        manual.configureReviewMode(AnalysisReviewMode.MANUAL);
+        AppException walked = rejected(() -> walkingService.initializeRun(List.of(manual)));
+
+        UUID workId = job.getWork().getId();
+        java.util.function.IntConsumer latestFrozenEpisodeNo = value -> {
+            switch (query) {
+                case "currentCharacterSource" -> when(jobs.findLatestCurrentCharacterSourceJobEpisodeNo(workId)).thenReturn(value);
+                case "confirmedDiscovery" -> when(jobs.findLatestConfirmedDiscoveryJobEpisodeNo(workId)).thenReturn(value);
+                default -> when(jobs.findLatestConfirmedWorldSourceJobEpisodeNo(workId)).thenReturn(value);
+            }
+        };
+        latestFrozenEpisodeNo.accept(25);
+        AnalysisJob automatic = AnalysisJob.create(job.getWork(), null, episode, AnalysisJobType.SETTING_EXTRACTION);
+        ReflectionTestUtils.setField(automatic, "id", UUID.randomUUID());
+        automatic.configureReviewMode(AnalysisReviewMode.AUTOMATIC);
+        AppException scalar = rejected(() -> walkingService.initializeRun(List.of(automatic)));
+
+        assertThat(walked.getResultCode()).isEqualTo(AnalysisJobErrorCode.ANALYSIS_FUTURE_HISTORY_CONFLICT);
+        assertThat(scalar.getResultCode()).isEqualTo(walked.getResultCode());
+        assertThat(scalar.getResultCode().getStatus()).isEqualTo(org.springframework.http.HttpStatus.BAD_REQUEST);
+        assertThat(scalar.getMessage()).isEqualTo(walked.getMessage());
+        assertThat(scalar.getErrorContext()).isEmpty();
+        assertThat(walked.getErrorContext()).isEmpty();
+        assertThat(automatic.getAnalysisRunId()).isNull();
+        verify(jobs, never()).save(any());
+
+        latestFrozenEpisodeNo.accept(24);
+        walkingService.initializeRun(List.of(automatic));
+        assertThat(automatic.getRunBaseState()).isEqualTo(nodes.objectNode().put("automaticInputCapturedAtClaim", true));
+    }
+
+    @Test
+    @DisplayName("반영 방식이 다른 Job을 한 실행에 섞지 않는다")
+    void rejectsMixedReviewModesInOneRun() {
+        Episode next = Episode.create(job.getWork(), null, 26, "26화", "next", "v1", "c".repeat(64), 100);
+        ReflectionTestUtils.setField(next, "id", UUID.randomUUID());
+        AnalysisJob automatic = AnalysisJob.create(job.getWork(), null, episode, AnalysisJobType.SETTING_EXTRACTION);
+        automatic.configureReviewMode(AnalysisReviewMode.AUTOMATIC);
+        AnalysisJob manual = AnalysisJob.create(job.getWork(), null, next, AnalysisJobType.SETTING_EXTRACTION);
+        manual.configureReviewMode(AnalysisReviewMode.MANUAL);
+        var sourcesService = new AnalysisRunStateServiceImpl(jobs, journal,
+                List.of(source("characters", com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode(), new LinkedHashMap<>()),
+                        source("worldSettings", com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode(), new LinkedHashMap<>())),
+                mock(ApplicationEventPublisher.class), mock(AnalysisPendingReferenceSource.class), jobSources,
+                mock(org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock.class), null);
+
+        assertThatThrownBy(() -> sourcesService.initializeRun(List.of(automatic, manual)))
+                .isInstanceOfSatisfying(AppException.class, error ->
+                        assertThat(error.getResultCode()).isEqualTo(AnalysisJobErrorCode.ANALYSIS_RUN_STATE_CONFLICT));
+    }
+
+    @Test
+    @DisplayName("설정집 자동 실행은 회차 번호가 없어 미래 출처 조회와 capture 없이 표지만 저장한다")
+    void settingBookRunSkipsFutureChecksAndCapture() {
+        Work work = job.getWork();
+        var batch = org.monitoring.catchholebackend.domain.upload.entity.UploadBatch.create(work, work.getMember(),
+                org.monitoring.catchholebackend.domain.upload.type.UploadType.SETTING_BOOK,
+                org.monitoring.catchholebackend.domain.upload.type.UploadSourceType.TEXT_PASTE);
+        var book = org.monitoring.catchholebackend.domain.upload.entity.UploadFile.create(batch,
+                org.monitoring.catchholebackend.domain.upload.type.UploadFileRole.SETTING_BOOK, "합성 설정집.txt", "text/plain", "synthetic/raw", 10);
+        ReflectionTestUtils.setField(book, "id", UUID.randomUUID());
+        var revision = org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision.create(book, 1,
+                new org.monitoring.catchholebackend.global.storage.StoredTextObject("immutable/book.txt", null, "c".repeat(64), 10));
+        ReflectionTestUtils.setField(revision, "id", UUID.randomUUID());
+        book.linkCurrentRevision(revision);
+        AnalysisJob bookJob = AnalysisJob.createSettingBook(work, book, revision);
+        Map<String, Integer> captures = new LinkedHashMap<>();
+        var nodes = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance;
+        var capturingService = new AnalysisRunStateServiceImpl(jobs, journal,
+                List.of(source("characters", nodes.objectNode(), captures), source("worldSettings", nodes.objectNode(), captures)),
+                mock(ApplicationEventPublisher.class), mock(AnalysisPendingReferenceSource.class), jobSources,
+                mock(org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock.class), null);
+
+        capturingService.initializeRun(List.of(bookJob));
+
+        assertThat(captures).isEmpty();
+        assertThat(bookJob.getRunBaseState()).isEqualTo(nodes.objectNode().put("automaticInputCapturedAtClaim", true));
+        verify(jobs).save(bookJob);
+        verifyNoMoreInteractions(jobs);
+    }
+
+    private AppException rejected(Runnable call) {
+        try {
+            call.run();
+        } catch (AppException exception) {
+            return exception;
+        }
+        throw new AssertionError("AppException이 발생해야 합니다.");
+    }
+
+    private AnalysisStateSource source(String domain, ObjectNode captured, Map<String, Integer> captures) {
         return new AnalysisStateSource() {
             @Override public String domain() { return domain; }
-            @Override public JsonNode capture(Work work) { return captured; }
+            @Override public JsonNode capture(Work work) {
+                captures.merge(domain, 1, Integer::sum);
+                return captured;
+            }
         };
     }
 
@@ -314,6 +557,121 @@ class PreparedAnalysisStateTest {
         assertThat(first.getStateJournal().path("outputStateHash").asText()).isEqualTo(journal.hash(expected));
         assertThat(first.getStateJournal().path("formatVersion").asInt()).isEqualTo(2);
         assertThat(first.getRunBaseState()).isEqualTo(base);
+    }
+
+    @Test
+    @DisplayName("대상별 읽기는 자동 claim 입력과 이 Job의 변경에서 전체 상태의 같은 경로를 읽은 값과 같다")
+    void automaticPerSubjectReadsMatchWholeState() {
+        ObjectNode input = richState();
+        AnalysisJob automatic = AnalysisJob.create(job.getWork(), null, episode, AnalysisJobType.SETTING_EXTRACTION);
+        ReflectionTestUtils.setField(automatic, "id", UUID.randomUUID());
+        automatic.configureReviewMode(AnalysisReviewMode.AUTOMATIC);
+        automatic.initializeOrderedRun(UUID.randomUUID(), 1, 0, null,
+                com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode().put("automaticInputCapturedAtClaim", true));
+        automatic.captureAutomaticInput(input);
+        automatic.prepareOrderedInput(journal.hash(input));
+        automatic.claim("test", "comparison", LocalDateTime.now().plusMinutes(10));
+        automatic.replacePendingJournal(envelope(automatic));
+        when(jobSources.findRunMembers(any(), any())).thenAnswer(ignored -> List.of(sourceView(automatic)));
+
+        assertThat(org.monitoring.catchholebackend.support.AnalysisRunStateEquivalence.assertMatchesWholeState(service, automatic)).isEqualTo(4);
+        service.appendValidatedChanges(automatic, automatic.getInputStateHash(), journalChanges());
+        assertThat(org.monitoring.catchholebackend.support.AnalysisRunStateEquivalence.assertMatchesWholeState(service, automatic)).isEqualTo(5);
+        assertThat(service.getProjectedTarget(automatic, "characters", "character:" + ACTUAL_CHARACTER)
+                .at("/slots/STAT:stats.mental/factValue").asText()).isEqualTo("36");
+        assertThat(service.getInputTarget(automatic, "characters", "character:" + ACTUAL_CHARACTER)
+                .at("/slots/STAT:stats.mental/factValue").asText()).isEqualTo("35");
+        assertThat(automatic.getAutomaticInputState()).isEqualTo(input);
+    }
+
+    @Test
+    @DisplayName("대상별 읽기는 수동 누적의 S0 replay 입력과 이 Job의 변경에서도 전체 상태의 같은 경로를 읽은 값과 같다")
+    void manualPerSubjectReadsMatchReplayedWholeState() {
+        ObjectNode base = richState();
+        AnalysisJob first = AnalysisJob.create(job.getWork(), null, episode, AnalysisJobType.SETTING_EXTRACTION);
+        ReflectionTestUtils.setField(first, "id", UUID.randomUUID());
+        first.initializeOrderedRun(UUID.randomUUID(), 1, 0, null, base);
+        first.prepareOrderedInput(journal.hash(base));
+        first.claim("test", "comparison", LocalDateTime.now().plusMinutes(10));
+        first.replacePendingJournal(envelope(first));
+        Episode nextEpisode = Episode.create(job.getWork(), null, 26, "26화", "next", "v1", "c".repeat(64), 100);
+        ReflectionTestUtils.setField(nextEpisode, "id", UUID.randomUUID());
+        AnalysisJob next = AnalysisJob.create(job.getWork(), null, nextEpisode, AnalysisJobType.SETTING_EXTRACTION);
+        ReflectionTestUtils.setField(next, "id", UUID.randomUUID());
+        next.initializeOrderedRun(first.getAnalysisRunId(), 1, 1, first.getId(), null);
+        when(jobs.findAllByAnalysisRunIdAndRunGenerationOrderByRunSequenceAsc(first.getAnalysisRunId(), 1L))
+                .thenReturn(List.of(first, next));
+        service.appendValidatedChanges(first, first.getInputStateHash(), journalChanges());
+        service.seal(first);
+        first.succeed("{}", null, null);
+        next.prepareOrderedInput(journal.hash(service.getInputState(next)));
+        next.claim("test", "comparison", LocalDateTime.now().plusMinutes(10));
+        next.replacePendingJournal(envelope(next));
+        var reference = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode().put("domain", "characters")
+                .put("reason", "다음 회차 참고");
+        service.appendValidatedChanges(next, next.getInputStateHash(),
+                List.of(new AnalysisStateChange("next-reference", List.of("references", "next-reference"), reference, false, "REVIEW_REQUIRED", List.of())));
+
+        // 앞 회차의 임시 세계관 대상이 replay 입력에 들어 있다.
+        assertThat(org.monitoring.catchholebackend.support.AnalysisRunStateEquivalence.assertMatchesWholeState(service, next)).isEqualTo(5);
+        assertThat(service.getInputTarget(next, "worldSettings", "provisional-world:" + PROVISIONAL_WORLD).path("subjectName").asText())
+                .isEqualTo("설인");
+        assertThat(service.getProjectedReferences(next).path("next-reference").path("reason").asText()).isEqualTo("다음 회차 참고");
+    }
+
+    private static final UUID PROVISIONAL_WORLD = UUID.fromString("00000000-0000-0000-0000-00000000a387");
+    private static final UUID ACTUAL_CHARACTER = UUID.fromString("00000000-0000-0000-0000-00000000c387");
+
+    /** 실제·임시 인물, 두 분류의 세계관, 참고를 가진 입력. */
+    private ObjectNode richState() {
+        var nodes = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance;
+        ObjectNode state = journal.emptyState();
+        UUID actualId = ACTUAL_CHARACTER;
+        ObjectNode actual = ((ObjectNode) state.path("characters")).putObject("character:" + actualId);
+        actual.put("actualCharacterId", actualId.toString()).putNull("provisionalSubjectKey").put("name", "에르웬").put("snapshotVersion", 1);
+        actual.putArray("aliases").add("에르웬 미샤");
+        actual.putArray("identityEvidence").addObject().put("quote", "에르웬이 등장했다.");
+        ObjectNode stat = actual.putObject("slots").putObject("STAT:stats.mental");
+        stat.put("factType", "STAT").put("factKey", "stats.mental").put("factValue", "35").putObject("valueJson").put("value", 35);
+        actual.putArray("historyFacts").addObject().put("factValue", "검술 2단");
+        String provisionalKey = "provisional-character:" + UUID.randomUUID();
+        ObjectNode provisional = ((ObjectNode) state.path("characters")).putObject(provisionalKey);
+        provisional.putNull("actualCharacterId").put("provisionalSubjectKey", provisionalKey).put("name", "비요른");
+        provisional.putObject("slots");
+        UUID raceId = UUID.randomUUID(), locationId = UUID.randomUUID();
+        ((ObjectNode) state.path("worldSettings")).putObject("world:" + raceId).put("actualWorldSettingId", raceId.toString())
+                .put("category", "RACE").put("subjectName", "엘프").put("version", 1).putObject("propertiesJson").put("서식지", "북부");
+        ((ObjectNode) state.path("worldSettings")).putObject("world:" + locationId).put("actualWorldSettingId", locationId.toString())
+                .put("category", "LOCATION").put("subjectName", "미궁").put("version", 2).putObject("propertiesJson")
+                .putObject("1층").put("출몰", "고블린");
+        ((ObjectNode) state.path("references")).putObject("pending-reference").put("domain", "worldSettings")
+                .put("subjectName", "설인").set("evidenceSpans", nodes.arrayNode().add(nodes.objectNode().put("quote", "설인을 보았다.")));
+        return state;
+    }
+
+    /** 실제 인물 slot 갱신, 임시 세계관 대상 등록, 참고 추가. 출처 후보가 없어 봉인 coverage에 걸리지 않는다. */
+    private List<AnalysisStateChange> journalChanges() {
+        var nodes = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance;
+        ObjectNode slot = nodes.objectNode().put("factType", "STAT").put("factKey", "stats.mental").put("factValue", "36");
+        slot.putObject("valueJson").put("value", 36);
+        ObjectNode world = nodes.objectNode().putNull("actualWorldSettingId").put("provisionalSubjectKey", "provisional-world:" + PROVISIONAL_WORLD)
+                .put("category", "RACE").put("subjectName", "설인").put("version", 0);
+        world.putObject("propertiesJson");
+        ObjectNode reference = nodes.objectNode().put("domain", "characters").put("reason", "검토 대기");
+        return List.of(
+                new AnalysisStateChange("slot-update", List.of("characters", "character:" + ACTUAL_CHARACTER, "slots", "STAT:stats.mental"), slot, false, "UPDATE", List.of()),
+                new AnalysisStateChange("world-identity", List.of("worldSettings", "provisional-world:" + PROVISIONAL_WORLD), world, false, "IDENTITY", List.of()),
+                new AnalysisStateChange("reference", List.of("references", "reference"), reference, false, "REVIEW_REQUIRED", List.of()));
+    }
+
+    private ObjectNode envelope(AnalysisJob target) {
+        ObjectNode envelope = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
+        envelope.put("formatVersion", 1).put("runId", target.getAnalysisRunId().toString())
+                .put("workId", target.getWork().getId().toString()).put("generation", 1).put("sequence", target.getRunSequence())
+                .put("episodeNo", target.getSourceEpisodeNo()).put("jobId", target.getId().toString())
+                .put("inputStateHash", target.getInputStateHash());
+        envelope.putArray("changes");
+        return envelope;
     }
 
     private AnalysisStateChange change(String id, List<String> path, JsonNode value) {

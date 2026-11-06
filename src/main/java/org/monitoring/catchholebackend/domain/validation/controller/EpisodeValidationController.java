@@ -211,7 +211,7 @@ public class EpisodeValidationController {
     @ApiResponses({@ApiResponse(responseCode="200", description="반영(APPLIED), 보류(HELD_REVIEW) 또는 같은 요청 재전송"),
             @ApiResponse(responseCode="400", description="필드 검증 실패"),
             @ApiResponse(responseCode="404", description="작품 소유권 또는 검수 요청 없음"),
-            @ApiResponse(responseCode="409", description="추출·비교 진행 중(VALIDATION_APPLICATION_NOT_READY), 검토 종료 전이거나 현재 검수 아님, report version 충돌, 같은 키 다른 입력")})
+            @ApiResponse(responseCode="409", description="추출·비교 진행 중(VALIDATION_APPLICATION_NOT_READY), 반영할 수 있지만 다른 회차 검수가 확정 설정을 잠금(VALIDATION_SETTINGS_LOCKED) 또는 같은 작품의 순차 분석이 진행·재개 대기 중(ANALYSIS_REVIEW_WAIT_REQUIRED, 아무것도 바꾸지 않음), 검토 종료 전이거나 현재 검수 아님, report version 충돌, 같은 키 다른 입력")})
     public CommonResponse<org.monitoring.catchholebackend.domain.validation.dto.response.ValidationSettingsApplicationResponse> applySettings(@AuthenticationPrincipal MemberPrincipal member,@PathVariable UUID workId,@PathVariable UUID reportId,
             @Valid @RequestBody org.monitoring.catchholebackend.domain.validation.dto.request.ValidationSettingsApplicationRequest request) {
         return CommonResponse.success("회차 설정 반영 결과를 저장했습니다.",applications.applySettings(member.memberId(),workId,reportId,request));

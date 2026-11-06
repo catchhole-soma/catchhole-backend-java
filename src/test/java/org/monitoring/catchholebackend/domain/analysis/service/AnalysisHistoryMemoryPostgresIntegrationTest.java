@@ -139,7 +139,11 @@ class AnalysisHistoryMemoryPostgresIntegrationTest {
                 assertThat(claimed.path("analysisJobId").asText()).isEqualTo(fixture.job().toString());
                 assertThat(claimed.path("knownCharacters")).hasSize(41);
                 assertThat(claimed.path("semanticCurrentContext").path("characters")).hasSize(41);
-                JsonNode input = MAPPER.readTree(jdbc.queryForObject("select automatic_input_state::text from analysis_jobs where id=?", String.class, fixture.job()));
+                JsonNode stored = MAPPER.readTree(jdbc.queryForObject("select automatic_input_state::text from analysis_jobs where id=?", String.class, fixture.job()));
+                // #387 format 2(ANALYSIS_AUTOMATIC_INPUT_LIVE_SETTINGS_ENABLED=true)는 설정 사본을 저장하지 않는다. 같은 실행의 live 전체 읽기가
+                // format 1 사본과 같은 값이므로 아래 보존 검사는 그 값으로 한다. claim의 inputStateHash는 저장 객체의 hash다.
+                boolean live = stored.path("formatVersion").asInt(1) == 2;
+                JsonNode input = live ? tx().execute(status -> states.getInputState(em.find(AnalysisJob.class, fixture.job()))) : stored;
                 assertThat(input.path("characters")).hasSize(41);
                 assertThat(input.path("worldSettings")).hasSize(181);
                 assertThat(input.path("references")).hasSize(3);
@@ -163,7 +167,7 @@ class AnalysisHistoryMemoryPostgresIntegrationTest {
                 assertThat(facts).isEqualTo(641);
                 assertThat(verified).isEqualTo(641);
                 String inputHash = journal.hash(input);
-                assertThat(claimed.path("analysisContext").path("inputStateHash").asText()).isEqualTo(inputHash);
+                assertThat(claimed.path("analysisContext").path("inputStateHash").asText()).isEqualTo(live ? journal.hash(stored) : inputHash);
                 assertThat(inputHash).isEqualTo(fixture.expectedInputHash());
                 assertThat(retainedDigest(fixture.work())).isEqualTo(retained);
                 ObjectNode normalizedClaim = claimed.deepCopy();
@@ -188,7 +192,9 @@ class AnalysisHistoryMemoryPostgresIntegrationTest {
                         "claimSemanticHash", journal.hash(semanticClaim),
                         "episodeListSemanticHash", journal.hash(semanticList),
                         "verifiedHistoryFacts", verified, "pendingReferences", input.path("references").size(),
-                        "currentWorldSubjects", input.path("worldSettings").size(), "retainedRowsUnchanged", true));
+                        "currentWorldSubjects", input.path("worldSettings").size(), "retainedRowsUnchanged", true,
+                        "storedInputFormat", live ? 2 : 1,
+                        "storedInputTextBytes", jdbc.queryForObject("select octet_length(automatic_input_state::text) from analysis_jobs where id=?", Long.class, fixture.job())));
                 // Make later samples independently claimable without rerunning analysis or consuming provider tokens.
                 jdbc.update("update analysis_jobs set status='SUCCEEDED', lease_token=null, lease_expires_at=null where id=?", fixture.job());
             }

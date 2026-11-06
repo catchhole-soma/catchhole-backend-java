@@ -114,6 +114,7 @@ class OrderedWorldSettingWorkerTest {
             }
         });
         when(stateService.getProjectedState(job)).thenAnswer(invocation -> state.get().deepCopy());
+        org.monitoring.catchholebackend.support.AnalysisRunStateStubs.sliceWholeState(stateService);
         doAnswer(invocation -> {
             List<AnalysisStateChange> changes = invocation.getArgument(2);
             state.set(journal.apply(state.get(), changes));

@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.validation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.*;
@@ -21,13 +22,18 @@ import org.monitoring.catchholebackend.domain.character.processor.*;
 import org.monitoring.catchholebackend.domain.character.service.*;
 import org.monitoring.catchholebackend.domain.character.type.*;
 import org.monitoring.catchholebackend.domain.episode.entity.Episode;
+import org.monitoring.catchholebackend.domain.upload.entity.*;
+import org.monitoring.catchholebackend.domain.upload.type.*;
 import org.monitoring.catchholebackend.domain.validation.dto.request.ValidationSettingsApplicationRequest;
 import org.monitoring.catchholebackend.domain.validation.dto.response.ValidationSettingsApplicationResponse;
+import org.monitoring.catchholebackend.domain.validation.type.*;
 import org.monitoring.catchholebackend.domain.validation.service.ValidationSettingsApplicationService;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.*;
 import org.monitoring.catchholebackend.domain.worldsetting.service.WorldSettingCandidateService;
 import org.monitoring.catchholebackend.domain.worldsetting.type.*;
+import org.monitoring.catchholebackend.global.exception.AppException;
+import org.monitoring.catchholebackend.global.storage.StoredTextObject;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -144,6 +150,66 @@ abstract class ValidationSettingsApplicationFixture extends ValidationReviewComp
     record Candidates(UUID discovery,UUID stat,UUID world) {}
     Candidates applicable(Release r) {
         return inJob(r.job(),job->{var d=discovery(job,"에르웬");var s=stat(job,d.getProvisionalSubjectKey(),"에르웬",35,CharacterFactOperation.ADD);var w=world(job,"엘프","서식지","북부");return new Candidates(d.getId(),s.getId(),w.getId());});
+    }
+
+    // ---- D2(#387): 같은 작품의 순차 분석이 끝나지 않았으면 회차 전체 확정을 쓰지 않는다 (H2·PostgreSQL 공통 시나리오) ----
+    /** 같은 작품에 설정집을 올려 자동 누적 추출 Job 하나를 큐에 넣는다(PENDING). 업로드 서비스와 같은 생성·실행 초기화이며 claim하지 않는다. */
+    UUID queueSettingBookAnalysis(Fixture f) {
+        return tx.execute(s->{
+            var work=em.find(Work.class,f.work());
+            var batch=UploadBatch.create(work,work.getMember(),UploadType.SETTING_BOOK,UploadSourceType.FILE);em.persist(batch);
+            var book=UploadFile.create(batch,UploadFileRole.SETTING_BOOK,"합성 설정집.txt","text/plain","synthetic/book",4);em.persist(book);
+            var revision=SettingBookRevision.create(book,1,new StoredTextObject("synthetic/revision/"+UUID.randomUUID(),"v1","b".repeat(64),4));em.persist(revision);book.linkCurrentRevision(revision);
+            var job=AnalysisJob.createSettingBook(work,book,revision);
+            job.initializeOrderedRun(UUID.randomUUID(),1,0,null,JSON.objectNode().put("automaticInputCapturedAtClaim",true));em.persist(job);
+            return job.getId();
+        });
+    }
+    /** 설정집 분석이 끝난다. 끝난 실행(취소·무효)은 미완료 순차 분석이 아니다. */
+    void finishSettingBookAnalysis(UUID job) {tx.executeWithoutResult(s->analysisJobs.findById(job).orElseThrow().invalidateJournal("합성 설정집 분석 종료"));}
+    List<ValidationReviewAction> allowedActions(Fixture f) {return reviews.getValidationReview(f.member(),f.work(),f.report()).allowedActions();}
+
+    /**
+     * 명시 전체 확정은 선택적 자동 반영 이전에 저장된 보류(HELD_REVIEW) 데이터에 남는 경로라 그 상태를 합성해 시작한다.
+     * 보류된 release Job(SUCCEEDED·SEALED)은 미완료가 아니다. 설정집 자동 누적 Job이 대기·실행 중이면 READY 회차 전체 확정은 409
+     * ANALYSIS_REVIEW_WAIT_REQUIRED이고 receipt·report version·확정 설정·release Job 보류 표지가 그대로이며 APPLY_SETTINGS를 안내하지 않는다.
+     * 보류(HELD) 기록은 설정을 쓰지 않아 그동안에도 지금처럼 접수된다. 분석이 끝나면 안내와 반영이 함께 돌아온다.
+     */
+    void applyWaitsForUnfinishedOrderedAnalysis() {
+        var r=release();var f=r.f();
+        var held=inJob(r.job(),job->{var d=discovery(job,"에르웬");stat(job,d.getProvisionalSubjectKey(),"에르웬",35,CharacterFactOperation.ADD);world(job,"엘프","서식지","북부");
+            var d2=discovery(job,"비요른");return stat(job,d2.getProvisionalSubjectKey(),"비요른",50,CharacterFactOperation.REVIEW_REQUIRED).getId();});
+        completeLegacyHeldExtraction(r);
+        assertThat(applicationRow(f).get("status")).isEqualTo("HELD_REVIEW");assertThat(jobState(r.job())).isEqualTo("SUCCEEDED/SEALED");assertThat(heldAt(r.job())).isNotNull();
+        assertThat(analysisJobs.existsUnfinishedOrderedAnalysis(f.work())).as("held release job is finished").isFalse();
+        assertThat(allowedActions(f)).contains(ValidationReviewAction.APPLY_SETTINGS);
+
+        var first=queueSettingBookAnalysis(f);
+        assertThat(analysisJobs.existsUnfinishedOrderedAnalysis(f.work())).isTrue();
+        assertThat(allowedActions(f)).doesNotContain(ValidationReviewAction.APPLY_SETTINGS);
+        var stillHeld=apply(f,"held-while-book-runs");
+        assertThat(stillHeld.status()).as("HELD writes no settings and is accepted as before").isEqualTo(ValidationApplicationStatus.HELD_REVIEW);assertThat(stillHeld.attempt()).isEqualTo(2);
+        finishSettingBookAnalysis(first);
+        characterReview.dismissSettingCandidate(f.member(),f.work(),held);
+
+        var book=queueSettingBookAnalysis(f);
+        for(String status:List.of("PENDING","RUNNING")) {
+            jdbc.update("update analysis_jobs set status=? where id=?",status,book);
+            long version=reportVersion(f);
+            assertThat(allowedActions(f)).as(status).doesNotContain(ValidationReviewAction.APPLY_SETTINGS);
+            assertThatThrownBy(()->apply(f,"wait-"+status)).isInstanceOf(AppException.class)
+                    .extracting(e->((AppException)e).getResultCode().getCode()).isEqualTo("ANALYSIS_REVIEW_WAIT_REQUIRED");
+            var row=applicationRow(f);
+            assertThat(row.get("status")).isEqualTo("HELD_REVIEW");assertThat(((Number)row.get("attempt")).longValue()).isEqualTo(2);assertThat(reportVersion(f)).isEqualTo(version);
+            assertThat(applicationRows(f)).isEqualTo(1);assertThat(heldAt(r.job())).isNotNull();assertThat(automaticAppliedAt(r.job())).isNull();
+            assertThat(confirmed(f)).isZero();assertThat(characters(f)).isZero();assertThat(facts(f)).isZero();assertThat(worldSettings(f)).isZero();
+        }
+        finishSettingBookAnalysis(book);
+        assertThat(analysisJobs.existsUnfinishedOrderedAnalysis(f.work())).isFalse();
+        assertThat(allowedActions(f)).contains(ValidationReviewAction.APPLY_SETTINGS);
+        var applied=apply(f,"after-book-analysis");
+        assertThat(applied.status()).isEqualTo(ValidationApplicationStatus.APPLIED);assertThat(applied.attempt()).isEqualTo(3);
+        assertThat(characters(f)).isEqualTo(2);assertThat(facts(f)).isEqualTo(1);assertThat(worldSettings(f)).isEqualTo(1);assertThat(automaticAppliedAt(r.job())).isNotNull();
     }
 
     // ---- 조회 ----
