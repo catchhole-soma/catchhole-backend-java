@@ -150,7 +150,7 @@ from relationship_graph_edges where work_id=:w;            -- 백업 대비 감�
 select count(*) from relationship_graph_nodes where work_id=:w and merged_into_node_id is not null and character_id is not null; -- 0
 ```
 
-롤백(작품별, 정리 뒤 이 작품에 새 관계 분석이 시작되지 않았을 때만). `:cleanup_at`은 apply 응답을 받은 시각이다. prepare는 새 노드를 저장하고 그 id를 `bindings`에 동결하므로, 진행 중이거나 재개할 수 있는 분석이 있는데 노드를 백업으로 바꾸면 그 분석의 완료·반영이 없는 노드·선 id를 가리켜 실패한다. 백업 복원은 정리 뒤 작가가 한 선 정정·삭제도 되돌리므로(삭제한 관계가 되살아난다) 그 뒤 바뀐 선도 확인한다. 그래서 정리 apply의 게이트와 같은 조건과 정리 뒤 수정된 선을 Work 잠금 아래에서 확인하고, 하나라도 0이 아니면 `rollback;`으로 멈추고 수동 판단한다.
+롤백(작품별, 정리 뒤 이 작품에 새 관계 분석이 시작되지 않았을 때만). `:cleanup_at`은 apply 응답을 받은 시각이 아니라 그 작품의 API 로그 `GH391 relationship graph cleanup workId=<:w> apply=true applied=true` 줄 시각(Asia/Seoul, `updated_at`과 같은 시간대)이다. 이 줄은 정리 트랜잭션 안에서 쓰기를 마친 뒤 Work 잠금을 쥔 채 남으므로, 같은 잠금을 잡는 분석 반영·작가 정정·삭제는 모두 이 시각보다 늦은 `updated_at`을 가진다. 응답 수신 시각은 커밋 뒤 응답 전 사이의 수정을 놓친다(`sudo journalctl --since -1d -o cat | grep 'GH391 relationship graph cleanup workId=<:w>'`). prepare는 새 노드를 저장하고 그 id를 `bindings`에 동결하므로, 진행 중이거나 재개할 수 있는 분석이 있는데 노드를 백업으로 바꾸면 그 분석의 완료·반영이 없는 노드·선 id를 가리켜 실패한다. 백업 복원은 정리 뒤 작가가 한 선 정정·삭제도 되돌리므로(삭제한 관계가 되살아난다) 그 뒤 바뀐 선도 확인한다. 그래서 정리 apply의 게이트와 같은 조건과 정리 뒤 수정된 선을 Work 잠금 아래에서 확인하고, 하나라도 0이 아니면 `rollback;`으로 멈추고 수동 판단한다.
 
 ```sql
 begin;
