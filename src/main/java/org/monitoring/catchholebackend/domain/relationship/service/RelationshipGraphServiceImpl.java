@@ -57,6 +57,7 @@ import org.monitoring.catchholebackend.domain.relationship.entity.RelationshipGr
 import org.monitoring.catchholebackend.domain.relationship.entity.RelationshipGraphNode;
 import org.monitoring.catchholebackend.domain.relationship.mapper.RelationshipGraphMapper;
 import org.monitoring.catchholebackend.domain.relationship.processor.RelationshipGraphRules;
+import org.monitoring.catchholebackend.domain.relationship.processor.RelationshipNameRules;
 import org.monitoring.catchholebackend.domain.relationship.repository.RelationshipGraphAnalysisRepository;
 import org.monitoring.catchholebackend.domain.relationship.repository.RelationshipHoldClosureRepository;
 import org.monitoring.catchholebackend.domain.relationship.repository.RelationshipGraphEdgeRepository;
@@ -666,17 +667,22 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                 job.isOrderedProvisional() ? runState.getInputState(job) : mapper.toJson(Map.of());
         // Ordered input contributes only representative names. Its alias strings carry no
         // per-alias episode, so aliases always come from the cutoff-bounded database query.
-        Map<String, List<UUID>> known = new HashMap<>();
+        Map<String, List<UUID>> confirmed = new HashMap<>();
         for (JsonNode character : input.path("characters")) {
             if (character.path("actualCharacterId").isTextual())
-                known.computeIfAbsent(character.path("name").asText(), x -> new ArrayList<>())
+                confirmed.computeIfAbsent(character.path("name").asText(), x -> new ArrayList<>())
                         .add(UUID.fromString(character.path("actualCharacterId").asText()));
         }
-        for (var identity : confirmedIdentities(job, request, cutoff)) {
+        Set<String> observedNames = observedNames(request);
+        for (var identity : confirmedIdentities(job, observedNames, cutoff)) {
             if (identity.getEntityName() != null)
-                known.computeIfAbsent(identity.getEntityName(), x -> new ArrayList<>())
+                confirmed.computeIfAbsent(identity.getEntityName(), x -> new ArrayList<>())
                         .add(identity.getCharacterId());
         }
+        // GH385: exact names first, then an observed short or long form of exactly one confirmed
+        // profile name (the character-extraction containment rule). Several profiles hold. The
+        // result is keyed by raw names, so reuse, bindings and finalize merges below run unchanged.
+        Map<String, List<UUID>> known = RelationshipNameRules.resolve(confirmed, observedNames);
         known.forEach(
                 (name, identities) -> {
                     List<UUID> distinct = identities.stream().distinct().toList();
@@ -1020,22 +1026,27 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
 
     /**
      * Confirmed name-to-profile decisions known by the reader cutoff, read as scalars once.
-     * Ordinary analysis reads only character-discovery names observed in this request, without
-     * per-candidate job/purge hydration. Relationship backfill keeps its historical meaning:
-     * every confirmed kind, but only when the creating job's source still matches the episode.
+     * Ordinary analysis reads the work's confirmed character-discovery names, because the
+     * containment rule compares an observed name with every name, without per-candidate job/purge
+     * hydration. Relationship backfill keeps its historical meaning: every confirmed kind, but
+     * only when the creating job's source still matches the episode.
      */
     private List<ConfirmedCharacterIdentityRow> confirmedIdentities(
-            AnalysisJob job, Prepare request, int cutoff) {
+            AnalysisJob job, Set<String> observedNames, int cutoff) {
         UUID workId = job.getWork().getId();
         if (job.getJobType() == AnalysisJobType.RELATIONSHIP_EXTRACTION)
             return candidates.findVerifiedConfirmedIdentities(workId, cutoff);
+        if (observedNames.isEmpty()) return List.of();
+        return candidates.findConfirmedIdentities(
+                workId, List.of(SettingCandidateKind.CHARACTER_DISCOVERY), cutoff);
+    }
+
+    private static Set<String> observedNames(Prepare request) {
         Set<String> names = new java.util.LinkedHashSet<>();
         for (Observation observation : request.observations())
             for (Endpoint endpoint : List.of(observation.source(), observation.target()))
                 if (endpoint.name() != null) names.add(endpoint.name());
-        if (names.isEmpty()) return List.of();
-        return candidates.findConfirmedIdentities(
-                workId, List.of(SettingCandidateKind.CHARACTER_DISCOVERY), names, cutoff);
+        return names;
     }
 
     /**

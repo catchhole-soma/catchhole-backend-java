@@ -670,27 +670,28 @@ class RelationshipBackfillIntegrationTest {
     @Test
     @DisplayName("백필 부분 문맥도 프로필 노드로 투영한 별칭 노드 관계의 사용자 정정을 충돌로 거부한다")
     void partialBackfillContextGuardsRedirectedEdgeCorrection() {
-        source = "아라 린과 보라와 아라는 함께 길을 떠났다.";
+        // GH385: the representative name shares no part with the alias "아라", so 1화 cannot resolve it.
+        source = "린 벨과 보라와 아라는 함께 길을 떠났다.";
         when(storage.getText(anyString())).thenReturn(source);
         UUID one = episode(1), two = episode(2);
         episode(3);
         UUID characterId = tx.execute(t -> {
             var character = org.monitoring.catchholebackend.domain.character.entity.WorkCharacter.create(
-                    em.find(Work.class, workId), "아라 린", null, null, null, null, null, null, null, null, null);
+                    em.find(Work.class, workId), "린 벨", null, null, null, null, null, null, null, null, null);
             em.persist(character);
             return character.getId();
         });
-        confirmedName(one, "아라 린", characterId);
+        confirmedName(one, "린 벨", characterId);
         confirmedName(two, "아라", characterId);
         coordinator.bootstrapRelationshipBackfill();
 
-        // 1화: "아라"는 아직 별칭이 아니라 독립 노드, "아라 린"은 프로필 노드다.
+        // 1화: "아라"는 아직 별칭이 아니라 독립 노드, "린 벨"은 프로필 노드다.
         var first = coordinator.claimRelationshipJob(partialRequest()).orElseThrow();
         var c1 = graph.prepareRelationshipAnalysis(first.analysisJobId(), first.leaseToken(),
                 new Prepare(1, storage.contentHash(source), List.of(
                         new Observation("O1", new Endpoint("아라", "아라"), new Endpoint("보라", "보라"),
                                 "함께 이동한다", List.of(new Evidence(0, source.length(), source))),
-                        new Observation("O2", new Endpoint("아라 린", "아라 린"), new Endpoint("보라", "보라"),
+                        new Observation("O2", new Endpoint("린 벨", "린 벨"), new Endpoint("보라", "보라"),
                                 "함께 이동한다", List.of(new Evidence(0, source.length(), source)))), 0));
         UUID alias = boundNodeId(first.analysisJobId(), c1.observations().get(0).sourceNodeRefs().getFirst());
         UUID profile = boundNodeId(first.analysisJobId(), c1.observations().get(1).sourceNodeRefs().getFirst());
@@ -753,6 +754,9 @@ class RelationshipBackfillIntegrationTest {
             // Only the claimed relationship job, once per prepare transaction; never a source core job.
             assertThat(statistics.getEntityStatistics(AnalysisJob.class.getName()).getLoadCount())
                     .isEqualTo(2);
+            assertThat(statistics.getEntityStatistics(
+                    org.monitoring.catchholebackend.domain.character.entity.WorkCharacter.class.getName())
+                    .getLoadCount()).isZero();
             long identityQueries = Arrays.stream(statistics.getQueries())
                     .filter(q -> q.contains("SettingCandidate") && q.contains("as characterId"))
                     .mapToLong(q -> statistics.getQueryStatistics(q).getExecutionCount()).sum();
@@ -762,6 +766,46 @@ class RelationshipBackfillIntegrationTest {
         }
         assertThat(context.nodes()).extracting(n -> n.name()).containsExactlyInAnyOrder("아라", "보라");
         assertThat(context.nodes()).allSatisfy(n -> assertThat(n.profileRegistered()).isTrue());
+    }
+
+    @Test
+    @DisplayName("GH385 백필도 그 회차까지 확정된 전체 이름에 포함되는 짧은 이름을 같은 프로필로 해소한다")
+    void containedNameResolvesInBackfillWithinCutoff() {
+        source = "아라 린과 보라는 함께 길을 떠났다. 아라와 보라는 웃었다.";
+        when(storage.getText(anyString())).thenReturn(source);
+        episode(1);
+        UUID two = episode(2);
+        // The full name is confirmed only in 2화, so 1화 must not use it.
+        confirmedName(two, "아라 린", "아라 린 프로필");
+        coordinator.bootstrapRelationshipBackfill();
+
+        var first = claim();
+        var c1 = prepare(first);
+        String aliasRef = c1.observations().getFirst().sourceNodeRefs().getFirst();
+        UUID alias = boundNodeId(first.analysisJobId(), aliasRef);
+        assertThat(c1.nodes()).filteredOn(n -> n.ref().equals(aliasRef)).singleElement()
+                .satisfies(n -> assertThat(n.profileRegistered()).isFalse());
+        Boolean frozen = tx.execute(t -> em.find(RelationshipGraphAnalysis.class, first.analysisJobId())
+                .getBindings().path("nodes").path(aliasRef).has("knownCharacterId"));
+        assertThat(frozen).isFalse();
+        finish(first, c1);
+
+        var second = claim();
+        var c2 = prepare(second);
+        String ref = c2.observations().getFirst().sourceNodeRefs().getFirst();
+        assertThat(boundNodeId(second.analysisJobId(), ref)).isEqualTo(alias);
+        UUID characterId = tx.execute(t -> UUID.fromString(em.find(RelationshipGraphAnalysis.class,
+                second.analysisJobId()).getBindings().path("nodes").path(ref).path("knownCharacterId").asText()));
+        finish(second, c2);
+
+        assertThat(state().getState()).isEqualTo(RelationshipBackfillWorkState.COMPLETE);
+        RelationshipGraphNode node = tx.execute(t -> em.find(RelationshipGraphNode.class, alias));
+        assertThat(node.getCharacterId()).isEqualTo(characterId);
+        assertThat(node.getCharacterLinkedEpisodeNo()).isEqualTo(2);
+        assertThat(graph.getRelationshipGraph(owner, workId, 1).nodes())
+                .anyMatch(n -> n.id().equals(alias) && n.name().equals("아라") && !n.profileRegistered());
+        assertThat(graph.getRelationshipGraph(owner, workId, 2).nodes())
+                .anyMatch(n -> n.id().equals(alias) && n.name().equals("아라 린 프로필") && n.profileRegistered());
     }
 
     @Test

@@ -45,7 +45,8 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
     List<SettingCandidate> findConfirmedDiscoveries(@Param("workId") UUID workId);
 
     /**
-     * 관계도 노드의 확정 이름(대표 이름·별칭)을 scalar로 한 번 읽는다. 후보·분석 Job 엔티티와 JSON 열을 올리지 않는다.
+     * 관계도 노드 해소에 쓰는 작품 전체 확정 이름 목록(대표 이름·별칭)을 scalar로 한 번 읽는다. 관측 이름과 포함 규칙으로
+     * 비교하므로 관측 이름으로 거르지 않는다(GH385). 후보·분석 Job 엔티티와 JSON 열을 올리지 않는다.
      * 원문 회차가 cutoff 이하인 확정 후보만 읽으므로 미래 회차에 확정된 별칭은 과거 문맥에 들어오지 않는다.
      */
     @Query("""
@@ -57,7 +58,6 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
               and candidate.candidateKind in :kinds
               and candidate.reviewStatus = org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.CONFIRMED
               and candidate.matchedCharacterId is not null
-              and candidate.entityName in :names
               and episode.episodeNo <= :cutoff
               and episode.status <> org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.ARCHIVED
               and exists (select character.id from WorkCharacter character
@@ -66,7 +66,6 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
     List<ConfirmedCharacterIdentityRow> findConfirmedIdentities(
             @Param("workId") UUID workId,
             @Param("kinds") Collection<org.monitoring.catchholebackend.domain.character.type.SettingCandidateKind> kinds,
-            @Param("names") Collection<String> names,
             @Param("cutoff") int cutoff);
 
     /**
