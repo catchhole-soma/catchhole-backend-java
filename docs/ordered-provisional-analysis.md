@@ -125,7 +125,9 @@ ID·번호·hash·S3 version, 입력 hash, journal 포맷/완성 상태를 함�
 
 실행 중에는 GH201이 확정 설정 쓰기를 막으므로 지문이 claim 때와 같다. 대상 읽기·변경 추가·seal·재개·재claim은 지문을 먼저
 확인하고, 다르면 409 `ANALYSIS_RUN_STATE_CONFLICT`를 낸다. 그 호출이 되돌려진 뒤 새 트랜잭션에서 실행을 기존
-무효화(`invalidateFrom`)로 닫는다. GH201을 거치지 않는 legacy 단건 캐릭터 비교의 EXCLUDE가 대표 서사 시점을 바꾸면
+무효화(`invalidateFrom`)로 닫는다. 진행 중(journal `PENDING`)과 재개 대기(`INCOMPLETE`) 실행이 대상이고, 끝난 실행(`SEALED`)은
+이후의 정상 설정 수정으로 지문이 달라지므로 두 번째 확인에서 건너뛴다. 재개 대기 실행을 남기면 재시도가 매번 409로 끝나고
+GH201 잠금이 풀리지 않는다. GH201을 거치지 않는 legacy 단건 캐릭터 비교의 EXCLUDE가 대표 서사 시점을 바꾸면
 format 2 실행이 이 경로로 무효화된다. format 1은 고정 사본만 읽어 이 변경을 모른 채 진행했다(받아들인 동작 변경).
 
 ### 확정 근거 검증 범위
@@ -135,7 +137,9 @@ format 2는 실행이 실제로 읽는 대상의 확정 근거만 검증한다. 
 `ANALYSIS_CURRENT_EVIDENCE_INVALID`가 나면 그 Worker 호출을 되돌리고, 새 트랜잭션에서 그 lease의 Job을 claim 입력 실패와
 같은 모양으로 마감한다: `FAILED`, 실패 코드 `UNEXPECTED_ERROR`, 진단 단계 `CLAIM_INPUT`(원인 `CURRENT_EVIDENCE_*`),
 journal `INCOMPLETE`, 미정산 예약 해제, 회차 `FAILED`. Job이 RUNNING으로 남아 Worker가 같은 오류를 반복하지 않으며,
-근거를 고친 뒤 기존 재시도 API로 같은 Job을 다시 시작한다.
+근거를 고친 뒤 기존 재시도 API로 같은 Job을 다시 시작한다. claim 응답의 현재값 읽기가 확인하는 대표 서사 시점 근거의
+오류는 claim 트랜잭션을 되돌리지 않고 그 트랜잭션에서 같은 모양으로 마감한다. 되돌리면 Job이 PENDING으로 남아 claim마다
+같은 오류가 나기 때문이다.
 
 ### seal과 완료
 

@@ -116,8 +116,8 @@ G3는 실행 중 참고 후보가 바뀌는 경우다. legacy 비교 재시도, 
 
 ## 5. 받아들인 동작 변경
 
-1. **legacy 단건 EXCLUDE가 format 2 실행을 무효화한다.** 단건 `CHARACTER_FACT_COMPARISON`의 EXCLUDE는 GH201을 거치지 않고 대표 서사 시점을 바꿀 수 있다(snapshotVersion 증가). 새 비교 Job은 모두 그룹 Job이라 남은 옛 대기 행만 해당한다. format 1은 고정 사본만 읽어 이 변경을 모른 채 진행했다. format 2는 지문이 달라져 진행 중인 실행이 무효화된다.
-2. **확정 근거 오류는 claim이 아니라 그 대상을 처음 읽을 때 드러난다.** format 2는 실행이 실제로 읽는 대상의 근거만 검증한다. 관련 없는 인물의 근거가 깨져 있어도 실행이 실패하지 않는다. 어떤 대상을 처음 읽다가 `ANALYSIS_CURRENT_EVIDENCE_INVALID`가 나면 그 호출을 되돌리고, 새 트랜잭션에서 Job을 claim 입력 실패와 같은 진단으로 마감한다. `FAILED`, `UNEXPECTED_ERROR`, 진단 단계 `CLAIM_INPUT`, journal `INCOMPLETE`, 예약 해제, 회차 `FAILED`다. 근거를 고친 뒤 기존 재시도로 같은 Job을 다시 시작한다.
+1. **legacy 단건 EXCLUDE가 format 2 실행을 무효화한다.** 단건 `CHARACTER_FACT_COMPARISON`의 EXCLUDE는 GH201을 거치지 않고 대표 서사 시점을 바꿀 수 있다(snapshotVersion 증가). 새 비교 Job은 모두 그룹 Job이라 남은 옛 대기 행만 해당한다. format 1은 고정 사본만 읽어 이 변경을 모른 채 진행했다. format 2는 지문이 달라져 진행 중이거나 재개를 기다리는(journal `INCOMPLETE`) 실행이 무효화된다. 재개 대기 실행을 남겨 두면 재시도가 매번 409로 끝나고, 그동안 GH201 잠금과 새 분석 거절(`ANALYSIS_ORDERED_JOB_RETRY_REQUIRED`)이 풀리지 않기 때문이다. 끝난 실행(`SEALED`)은 이후의 정상 설정 수정으로 지문이 달라지므로 무효화하지 않는다.
+2. **확정 근거 오류는 claim이 아니라 그 대상을 처음 읽을 때 드러난다.** format 2는 실행이 실제로 읽는 대상의 근거만 검증한다. 관련 없는 인물의 근거가 깨져 있어도 실행이 실패하지 않는다. 어떤 대상을 처음 읽다가 `ANALYSIS_CURRENT_EVIDENCE_INVALID`가 나면 그 호출을 되돌리고, 새 트랜잭션에서 Job을 claim 입력 실패와 같은 진단으로 마감한다. `FAILED`, `UNEXPECTED_ERROR`, 진단 단계 `CLAIM_INPUT`, journal `INCOMPLETE`, 예약 해제, 회차 `FAILED`다. 근거를 고친 뒤 기존 재시도로 같은 Job을 다시 시작한다. claim 응답의 현재값 읽기도 대표 서사 시점의 근거는 확인한다. 거기서 난 오류는 claim 트랜잭션을 되돌리지 않고 같은 트랜잭션에서 위와 같이 마감한다(`getInputCurrentSubjects`가 `prepareInput`처럼 이 예외로 rollback-only를 표시하지 않는다). 되돌리면 Job이 PENDING으로 남아 claim마다 같은 오류가 나고 대기열을 막는다.
 3. **G1이 닫혔다(4.3).** 순차 분석이 끝나지 않은 동안 회차 전체 확정의 명시 반영 READY는 409이고 버튼이 꺼진다.
 4. **생성 응답의 근거 오류 409가 없어졌다(4.1).** 자동 반영 실행을 만들 때 확정 근거를 검증하지 않는다. 깨진 근거는 첫 claim에서 위 2와 같은 실패로 드러나고, release Job도 재시도할 수 있다.
 5. **미래 출처 검사가 넓어졌다(4.1).** 확정 행 전체의 고정 회차를 보므로 S0 순회보다 더 거절할 수만 있다. 차이는 회차를 옮긴 경우에만 생긴다.
@@ -166,7 +166,9 @@ select count(*) from analysis_jobs
 | 플래그를 켜기 전에 claim한 회차를 켠 뒤 재claim·재시도 | 사본과 hash를 그대로 쓰고 비교·seal·자동 반영. 같은 실행의 다음 회차는 format 2, 다시 꺼도 format 2로 끝남 | `AutomaticAnalysisIntegrationTest.frozenInputJobClaimedBeforeFlagOnResumesAfterFlagOn` |
 | 지문이 대상별 읽기를 바꾸는 쓰기마다 바뀜 | 쓰기 종류별로 바뀌고, 읽기와 무관한 쓰기로는 그대로 | `AnalysisLiveStateReaderIntegrationTest`(PostgreSQL 하위 클래스 포함) |
 | 실행 중 GH201 우회 쓰기 | 409 뒤 실행 무효화 | `AutomaticAnalysisIntegrationTest.liveInputFingerprintMismatchInvalidatesRun` |
+| 재개 대기(`INCOMPLETE`) 실행 중 GH201 우회 쓰기 | 재시도 409 뒤 실행 무효화, GH201 잠금 풀림 | `AutomaticAnalysisIntegrationTest.liveInputFingerprintMismatchInvalidatesIncompleteRunOnRetry` |
 | 처음 읽은 대상의 근거 오류 | Job을 `CLAIM_INPUT` 실패로 마감, 재시도 가능 | `AutomaticAnalysisIntegrationTest.liveInputEvidenceErrorOnFirstSubjectReadFailsJobCleanly` |
+| claim 현재값 읽기(대표 서사 시점)의 근거 오류 | claim 트랜잭션이 커밋되어 `CLAIM_INPUT` 실패로 마감, 대기열을 막지 않음, 재시도 가능 | `AutomaticAnalysisIntegrationTest.liveClaimNarrativeTimeEvidenceErrorCommitsClaimInputFailure` |
 | lease 확인 | 입력 hash 없이 통과하고, 입력을 읽는 경로는 변조를 거절 | `AutomaticAnalysisIntegrationTest.leaseCallsSkipOnlyAutomaticInputHash` |
 | 생성 표지·미래 출처 scalar 검사 | 표지만 저장, 같은 오류·context, 옮긴 회차 거절 | `PreparedAnalysisStateTest`, `AnalysisFutureSourceCheckIntegrationTest`(PostgreSQL 포함) |
 | G1 | 순차 분석 중 409, 아무것도 바뀌지 않음, 끝나면 반영 | `ValidationSettingsApplicationIntegrationTest`, `ValidationSettingsApplicationPostgresIntegrationTest` |
