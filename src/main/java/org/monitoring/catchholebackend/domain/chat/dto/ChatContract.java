@@ -18,6 +18,13 @@ import java.util.List;
 import java.util.UUID;
 
 public final class ChatContract {
+    /**
+     * 인용 등록 요청 한 번과 완료 결과 한 건이 담을 수 있는 검색 인용 수. 요청·결과 DTO와 ChatRetrievalSources의
+     * 서비스 검증이 같은 값을 쓴다. 모델이 원문을 직접 찾아 읽는 답변 방식은 근거 조각을 더 많이 인용하므로 12에서
+     * 넓혔다(#319).
+     */
+    public static final int MAX_RETRIEVAL_SOURCES = 60;
+
     private ChatContract() {}
 
     public enum Outcome {
@@ -63,7 +70,7 @@ public final class ChatContract {
             @NotBlank @Size(max = 16000) String text,
             @NotNull @Size(max = 50) List<@Valid Reference> sources,
             @NotNull @Size(max = 20) List<@NotBlank @Size(max = 200) String> limitations,
-            @JsonInclude(JsonInclude.Include.NON_EMPTY) @Size(max = 12)
+            @JsonInclude(JsonInclude.Include.NON_EMPTY) @Size(max = MAX_RETRIEVAL_SOURCES)
                     List<@NotNull @Valid RetrievalReference> retrievalSources) {
         public Result {
             retrievalSources = retrievalSources == null ? List.of() : List.copyOf(retrievalSources);
@@ -90,9 +97,13 @@ public final class ChatContract {
 
     @Schema(
             name = "ChatRetrievalSourcesRequestV1",
-            description = "실행에 고정된 범위에서 최대 12개 검색 인용을 검증합니다. 인용은 각각 4000 code point 이하입니다.")
+            description =
+                    "실행에 고정된 범위에서 최대 "
+                            + MAX_RETRIEVAL_SOURCES
+                            + "개 검색 인용을 검증합니다. 인용은 각각 4000 code point 이하입니다.")
     public record RetrievalSourcesRequest(
-            @NotNull @Size(min = 1, max = 12) List<@NotNull @Valid RetrievalReference> sources) {}
+            @NotNull @Size(min = 1, max = MAX_RETRIEVAL_SOURCES)
+                    List<@NotNull @Valid RetrievalReference> sources) {}
 
     @Schema(name = "ChatRetrievalSourcesV1", description = "검증하고 해당 실행에 사용을 허용한 검색 인용입니다.")
     public record RetrievalSources(int schemaVersion, List<RetrievalReference> sources) {}

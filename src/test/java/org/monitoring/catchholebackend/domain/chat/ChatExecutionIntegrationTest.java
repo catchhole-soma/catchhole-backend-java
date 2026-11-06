@@ -1074,4 +1074,25 @@ class ChatExecutionIntegrationTest {
                                 .header("X-Internal-Api-Key", "chat-test-key"))
                 .andExpect(status().isForbidden());
     }
+
+    @Test
+    @DisplayName("OpenAPI는 검색 인용 상한 60개를 등록 요청과 결과 schema에 드러낸다")
+    void openApiPublishesRetrievalSourceLimit() throws Exception {
+        var schemas =
+                new com.fasterxml.jackson.databind.ObjectMapper()
+                        .readTree(
+                                mvc.perform(get("/v3/api-docs"))
+                                        .andExpect(status().isOk())
+                                        .andReturn()
+                                        .getResponse()
+                                        .getContentAsString(java.nio.charset.StandardCharsets.UTF_8))
+                        .path("components")
+                        .path("schemas");
+        var request = schemas.path("ChatRetrievalSourcesRequestV1");
+        assertThat(request.at("/properties/sources/minItems").asInt()).isEqualTo(1);
+        assertThat(request.at("/properties/sources/maxItems").asInt()).isEqualTo(60);
+        assertThat(request.path("description").asText()).contains("최대 60개");
+        assertThat(schemas.at("/ChatResultV1/properties/retrievalSources/maxItems").asInt())
+                .isEqualTo(60);
+    }
 }
