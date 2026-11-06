@@ -13,6 +13,36 @@ HTTP 요청마다 서버가 UUID를 생성해 SLF4J MDC의 `requestId`와 응답
 - 정상 `/healthz`, `/actuator/health`, `/actuator/prometheus`는 완료 로그를 생략한다. 400 이상 실패는 기록하며 세 경로 모두 응답 헤더는 유지한다. 나머지 내부 API도 완료 로그를 남긴다.
 - 예상하지 못한 예외는 `GlobalExceptionHandler`에서 원인과 stack trace를 ERROR로 남긴다. 기존 공통 오류 응답은 유지하며 일반 4xx를 일괄 ERROR로 기록하지 않는다.
 
+## 회차 감지·등록 실패 진단
+
+`POST /api/v1/works/{workId}/episodes/detect`와 `POST /api/v1/works/{workId}/episodes`의 오류 응답에는 `회차 업로드 요청 실패` WARN을 한 건 추가한다. 기존 HTTP 완료 로그와 같은 MDC requestId를 사용한다. 성공 요청과 다른 API에는 이 진단을 추가하지 않으며 응답 본문·상태·헤더는 기존 규약을 따른다.
+
+- `operation`: 감지 DETECT / 등록 UPLOAD, `workId`: 정규화한 작품 UUID, `errorCode`, `status`.
+- `uploadType`, `fileCount`, `requestBytes`: 업로드 방식·파일 개수·Servlet이 관측한 요청 바이트 수. 길이를 알 수 없으면 requestBytes는 -1이다.
+- `files`: 파일 인덱스·허용된 형식 TXT/DOCX/HWP/HWPX(그 외 OTHER, 파일명 미관측 UNKNOWN)·바이트 크기를 최대 8개 기록한다. `omittedFiles`로 생략한 개수를 표시한다. 로그용으로 원고를 읽지 않으며, 원본 파일명과 원고는 진단 로그에 복사하지 않는다.
+- `exceptionType`, `causeType`: 예외 클래스명과 직접 원인의 클래스명만 기록한다. 원인이 없으면 NONE이다. 예를 들어 TXT 인코딩 실패의 `UPLOAD_DOCUMENT_INVALID` + `MalformedInputException`을 회차 제목 개수 오류의 `UPLOAD_SINGLE_EPISODE_COUNT_INVALID`와 구분할 수 있다.
+- `invalidFields`: uploadType/singleEpisodeNo/singleEpisodeTitle/episodeConfirmations의 허용된 필드 경로만 최대 8개 기록한다. 검증 메시지·거절값·예외 메시지/stack trace·인증 헤더·쿠키·쿼리·원고 제목은 이 진단에 포함하지 않는다.
+
+컨트롤러에서 요청 바인딩을 마친 뒤 안전한 메타데이터만 request attribute에 저장하고, `GlobalExceptionHandler`의 공통 오류 응답 생성 경로에서 기록한다. JSON 오류·필수 part 누락·Bean Validation·multipart 크기 제한처럼 컨트롤러 진입 전 실패도 고정 경로 패턴으로 식별한다. Spring의 `UrlPathHelper`로 context path와 URL 인코딩을 해석해 정상 매핑되는 인코딩 경로도 같은 작품 UUID로 연결한다. 이때 아직 관측하지 못한 업로드 방식은 UNKNOWN, 파일 수는 -1, 파일 목록은 빈 목록이다. 로그를 위해 실패한 multipart를 다시 파싱하거나 메타데이터/원고를 다시 읽지 않는다. 업무 처리가 끝나면 Servlet 요청과 함께 진단 문맥도 사라지므로 후속 요청으로 전파되지 않는다.
+
+로컬 회귀 테스트에서 CP949 합성 TXT로 발생시킨 실제 진단 로그 예시다. 아래 UUID는 테스트 데이터이며, 운영 회원의 로그가 아니다. 서버에서는 한 줄로 저장된다.
+
+```text
+2026-11-06T12:26:08.706+09:00  WARN [requestId=0653e2e3-2b50-4d38-aa59-2bf7b722bf80] 59856 --- [CatchHole-Backend] [    Test worker] o.m.c.g.c.logging.UploadFailureLogger    : 회차 업로드 요청 실패: operation=UPLOAD, workId=eec579fb-a042-452a-8267-17f93e383878, errorCode=UPLOAD_DOCUMENT_INVALID, status=400, uploadType=SINGLE_EPISODE, fileCount=1, requestBytes=-1, files=[FileInfo[index=0, format=TXT, bytes=30]], omittedFiles=0, exceptionType=AppException, causeType=MalformedInputException, invalidFields=[]
+```
+
+같은 requestId로 기존 `HTTP 요청 완료` 로그를 조회하면 응답 상태·소요 시간과 연결된다. `UPLOAD_SINGLE_EPISODE_COUNT_INVALID`는 회차 제목 개수 검사 실패이고, `UPLOAD_SIZE_LIMIT_EXCEEDED` + `MaxUploadSizeExceededException`은 컨트롤러 진입 전 multipart 용량 제한이다.
+
+운영 조회 예시:
+
+```bash
+sudo journalctl CONTAINER_NAME=catchhole-backend-1 --since '30 minutes ago' --no-pager -o cat | grep -F '회차 업로드 요청 실패'
+sudo journalctl CONTAINER_NAME=catchhole-backend-1 --since '30 minutes ago' --no-pager -o cat | grep -F 'workId=<작품 UUID>'
+sudo journalctl CONTAINER_NAME=catchhole-backend-1 --since '30 minutes ago' --no-pager -o cat | grep -F 'requestId=<X-Request-ID>'
+```
+
+로컬 검증: `./gradlew test --tests '*UploadFailureLoggingIntegrationTest' --tests '*GlobalExceptionHandlerTest' --tests '*RequestIdFilterTest' --tests '*RequestLoggingIntegrationTest'`. 이 보완은 배포 이후 발생하는 요청부터 적용되며, 과거에 남지 않은 오류 코드를 복원하지는 않는다.
+
 ## HTTP ID와 작업 ID
 
 삭제·파기 로그의 업무 ID는 `purgeRequestId`, 회원 탈퇴 조정은 `withdrawalRequestId`로 표기한다. DB 컬럼, DTO 필드, API URL은 바꾸지 않는다.

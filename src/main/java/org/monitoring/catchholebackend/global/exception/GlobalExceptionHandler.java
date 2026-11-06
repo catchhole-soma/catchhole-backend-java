@@ -14,6 +14,7 @@ import org.monitoring.catchholebackend.domain.upload.exception.UploadErrorCode;
 import org.monitoring.catchholebackend.global.common.response.CommonResponse;
 import org.monitoring.catchholebackend.global.common.response.ErrorResponse;
 import org.monitoring.catchholebackend.global.common.response.FieldErrorResponse;
+import org.monitoring.catchholebackend.global.config.logging.UploadFailureLogger;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -32,6 +33,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(AppException.class)
     public ResponseEntity<CommonResponse<Void>> handleAppException(AppException exception) {
+        UploadFailureLogger.captureException(exception);
         ResponseEntity<CommonResponse<Void>> response =
                 buildErrorResponse(
                         exception.getResultCode(),
@@ -51,6 +53,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<CommonResponse<Void>> handleMethodArgumentNotValidException(
             MethodArgumentNotValidException exception
     ) {
+        UploadFailureLogger.captureException(exception);
         List<FieldErrorResponse> details = exception.getBindingResult()
                 .getFieldErrors()
                 .stream()
@@ -65,6 +68,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<CommonResponse<Void>> handleConstraintViolationException(
             ConstraintViolationException exception
     ) {
+        UploadFailureLogger.captureException(exception);
         List<FieldErrorResponse> details = exception.getConstraintViolations()
                 .stream()
                 .map(violation -> new FieldErrorResponse(
@@ -78,27 +82,42 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
-    public ResponseEntity<CommonResponse<Void>> handleHttpMessageNotReadableException() {
+    public ResponseEntity<CommonResponse<Void>> handleHttpMessageNotReadableException(
+            HttpMessageNotReadableException exception
+    ) {
+        UploadFailureLogger.captureException(exception);
         return buildErrorResponse(CommonErrorCode.REQUEST_INVALID_ARGUMENT, List.of());
     }
 
     @ExceptionHandler(MaxUploadSizeExceededException.class)
-    public ResponseEntity<CommonResponse<Void>> handleMaxUploadSizeExceededException() {
+    public ResponseEntity<CommonResponse<Void>> handleMaxUploadSizeExceededException(
+            MaxUploadSizeExceededException exception
+    ) {
+        UploadFailureLogger.captureException(exception);
         return buildErrorResponse(UploadErrorCode.UPLOAD_SIZE_LIMIT_EXCEEDED, List.of());
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
-    public ResponseEntity<CommonResponse<Void>> handleMethodArgumentTypeMismatchException() {
+    public ResponseEntity<CommonResponse<Void>> handleMethodArgumentTypeMismatchException(
+            MethodArgumentTypeMismatchException exception
+    ) {
+        UploadFailureLogger.captureException(exception);
         return buildErrorResponse(CommonErrorCode.REQUEST_INVALID_ARGUMENT, List.of());
     }
 
     @ExceptionHandler(MissingServletRequestParameterException.class)
-    public ResponseEntity<CommonResponse<Void>> handleMissingServletRequestParameterException() {
+    public ResponseEntity<CommonResponse<Void>> handleMissingServletRequestParameterException(
+            MissingServletRequestParameterException exception
+    ) {
+        UploadFailureLogger.captureException(exception);
         return buildErrorResponse(CommonErrorCode.REQUEST_INVALID_ARGUMENT, List.of());
     }
 
     @ExceptionHandler(MissingServletRequestPartException.class)
-    public ResponseEntity<CommonResponse<Void>> handleMissingServletRequestPartException() {
+    public ResponseEntity<CommonResponse<Void>> handleMissingServletRequestPartException(
+            MissingServletRequestPartException exception
+    ) {
+        UploadFailureLogger.captureException(exception);
         return buildErrorResponse(CommonErrorCode.REQUEST_INVALID_ARGUMENT, List.of());
     }
 
@@ -109,6 +128,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<CommonResponse<Void>> handleException(Exception exception) {
+        UploadFailureLogger.captureException(exception);
         log.error("예상하지 못한 오류가 발생했습니다.", exception);
         return buildErrorResponse(CommonErrorCode.COMMON_INTERNAL_SERVER_ERROR, CommonErrorCode.COMMON_INTERNAL_SERVER_ERROR.getMessage(), List.of(),
                 failureContext(Map.of(), CommonErrorCode.COMMON_INTERNAL_SERVER_ERROR));
@@ -158,6 +178,7 @@ public class GlobalExceptionHandler {
             List<FieldErrorResponse> details,
             Map<String, Object> context
     ) {
+        UploadFailureLogger.logFailure(resultCode, details);
         ErrorResponse error = ErrorResponse.of(
                 resultCode.getCode(),
                 resultCode.getStatus().value(),

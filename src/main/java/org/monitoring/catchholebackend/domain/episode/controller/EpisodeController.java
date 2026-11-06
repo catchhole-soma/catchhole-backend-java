@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.UUID;
@@ -22,6 +23,7 @@ import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeUpload
 import org.monitoring.catchholebackend.domain.episode.dto.response.EpisodeUploadPolicyResponse;
 import org.monitoring.catchholebackend.domain.episode.service.EpisodeService;
 import org.monitoring.catchholebackend.global.common.response.CommonResponse;
+import org.monitoring.catchholebackend.global.config.logging.UploadFailureLogger;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -96,8 +98,10 @@ public class EpisodeController {
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal memberPrincipal,
             @PathVariable UUID workId,
             @Valid @RequestPart("metadata") EpisodeUploadRequest uploadRequest,
-            @RequestPart("episodeFiles") List<MultipartFile> sourceEpisodeFiles
+            @RequestPart("episodeFiles") List<MultipartFile> sourceEpisodeFiles,
+            HttpServletRequest request
     ) {
+        UploadFailureLogger.captureMetadata(request, uploadRequest.uploadType(), sourceEpisodeFiles);
         return CommonResponse.success(
                 "회차 원고가 업로드되었습니다.",
                 episodeService.uploadEpisodes(
@@ -126,8 +130,10 @@ public class EpisodeController {
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal memberPrincipal,
             @PathVariable UUID workId,
             @Valid @RequestPart("metadata") EpisodeDetectionRequest detectionRequest,
-            @RequestPart("episodeFiles") List<MultipartFile> sourceEpisodeFiles
+            @RequestPart("episodeFiles") List<MultipartFile> sourceEpisodeFiles,
+            HttpServletRequest request
     ) {
+        UploadFailureLogger.captureMetadata(request, detectionRequest.uploadType(), sourceEpisodeFiles);
         return CommonResponse.success(
                 episodeService.detectEpisodes(
                         memberPrincipal.memberId(),
