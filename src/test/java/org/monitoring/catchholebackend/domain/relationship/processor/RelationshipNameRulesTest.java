@@ -159,4 +159,38 @@ class RelationshipNameRulesTest {
         assertThat(resolved).doesNotContainKey("비요른");
         assertThat(aliasOnly).doesNotContainKey("비요른");
     }
+
+    @Test
+    @DisplayName("GH391 엄격 해소는 정확 일치에서 멈추지 않고 포함으로 겹치는 다른 프로필까지 모아 보류한다")
+    void strictResolutionUnitesExactAndContainedProfiles() {
+        // resolve는 "한스"를 정확 일치로 끝내지만, 엄격 해소는 "한스 호지" 프로필에 포함되는 것도 본다.
+        assertThat(RelationshipNameRules.resolve(hansConfirmed(), List.of("한스"), currentProfiles()))
+                .containsEntry("한스", List.of(hans));
+        assertThat(RelationshipNameRules.resolveStrictly("한스", hansConfirmed(), currentProfiles()))
+                .containsExactlyInAnyOrder(hans, hansHodge);
+        assertThat(RelationshipNameRules.resolveStrictly("한스 호지", hansConfirmed(), currentProfiles()))
+                .containsExactlyInAnyOrder(hans, hansHodge);
+
+        UUID erwen = UUID.randomUUID(), daria = UUID.randomUUID();
+        var tersia = RelationshipNameRules.resolveStrictly("테르시아", Map.of("테르시아", List.of(erwen)),
+                List.of(new RelationshipNameRules.ProfileName(erwen, "에르웬 포르나치 디 테르시아"),
+                        new RelationshipNameRules.ProfileName(daria, "다리아 위트엠버 디 테르시아")));
+        assertThat(tersia).containsExactlyInAnyOrder(erwen, daria);
+    }
+
+    @Test
+    @DisplayName("GH391 엄격 해소는 확정 이름이 뒷받침하는 프로필 하나만 해소하고 현재 이름만 겹치면 해소하지 않는다")
+    void strictResolutionNeedsConfirmedAnchor() {
+        var profiles = List.of(new RelationshipNameRules.ProfileName(bjorn, "비요른 얀델"),
+                new RelationshipNameRules.ProfileName(ragnar, "브라운 로트밀러"));
+
+        assertThat(RelationshipNameRules.resolveStrictly("로트밀러", Map.of("브라운 로트밀러", List.of(ragnar)), profiles))
+                .containsExactly(ragnar);
+        assertThat(RelationshipNameRules.resolveStrictly("한스C", hansConfirmed(), currentProfiles()))
+                .containsExactly(hans);
+        assertThat(RelationshipNameRules.resolveStrictly("비요른", Map.of(), profiles)).isEmpty();
+        assertThat(RelationshipNameRules.resolveStrictly("그녀", Map.of("그녀의 기사", List.of(bjorn)), profiles))
+                .isEmpty();
+        assertThat(RelationshipNameRules.resolveStrictly("보라", hansConfirmed(), currentProfiles())).isEmpty();
+    }
 }
