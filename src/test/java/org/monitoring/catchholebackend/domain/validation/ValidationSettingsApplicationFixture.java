@@ -45,6 +45,8 @@ abstract class ValidationSettingsApplicationFixture extends ValidationReviewComp
     @Autowired SettingCandidatePromotionService promotions;
     @Autowired WorldSettingCandidateService worldReview;
     @Autowired ValidationSettingsApplicationService applications;
+    @Autowired List<AnalysisJournalContributor> journalContributors;
+    @Autowired org.monitoring.catchholebackend.domain.validation.mapper.ValidationReviewMapper reviewMapper;
 
     record Release(Fixture f,UUID job,WorkerAnalysisJobPayload payload) {}
     /** 합성 후보 근거가 가리키는 현재 원고. 파일 교체 테스트는 교체한 원고로 바꾼다. */
@@ -69,6 +71,25 @@ abstract class ValidationSettingsApplicationFixture extends ValidationReviewComp
         analysisWorker.completeAnalysisJob(job,lease,new WorkerAnalysisJobCompleteRequest("{}",null,null));
     }
     void completeExtraction(Release r) {completeExtraction(r.job(),r.payload().leaseToken());}
+
+    /**
+     * 선택적 자동 반영 도입 전에 저장된 SUCCEEDED/SEALED + HELD_REVIEW 상태를 합성한다.
+     * 현행 자동 경로 테스트는 completeExtraction을 사용한다. 이 fixture는 기존 보류 데이터의 명시 반영·복구 호환성만 검증한다.
+     */
+    void completeLegacyHeldExtraction(Release r) {
+        tx.executeWithoutResult(s->{
+            var job=analysisJobs.findById(r.job()).orElseThrow();
+            job.updateCheckpointStage(AnalysisJobCheckpointStage.WORLD_COMPARISONS_FINISHED);
+            journalContributors.forEach(contributor->contributor.finalizeChanges(job));states.seal(job);
+            var report=em.find(org.monitoring.catchholebackend.domain.validation.entity.ValidationReport.class,r.f().report());
+            var decision=applications.evaluate(report);
+            assertThat(decision.kind()).as("legacy fixture requires a held plan").isEqualTo(org.monitoring.catchholebackend.domain.validation.processor.ValidationApplicationGate.Kind.HELD);
+            var receipt=org.monitoring.catchholebackend.domain.validation.entity.ValidationSettingsApplication.start(report,decision.plan().completion());
+            report.advanceVersion();
+            receipt.hold(org.monitoring.catchholebackend.domain.validation.type.ValidationReviewTrigger.AUTOMATIC,null,null,reviewMapper.toHoldReasonTree(decision.reasons()),null,report.getVersion());
+            em.persist(receipt);job.holdReviewReleaseApplication();job.succeed("{}",0,0);job.getEpisode().markAnalyzed();
+        });
+    }
 
     // ---- 합성 후보: 원고 TEXT("처음 합성 원고")의 실제 code point 위치를 근거로 쓴다 ----
     static ArrayNode evidence(String text,String quote) {

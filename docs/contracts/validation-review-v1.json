@@ -1,6 +1,7 @@
 {
   "contractVersion": 1,
   "scope": "GH312 author judgments, review completion/release, whole-episode settings application, history and derived reviewStage; GH314 B1 intake eligibility and next-episode admission; GH314 B2 finding subject/setting, impact/subjectType filters, correction basis, APPLIED recheck action and recheck baseline fingerprint; screens are GH314",
+  "automaticApplicationPolicy": "Since 2026-11-07, validation-release extraction reuses ordinary selective automatic application: apply eligible candidates, leave only unresolved candidates pending. APPLIED and automaticAppliedAt mean automatic processing completed, not all candidates confirmed. Remaining candidates use ordinary manual confirmation; episode/source blockers and actual write exceptions still block or roll back. Existing HELD receipts retain explicit whole-episode recovery.",
   "synthetic": true,
   "routes": {
     "listValidationFindings": "GET /api/v1/works/{workId}/episode-validations/{reportId}/findings?branch=&judgment=&outcome=&impact=&subjectType=&page=0&size=20",

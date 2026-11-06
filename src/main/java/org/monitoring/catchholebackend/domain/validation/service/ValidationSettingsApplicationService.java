@@ -10,8 +10,8 @@ import org.monitoring.catchholebackend.domain.validation.processor.ValidationApp
 import org.monitoring.catchholebackend.global.exception.AppException;
 
 /**
- * GH312 S3 회차 전체 확정. release 회차의 캐릭터·세계관 후보를 Work 잠금 아래 한 트랜잭션에서 모두 반영하거나,
- * 하나라도 반영할 수 없으면 아무것도 쓰지 않고 HELD_REVIEW receipt를 남긴다. release 회차의 확정 설정을 쓰는 유일한 경로다.
+ * 검수 후 자동 반영과 기존 HELD 회차의 명시 전체 확정. 자동 경로는 일반 추출처럼 가능한 후보만 반영하고 나머지는 검토 대기로 남긴다.
+ * 원문·회차의 차단 사유나 실제 저장 예외만 자동 반영 전체를 보류한다. APPLIED 뒤 남은 후보는 일반 확정 경로를 사용한다.
  */
 public interface ValidationSettingsApplicationService {
     /** 상태를 바꾸지 않는 평가. 현재 report의 검토 종료 receipt가 없으면 VALIDATION_APPLICATION_UNAVAILABLE이다. */
@@ -21,8 +21,8 @@ public interface ValidationSettingsApplicationService {
     boolean isReleaseJob(AnalysisJob job);
 
     /**
-     * 추출 완료 트랜잭션(Work → Job 잠금, SEALED 직후) 안의 자동 경로. READY면 두 도메인을 반영하고 APPLIED와 automaticAppliedAt을 기록하며,
-     * HELD면 보류 receipt만 남긴다. 반영 중 실패는 {@link ValidationErrorCode#VALIDATION_APPLICATION_ROLLED_BACK}을 던져 완료 트랜잭션 전체를
+     * 추출 완료 트랜잭션(Work → Job 잠금, SEALED 직후) 안의 자동 경로. 두 도메인의 기존 선택적 자동 반영을 끝내면 남은 후보가 있어도 APPLIED와 automaticAppliedAt을 기록한다.
+     * 원문·회차 차단 사유는 보류 receipt만 남긴다. 반영 중 실패는 {@link ValidationErrorCode#VALIDATION_APPLICATION_ROLLED_BACK}을 던져 완료 트랜잭션 전체를
      * 되돌리게 하고, 호출자는 같은 완료를 rolledBack과 함께 다시 실행해 반영 없이 그 사유를 기록한다.
      */
     void applyAutomatically(AnalysisJob job, AppException rolledBack);

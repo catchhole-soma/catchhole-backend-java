@@ -61,7 +61,7 @@ class ValidationReviewStageIntegrationTest extends ValidationSettingsApplication
         var r=release();var f=r.f();
         stage(f,ValidationReviewStage.REVIEW_COMPLETED);
         var held=inJob(r.job(),job->{var d=discovery(job,"에르웬");world(job,"엘프","서식지","북부");return stat(job,d.getProvisionalSubjectKey(),"에르웬",35,CharacterFactOperation.REVIEW_REQUIRED).getId();});
-        completeExtraction(r);assertThat(applicationRow(f).get("status")).isEqualTo("HELD_REVIEW");
+        completeLegacyHeldExtraction(r);assertThat(applicationRow(f).get("status")).isEqualTo("HELD_REVIEW");
         stage(f,ValidationReviewStage.APPLICATION_HELD);
         var row=episodeRow(f);
         assertThat(row.analysisStatus()).as("existing field keeps its meaning").isEqualTo(EpisodeAnalysisStatus.ERROR_REVIEW_PENDING);assertThat(row.validationReportId()).isEqualTo(f.report());
@@ -123,7 +123,7 @@ class ValidationReviewStageIntegrationTest extends ValidationSettingsApplication
     void splitSharedDecisionHoldsAsUnknownErrorUntilRegrouped() {
         var r=release();var f=r.f();
         var ids=inJob(r.job(),job->sharedDecisionWorlds(job,"엘프"));UUID a=ids.get(0),b=ids.get(1),batch=ids.get(2);
-        completeExtraction(r);assertThat(applicationRow(f).get("status")).isEqualTo("HELD_REVIEW");
+        completeLegacyHeldExtraction(r);assertThat(applicationRow(f).get("status")).isEqualTo("HELD_REVIEW");
         draft(f,batch,a,org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory.RACE,"엘프","서식지","북부");
         draft(f,batch,b,org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory.LOCATION,"북쪽 숲","서식 종족","엘프");
         var split=apply(f,"split");
