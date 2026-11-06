@@ -54,7 +54,7 @@
 3. 사전 점검 SQL로 대상 작품을 정한다(RDS 허용 IPv4에서 psql, 읽기 전용).
 4. 대상 작품의 node·edge·event 백업 표를 만든다.
 5. 작품마다 dry-run 보고서를 검토한다(특히 `LINK`, `HELD_COLLISION`·`SKIPPED` 사유, `CORRECTION_CONFLICT`, `blockers`).
-6. 작품마다 apply → 사후 점검 SQL → 보고서 건수와 대조한다. 관계 분석이 계속 도는 동안에는 dry-run 뒤 새 분석이 선·event를 더할 수 있으므로, 백업 건수는 dry-run이 아니라 apply 응답의 `before`와 대조한다. 건수 일치는 필요조건일 뿐이다. 작가의 선 정정·삭제는 행 수를 바꾸지 않으므로, 백업 직후 apply 직전에 아래 "백업 내용 대조" SQL이 0·0·0인지 확인하고 곧바로 apply한다. 0이 아니면 백업을 다시 만든다.
+6. 작품마다 apply → 사후 점검 SQL → 보고서 건수와 대조한다. 관계 분석이 계속 도는 동안에는 dry-run 뒤 새 분석이 선·event를 더할 수 있으므로, 백업 건수는 dry-run이 아니라 apply 응답의 `before`와 대조한다. 건수 일치는 필요조건일 뿐이다. 작가의 선 정정·삭제는 행 수를 바꾸지 않으므로, 작품마다 apply 직전에 아래 "백업 내용 대조" SQL(`:w`)이 0·0·0인지 확인하고 곧바로 apply한다. 0이 아니면 그 작품의 백업 행만 다시 넣는다(백업 표 전체를 다시 만들면 이미 정리한 작품의 롤백 기준이 사라진다).
 7. 며칠 뒤 백업 표를 지우고, 건수만 이 문서의 검증 기록에 남긴다.
 
 호출은 API EC2의 SSM 세션 안에서 하고 키·응답을 디스크에 남기지 않는다. 배포 경로·사용자는 `deploy-api-ec2.yml`의 `API_EC2_DEPLOY_PATH`(기본 `/opt/catchhole`)·`API_EC2_DEPLOY_USER`이고, API 컨테이너는 호스트 `127.0.0.1:8080`에 열려 있다.
@@ -105,16 +105,23 @@ create table relationship_graph_edges_gh391_bak  as select * from relationship_g
 create table relationship_graph_events_gh391_bak as select * from relationship_graph_events where work_id in (:works);
 ```
 
-백업 내용 대조(백업 직후·apply 직전, 읽기 전용). 행 단위로 양쪽 차집합을 세므로 정정·삭제처럼 행 수가 그대로인 변경도 잡는다. 0·0·0이어야 백업이 지금 상태와 같다.
+백업 내용 대조(작품별 `:w`, 그 작품 apply 직전, 읽기 전용). 행 단위로 양쪽 차집합을 세므로 정정·삭제처럼 행 수가 그대로인 변경도 잡는다. 0·0·0이어야 그 작품의 백업이 지금 상태와 같다. 다른 작품은 비교하지 않으므로 앞 작품을 정리한 뒤에도 그대로 쓸 수 있다.
 
 ```sql
-with w as (select distinct work_id from relationship_graph_nodes_gh391_bak)
-select (select count(*) from ((select * from relationship_graph_nodes  where work_id in (select work_id from w) except all select * from relationship_graph_nodes_gh391_bak)
-          union all (select * from relationship_graph_nodes_gh391_bak  except all select * from relationship_graph_nodes  where work_id in (select work_id from w))) d) nodes_diff,
-       (select count(*) from ((select * from relationship_graph_edges  where work_id in (select work_id from w) except all select * from relationship_graph_edges_gh391_bak)
-          union all (select * from relationship_graph_edges_gh391_bak  except all select * from relationship_graph_edges  where work_id in (select work_id from w))) d) edges_diff,
-       (select count(*) from ((select * from relationship_graph_events where work_id in (select work_id from w) except all select * from relationship_graph_events_gh391_bak)
-          union all (select * from relationship_graph_events_gh391_bak except all select * from relationship_graph_events where work_id in (select work_id from w))) d) events_diff;
+select (select count(*) from ((select * from relationship_graph_nodes  where work_id=:w except all select * from relationship_graph_nodes_gh391_bak  where work_id=:w)
+          union all (select * from relationship_graph_nodes_gh391_bak  where work_id=:w except all select * from relationship_graph_nodes  where work_id=:w)) d) nodes_diff,
+       (select count(*) from ((select * from relationship_graph_edges  where work_id=:w except all select * from relationship_graph_edges_gh391_bak  where work_id=:w)
+          union all (select * from relationship_graph_edges_gh391_bak  where work_id=:w except all select * from relationship_graph_edges  where work_id=:w)) d) edges_diff,
+       (select count(*) from ((select * from relationship_graph_events where work_id=:w except all select * from relationship_graph_events_gh391_bak where work_id=:w)
+          union all (select * from relationship_graph_events_gh391_bak where work_id=:w except all select * from relationship_graph_events where work_id=:w)) d) events_diff;
+```
+
+0이 아니면 그 작품의 백업 행만 다시 넣는다(쓰기 작업).
+
+```sql
+delete from relationship_graph_nodes_gh391_bak  where work_id=:w; insert into relationship_graph_nodes_gh391_bak  select * from relationship_graph_nodes  where work_id=:w;
+delete from relationship_graph_edges_gh391_bak  where work_id=:w; insert into relationship_graph_edges_gh391_bak  select * from relationship_graph_edges  where work_id=:w;
+delete from relationship_graph_events_gh391_bak where work_id=:w; insert into relationship_graph_events_gh391_bak select * from relationship_graph_events where work_id=:w;
 ```
 
 사후 점검 SQL(작품별 `:w`):
