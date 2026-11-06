@@ -111,11 +111,15 @@ class ChatRetrievalSourcesPostgresIntegrationTest {
     }
 
     UUID insertChunk(int index) {
+        return insertChunk(episode, index);
+    }
+
+    UUID insertChunk(UUID target, int index) {
         UUID id = UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO retrieval_chunks(id,episode_id,chunk_index,chunk_text,start_offset,end_offset,chunk_hash,token_count)
                 VALUES (?,?,?, ?,0,?,?,30)
-                """, id, episode, index, ORIGINAL, ORIGINAL.codePointCount(0, ORIGINAL.length()), hash(ORIGINAL));
+                """, id, target, index, ORIGINAL, ORIGINAL.codePointCount(0, ORIGINAL.length()), hash(ORIGINAL));
         return id;
     }
 
@@ -283,6 +287,86 @@ class ChatRetrievalSourcesPostgresIntegrationTest {
         var refs = register(r, ref(), ref(second, QUOTE, 3, 3 + QUOTE.length())).sources();
         assertThat(refs).hasSize(2);
         verify(storage).getText(key);
+    }
+
+    @Test
+    @DisplayName("세 회차에 걸친 인용 60개를 한 번에 등록·완료하고 원문은 검증마다 회차당 한 번만 읽는다")
+    void sixtyCitationsAcrossEpisodes() {
+        var keys = new ArrayList<>(List.of(key));
+        var refs = new ArrayList<RetrievalReference>();
+        for (int episodeNo = 3; episodeNo <= 5; episodeNo++) {
+            UUID target = episode;
+            if (episodeNo > 3) {
+                String otherKey = "private-source-" + UUID.randomUUID();
+                int no = episodeNo;
+                target = tx.execute(s -> {
+                    var e = Episode.create(em.find(Work.class, work), null, no, null, otherKey, "source-v1",
+                            hash(ORIGINAL), ORIGINAL.length());
+                    em.persist(e);
+                    return e.getId();
+                });
+                jdbc.update("""
+                        INSERT INTO retrieval_sources VALUES (?,?,?,'source-v1',?,'cl100k-800-100-boundary-v1',1,localtimestamp)
+                        """, target, work, otherKey, hash(ORIGINAL));
+                when(storage.getText(otherKey)).thenReturn(ORIGINAL);
+                keys.add(otherKey);
+            }
+            for (int index = episodeNo == 3 ? 1 : 0; index < 20; index++) insertChunk(target, index);
+            for (UUID id : jdbc.queryForList("SELECT id FROM retrieval_chunks WHERE episode_id=? ORDER BY chunk_index",
+                    UUID.class, target))
+                refs.add(new RetrievalReference(id, target, episodeNo, hash(ORIGINAL), "source-v1", QUOTE, 3,
+                        3 + QUOTE.length()));
+        }
+        assertThat(refs).hasSize(60);
+        var sources = refs.toArray(RetrievalReference[]::new);
+        var r = start(null, null);
+
+        assertThat(register(r, sources).sources()).containsExactlyElementsOf(refs);
+        assertThat(json.receipts(runs.findById(r.id()).orElseThrow().getReceiptJson())).hasSize(60);
+        for (String sourceKey : keys) verify(storage).getText(sourceKey);
+
+        var result = finish(r, sources);
+        assertThat(result.state()).isEqualTo(ChatState.SUCCEEDED);
+        assertThat(result.result().retrievalSources()).containsExactlyElementsOf(refs);
+        for (String sourceKey : keys) verify(storage, times(2)).getText(sourceKey);
+    }
+
+    @Test
+    @DisplayName("등록한 인용이어도 완료 결과에 61개를 담으면 거절하고 결과를 저장하지 않는다")
+    void finishRejectsSixtyOneCitations() {
+        var r = start(null, null);
+        register(r, ref());
+        assertScope(() -> finish(r, Collections.nCopies(61, ref()).toArray(RetrievalReference[]::new)));
+        assertThat(runs.findById(r.id()).orElseThrow().getResultJson()).isNull();
+        assertThat(finish(r, Collections.nCopies(60, ref()).toArray(RetrievalReference[]::new)).state())
+                .isEqualTo(ChatState.SUCCEEDED);
+    }
+
+    @Test
+    @DisplayName("HTTP 진입점은 등록과 완료 모두 인용 60개를 받고 61개는 요청 검증에서 400으로 거절한다")
+    void endpointCitationCountLimit() throws Exception {
+        var r = start(null, null);
+        mvc.perform(internal(r, "retrieval-sources", new RetrievalSourcesRequest(Collections.nCopies(61, ref()))))
+                .andExpect(status().isBadRequest());
+        assertThat(runs.findById(r.id()).orElseThrow().getReceiptJson()).isEqualTo("[]");
+        mvc.perform(internal(r, "retrieval-sources", new RetrievalSourcesRequest(Collections.nCopies(60, ref()))))
+                .andExpect(status().isOk()).andExpect(jsonPath("data.sources.length()").value(60));
+
+        mvc.perform(internal(r, "finish", new Finish(new Result(Outcome.ANSWER, "아리아가 반지를 버린 장면입니다.",
+                        List.of(), List.of(), Collections.nCopies(61, ref())), null)))
+                .andExpect(status().isBadRequest());
+        assertThat(runs.findById(r.id()).orElseThrow().getResultJson()).isNull();
+        mvc.perform(internal(r, "finish", new Finish(new Result(Outcome.ANSWER, "아리아가 반지를 버린 장면입니다.",
+                        List.of(), List.of(), Collections.nCopies(60, ref())), null)))
+                .andExpect(status().isOk()).andExpect(jsonPath("data.result.retrievalSources.length()").value(60));
+    }
+
+    org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder internal(
+            Running r, String action, Object body) {
+        return post("/api/internal/v1/chat-runs/{id}/" + action, r.id())
+                .header("X-Internal-Api-Key", "chat-test-key")
+                .header("X-Chat-Capability", r.token()).header("X-Chat-Runner", r.runner())
+                .contentType("application/json").content(json.encode(body));
     }
 
     @Test
