@@ -231,6 +231,8 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
     }
 
     @Override
+    // claim이 근거 오류를 받아 같은 트랜잭션에서 Job을 claim 입력 실패로 마감하므로, prepareInput처럼 이 예외로 claim 트랜잭션을 되돌리지 않는다.
+    @Transactional(readOnly = true, noRollbackFor = org.monitoring.catchholebackend.domain.character.processor.CharacterCurrentSupportingEvidenceResolver.InvalidEvidenceException.class)
     public JsonNode getInputCurrentSubjects(AnalysisJob job) {
         if (liveInput(job)) {
             // claim 응답은 이력·근거 사본 없이 현재값만 읽는다. references는 저장 입력의 고정본이다.

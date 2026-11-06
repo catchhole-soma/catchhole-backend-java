@@ -2252,6 +2252,50 @@ class AutomaticAnalysisIntegrationTest {
         assertThatThrownBy(() -> worker.heartbeatAnalysisJob(second.analysisJobId(), second.leaseToken())).isInstanceOf(AppException.class);
     }
 
+    @Test
+    @DisplayName("#387 format 2 claim이 읽는 인물의 대표 서사 시점 근거가 깨져 있으면 claim 트랜잭션을 되돌리지 않고 Job을 claim 입력 실패로 마감한다")
+    void liveClaimNarrativeTimeEvidenceErrorCommitsClaimInputFailure() {
+        org.junit.jupiter.api.Assumptions.assumeTrue(liveInput, "format 2 claim에서만 인물 현재값을 지금 DB에서 읽는다");
+        Run run = run(2);
+        UUID erwen = failSecondClaimOnBrokenNarrativeTime(run);
+        // 마감이 커밋되어 같은 Job이 대기열 앞에서 claim 실패를 반복하지 않는다.
+        assertThat(worker.claimAnalysisJob(request())).isEmpty();
+        tx.executeWithoutResult(status -> ReflectionTestUtils.setField(entities.find(WorkCharacter.class, erwen), "currentNarrativeTime", null));
+        Long owner = tx.execute(status -> entities.find(Work.class, run.workId()).getMember().getId());
+        publicJobs.retryFailedAnalysisJob(owner, run.workId(), run.jobs().getLast());
+        assertThat(claim().analysisJobId()).isEqualTo(run.jobs().getLast());
+    }
+
+    /** 1화에서 에르웬을 만든 뒤 대표 서사 시점이 없는 후보를 가리키게 깨고, 2화 claim을 claim 입력 실패(FAILED·INCOMPLETE)로 끝낸다. */
+    private UUID failSecondClaimOnBrokenNarrativeTime(Run run) {
+        WorkerAnalysisJobPayload first = claim();
+        tx.executeWithoutResult(status -> {
+            AnalysisJob job = jobs.findById(first.analysisJobId()).orElseThrow();
+            SettingCandidate anchor = discovery(job, "에르웬", null, true);
+            addStat(job, anchor.getProvisionalSubjectKey(), null, 35, CharacterFactOperation.ADD);
+        });
+        complete(first);
+        UUID erwen = tx.execute(status -> entities.createQuery("select c.id from WorkCharacter c where c.work.id = :w and c.name = '에르웬'", UUID.class)
+                .setParameter("w", run.workId()).getSingleResult());
+        tx.executeWithoutResult(status -> {
+            WorkCharacter character = entities.find(WorkCharacter.class, erwen);
+            assertThat(ReflectionTestUtils.getField(character, "currentNarrativeTime")).isNull();
+            ReflectionTestUtils.setField(character, "currentNarrativeTime",
+                    JSON.objectNode().put("episodeNo", 1).put("sourceCandidateId", UUID.randomUUID().toString()));
+        });
+        assertThat(worker.claimAnalysisJob(request())).isEmpty();
+        tx.executeWithoutResult(status -> {
+            AnalysisJob job = jobs.findById(run.jobs().getLast()).orElseThrow();
+            assertThat(job.getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
+            assertThat(job.getJournalStatus()).isEqualTo(AnalysisJournalStatus.INCOMPLETE);
+            assertThat(job.getFailureDiagnostics().stage()).isEqualTo("CLAIM_INPUT");
+            assertThat(job.getFailureDiagnostics().reasonCode()).isEqualTo("CURRENT_EVIDENCE_BINDING_INVALID");
+            assertThat(job.getLeaseToken()).isNull();
+            assertThat(job.getInputStateHash()).hasSize(64);
+        });
+        return erwen;
+    }
+
     private List<UUID> prepareWorldBatches(WorkerAnalysisJobPayload payload) {
         List<UUID> ids = tx.execute(status -> {
             AnalysisJob job = jobs.findById(payload.analysisJobId()).orElseThrow();
