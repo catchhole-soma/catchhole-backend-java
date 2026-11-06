@@ -24,7 +24,6 @@ import org.springframework.transaction.annotation.Transactional;
 @TestPropertySource(locations="classpath:validation-execution-fixture.properties")
 @DisplayName("오류 리포트 문맥 블록: 근거 원문의 앞뒤 줄과 더 보기")
 class ValidationFindingSourceContextIntegrationTest extends ValidationReviewFixture {
-    @org.springframework.beans.factory.annotation.Autowired org.monitoring.catchholebackend.domain.validation.mapper.ValidationDataMapper dataMapper;
     static final String TARGET=String.join("\r\n","처음 합성 원고","","둘째 줄 합성","","셋째 줄 합성","","넷째 줄 대상 문장","","다섯째 줄 합성","","여섯째 줄 합성");
     static final String PRIOR=String.join("\n","합성 앞 원고","가 줄","","나 줄","다 줄 근거 문장이 있다","라 줄","","마 줄","바 줄");
     static final String MID_QUOTE="대상 문장",CHUNK_TEXT="다 줄 근거 문장이 있다",BASIS="근거 문장이 있다";
@@ -72,8 +71,8 @@ class ValidationFindingSourceContextIntegrationTest extends ValidationReviewFixt
         var decision=conflict(check,false);
         @SuppressWarnings("unchecked") var bundle=(Map<String,Object>)decision.get("evidence_bundle");
         bundle.put("question",d);
-        var r=stored(get(report));var settings=new ArrayList<Object>();
-        dataMapper.toValidationSettings(r.getBaselineEntries(),dataMapper.toSourceReferences(r)).forEach((ref,row)->{if("S2".equals(row.path("subject_ref").asText()))settings.add(Map.of("entry_ref",ref,"subject_ref","S2"));});
+        var settings=new ArrayList<Object>();
+        modelSettings(report).forEach((ref,row)->{if("S2".equals(row.path("subject_ref").asText()))settings.add(Map.of("entry_ref",ref,"subject_ref","S2"));});
         bundle.put("settings",settings);bundle.put("evidence",evidence);
         decision.put("target_spans",spans);decision.put("evidence_refs",List.of("T1","E1"));decision.put("basis_quotes",quotes);
         var command=unit(job,"SETTING","Q1","CONFLICT",decision);
@@ -269,6 +268,17 @@ class ValidationFindingSourceContextIntegrationTest extends ValidationReviewFixt
         assertThat(quotes(blocks.path(0))).containsExactly(MID_QUOTE);assertThat(quotes(blocks.path(1))).containsExactly("다섯째 줄");
         assertThat(blocks.path(2).path("kind").asText()).isEqualTo("SETTING");assertThat(quotes(blocks.path(2))).containsExactly("북부");
         assertThat(quotes(blocks.path(3))).containsExactly(BASIS);assertThat(quotes(blocks.path(4))).containsExactly("라 줄");
+    }
+
+    @Test @DisplayName("#381 live report는 manifest 행이 없어도(앞 회차·설정집 없는 첫 회차) 이번 원고 앞뒤 줄을 읽고, 기준이 지워진 report는 409 SOURCE_UNAVAILABLE이다")
+    void liveSourceGateIsTheBaselineNotTheManifestRowCount() throws Exception {
+        var p=decided();var finding=only(p.report(),"SETTING");
+        em.flush();em.createNativeQuery("delete from validation_baseline_sources where report_id=:r").setParameter("r",p.report()).executeUpdate();em.clear();
+        assertThat(lines(context(p.report(),finding,"sourceRef=T1&anchorStart=0&anchorEnd=2&before=2",token,200))).isNotEmpty();
+        assertThat(code(context(p.report(),finding,"sourceRef=R1&anchorStart=0&anchorEnd=2",token,400))).as("no manifest row for R1").isEqualTo("REQUEST_VALIDATION_FAILED");
+        // 무효화·퇴역(purge)은 baseline hash와 manifest 행을 함께 지운다. 그 뒤에는 고정 출처가 없다.
+        em.createNativeQuery("update validation_reports set baseline_hash=null,status='INVALIDATED',baseline_status='INVALIDATED' where id=:r").setParameter("r",p.report()).executeUpdate();em.clear();
+        assertThat(context(p.report(),finding,"sourceRef=T1&anchorStart=0&anchorEnd=2",token,409).path("context").path("reason").asText()).isEqualTo("SOURCE_UNAVAILABLE");
     }
 
     @Test @DisplayName("원문 hash가 고정값과 다르거나 회차가 보관되면 앞뒤 줄을 비우고 더 보기는 409로 사유를 준다")

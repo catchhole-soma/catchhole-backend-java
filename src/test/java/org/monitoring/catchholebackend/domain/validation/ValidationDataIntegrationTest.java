@@ -39,7 +39,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {"spring.config.import=", "spring.docker.compose.enabled=false", "internal.api-key=gh306-synthetic-internal"})
+        properties = {"spring.config.import=", "spring.docker.compose.enabled=false", "internal.api-key=gh306-synthetic-internal",
+                "spring.jpa.properties.hibernate.generate_statistics=true"})
 @ActiveProfiles("test") @AutoConfigureMockMvc @Transactional
 @DisplayName("GH306 고정 기준·실제 원문 읽기 경계")
 class ValidationDataIntegrationTest {
@@ -94,12 +95,129 @@ class ValidationDataIntegrationTest {
     }
     JsonNode read(String operation) { return service.readValidationData(member.getId(), work.getId(), report.getId(), request(operation, null, null, null, null)); }
 
-    @Test @DisplayName("고정 항목 조회는 현재값 조회나 추출 쓰기를 하지 않는다")
+    @Test @DisplayName("legacy report의 설정 조회는 저장 기준 항목을 읽고 현재값 조회나 추출 쓰기를 하지 않는다")
     void readsFrozenEntriesWithoutWrites() {
-        assertThat(read("ENTRIES").at("/entries/0/state/slots/STATUS:손/factValue").asText()).isEqualTo("왼손 상실");
+        assertThat(service.readValidationData(member.getId(), work.getId(), report.getId(), settings(List.of("S1")))
+                .at("/settings/0/state/slots/STATUS:손/factValue").asText()).isEqualTo("왼손 상실");
         assertThat(read("INPUT").at("/sources/0/sourceRef").asText()).isEqualTo("R1");
         for (String table : List.of("analysis_jobs", "setting_candidates", "world_setting_candidates", "character_facts"))
             assertThat(jdbc.queryForObject("select count(*) from "+table, Integer.class)).isZero();
+    }
+    @Test @DisplayName("#381 ENTRIES 조회는 없어졌고 요청하면 400이다")
+    void entriesOperationIsRemoved() throws Exception {
+        assertThatThrownBy(() -> read("ENTRIES")).isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class)
+                .hasFieldOrPropertyWithValue("resultCode", org.monitoring.catchholebackend.global.exception.CommonErrorCode.REQUEST_VALIDATION_FAILED);
+        mvc.perform(post("/api/internal/v1/works/"+work.getId()+"/validation-reports/"+report.getId()+"/data")
+                .header("X-Internal-Api-Key", "gh306-synthetic-internal").header("X-Validation-Member-Id", member.getId()).contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(request("ENTRIES", null, null, null, null)))).andExpect(status().isBadRequest());
+    }
+
+    @Autowired org.monitoring.catchholebackend.domain.validation.service.ValidationBaselineService baselines;
+    /**
+     * #381 live report: legacy fixture report를 퇴역(current=false)시키고 같은 회차의 다음 revision으로 seed 없는 report를 실제 접수 준비로 만든다.
+     * 첫 인물은 envelope 이전 raw snapshot과 근거 Fact·확정 인물 발견 별칭, 세계관 하나는 확정 근거 후보를 가진다.
+     */
+    ValidationReport live(int characters) {
+        org.springframework.test.util.ReflectionTestUtils.setField(report, "current", false); em.flush();
+        var job = org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob.create(work, null, prior, org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION); em.persist(job);
+        for (int i = 0; i < characters; i++) {
+            var profile = JsonNodeFactory.instance.objectNode(); profile.putObject("직업").put("value", "용병");
+            var character = org.monitoring.catchholebackend.domain.character.entity.WorkCharacter.create(work, "인물" + i, null, 20 + i, 1, profile, null, null, null, null, null);
+            em.persist(character);
+            if (i > 0) continue;
+            var candidate = org.monitoring.catchholebackend.domain.character.entity.SettingCandidate.create(work, prior, null, job,
+                    org.monitoring.catchholebackend.domain.character.type.SettingEntityType.CHARACTER, character.getName(), character.getName(), character.getId(),
+                    org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus.MATCHED, "직업", "용병단장",
+                    org.monitoring.catchholebackend.domain.character.type.SettingValueType.STRING, null, JsonNodeFactory.instance.arrayNode(), java.math.BigDecimal.ONE, null);
+            em.persist(candidate);
+            org.springframework.test.util.ReflectionTestUtils.setField(candidate, "reviewStatus", org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.CONFIRMED);
+            var fact = org.monitoring.catchholebackend.domain.character.entity.CharacterFact.create(character, candidate,
+                    org.monitoring.catchholebackend.domain.character.type.CharacterFactType.PROFILE, "직업", "용병단장", "용병단장", null, prior, null, job, java.math.BigDecimal.ONE, 1);
+            em.persist(fact);
+            em.persist(org.monitoring.catchholebackend.domain.character.entity.CharacterSnapshotSource.create(character,
+                    org.monitoring.catchholebackend.domain.character.type.CharacterFactType.PROFILE, "직업", fact, 0));
+            var discovery = org.monitoring.catchholebackend.domain.character.entity.SettingCandidate.createCharacterDiscovery(work, prior, null, job, "첫째", "첫째", character.getId(),
+                    org.monitoring.catchholebackend.domain.character.type.SettingCandidateMatchStatus.MATCHED, JsonNodeFactory.instance.arrayNode(), java.math.BigDecimal.ONE, null);
+            em.persist(discovery);
+            org.springframework.test.util.ReflectionTestUtils.setField(discovery, "reviewStatus", org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.CONFIRMED);
+        }
+        var world = org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting.create(work,
+                org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory.RACE, "엘프", "서식지", "숲"); em.persist(world);
+        var history = org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate.create(work, prior, job,
+                org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingCategory.RACE, "엘프", "서식지", "숲", JsonNodeFactory.instance.arrayNode(), java.math.BigDecimal.ONE, null);
+        org.springframework.test.util.ReflectionTestUtils.setField(history, "targetWorldSetting", world);
+        org.springframework.test.util.ReflectionTestUtils.setField(history, "reviewStatus", org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus.CONFIRMED);
+        em.persist(history);
+        // 같은 회차의 다음 revision(재검수와 같은 번호 규칙)이라 PostgreSQL의 (episode, revision) unique를 지킨다.
+        var live = ValidationReport.recheck(report, report.getBatch(), "d".repeat(64), null); em.persist(live);
+        baselines.prepare(live); em.flush();
+        assertThat(live.getBaselineSeed()).isNull(); assertThat(live.getBaselineHash()).isNotNull();
+        return live;
+    }
+    ValidationDataRequest liveRequest(ValidationReport live, String operation, List<String> subjectRefs) {
+        return new ValidationDataRequest(live.getBaselineHash(), live.getSourceContentHash(), operation, 0, 100, null, null, null, null, null, subjectRefs);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(ints = {2, 20})
+    @DisplayName("#381 live SETTINGS는 요청 주체만 id로 읽고 후보·Fact·Job 엔티티를 읽지 않으며 SQL 수가 작품 크기와 무관하다")
+    void liveSettingsReadOnlyRequestedSubjectsWithConstantStatements(int characters) {
+        var live = live(characters); UUID liveId = live.getId();
+        var subjects = service.readValidationData(member.getId(), work.getId(), liveId, liveRequest(live, "SUBJECTS", null));
+        assertThat(subjects.path("subjectCount").asInt()).isEqualTo(characters + 1);
+        assertThat(subjects.path("subjects").findValuesAsText("name")).contains("인물0", "엘프");
+        var refs = new ArrayList<String>(); subjects.path("subjects").forEach(row -> refs.add(row.path("subject_ref").asText()));
+        var request = liveRequest(live, "SETTINGS", refs);
+        em.flush(); em.clear();
+        var statistics = em.getEntityManagerFactory().unwrap(org.hibernate.SessionFactory.class).getStatistics();
+        statistics.clear();
+
+        var result = service.readValidationData(member.getId(), work.getId(), liveId, request);
+
+        java.util.function.Function<Class<?>, Long> loads = type -> statistics.getEntityStatistics(type.getName()).getLoadCount();
+        assertThat(loads.apply(org.monitoring.catchholebackend.domain.character.entity.WorkCharacter.class)).isEqualTo(characters);
+        assertThat(loads.apply(org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting.class)).isEqualTo(1);
+        for (Class<?> forbidden : List.of(org.monitoring.catchholebackend.domain.character.entity.SettingCandidate.class,
+                org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSettingCandidate.class,
+                org.monitoring.catchholebackend.domain.character.entity.CharacterFact.class,
+                org.monitoring.catchholebackend.domain.character.entity.CharacterSnapshotSource.class,
+                org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob.class))
+            assertThat(loads.apply(forbidden)).as(forbidden.getSimpleName()).isZero();
+        // 19 = 앞뒤 현재성 확인(lease 1·report scalar 1·fingerprint 2)×2 + report 1 + 출처 목록 1 + 색인 3 + 인물 id 1 + raw 근거 표시값 1 + 세계관 id 1 + 최신 출처 회차 1 + 정정 1.
+        // 인물 2명이든 20명이든 같다.
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(LIVE_SETTINGS_STATEMENTS);
+        var rows = result.path("settings");
+        assertThat(rows).hasSize(characters + 1);
+        assertThat(rows.toString()).contains("\"factValue\":\"용병단장\"", "\"aliases\":[\"첫째\"]", "\"latestSourceEpisodeNo\":1", "\"서식지\":\"숲\"");
+        assertThat(rows.toString()).doesNotContain("historyFacts", "provenance");
+        assertThat(result.path("authorCorrectionProofs")).isEmpty();
+    }
+    static final long LIVE_SETTINGS_STATEMENTS = 19;
+
+    @Test @DisplayName("#381 live report는 잠금을 우회해 확정 설정 version을 바꾼 쓰기 뒤 모든 자료 읽기를 409로 멈춘다(Worker는 INPUT_CHANGED)")
+    void liveReadStopsAfterBypassingVersionBump() {
+        var live = live(1);
+        assertThat(service.readValidationData(member.getId(), work.getId(), live.getId(), liveRequest(live, "INPUT", null)).path("entryCount").asInt()).isEqualTo(2);
+        jdbc.update("update world_settings set version = version + 1 where work_id = ?", work.getId());
+        for (String operation : List.of("INPUT", "SUBJECTS", "SETTINGS", "VALIDATE"))
+            assertThatThrownBy(() -> service.readValidationData(member.getId(), work.getId(), live.getId(), liveRequest(live, operation, operation.equals("SETTINGS") ? List.of("S1") : null)))
+                    .as(operation).isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class)
+                    .hasFieldOrPropertyWithValue("resultCode", org.monitoring.catchholebackend.domain.validation.exception.ValidationErrorCode.VALIDATION_SOURCE_VERSION_CONFLICT);
+    }
+
+    @Test @DisplayName("#381 live SETTINGS도 모르는 주체·100개 초과·빈 요청을 거절한다")
+    void liveSettingsValidatesSubjectRefs() {
+        var live = live(1);
+        for (var refs : List.of(List.of("S3"), List.of("S1", "S99"), List.<String>of()))
+            assertThatThrownBy(() -> service.readValidationData(member.getId(), work.getId(), live.getId(), liveRequest(live, "SETTINGS", refs))).as(refs.toString())
+                    .isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class)
+                    .hasFieldOrPropertyWithValue("resultCode", org.monitoring.catchholebackend.global.exception.CommonErrorCode.REQUEST_VALIDATION_FAILED);
+        var tooMany = new ArrayList<String>(); for (int i = 1; i <= 101; i++) tooMany.add("S" + i);
+        assertThatThrownBy(() -> service.readValidationData(member.getId(), work.getId(), live.getId(), liveRequest(live, "SETTINGS", tooMany)))
+                .isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class);
+        assertThatThrownBy(() -> service.readValidationData(member.getId(), work.getId(), live.getId(), liveRequest(live, "SETTINGS", null)))
+                .isInstanceOf(org.monitoring.catchholebackend.global.exception.AppException.class);
+        assertThat(service.readValidationData(member.getId(), work.getId(), live.getId(), liveRequest(live, "SETTINGS", List.of("S2", "S1"))).path("settings"))
+                .extracting(row -> row.path("entry_ref").asText()).containsExactly("B1", "B2");
     }
     @Test @DisplayName("SUBJECTS는 주체 목록을 한 번에, SETTINGS는 요청 주체의 현재값 행만 공통 fixture와 같게 준다(grid v4)")
     void subjectsAndCurrentSettingsFollowTheSharedVector() throws Exception {

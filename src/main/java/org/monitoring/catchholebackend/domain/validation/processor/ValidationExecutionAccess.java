@@ -16,6 +16,7 @@ public class ValidationExecutionAccess {
     private final ValidationJobRepository jobs;
     private final WorkRepository works;
     private final EntityManager em;
+    private final ValidationLiveSettings liveSettings;
     public ValidationJob lock(UUID id) {
         UUID work=jobs.findWorkId(id).orElseThrow(()->error(ValidationErrorCode.VALIDATION_NOT_FOUND));
         works.findByIdForUpdate(work).orElseThrow(()->error(ValidationErrorCode.VALIDATION_NOT_FOUND));
@@ -31,9 +32,12 @@ public class ValidationExecutionAccess {
     public void current(ValidationReport r) { currentInput(r,true); }
     public void currentInput(ValidationReport r,boolean readyRequired) {
         // Scalar projection cannot reuse a stale Episode or report from the persistence context.
-        var row=em.createQuery("select r.current,cast(r.baselineStatus as string),cast(r.work.lifecycleStatus as string),cast(r.member.status as string),r.sourceContentRevision,r.episode.contentRevision,r.sourceContentHash,r.episode.contentHash,r.sourceContentS3Key,r.episode.contentS3Key,r.sourceContentS3Version,r.episode.contentS3Version,cast(r.episode.status as string) from ValidationReport r where r.id=:r",Object[].class).setParameter("r",r.getId()).getSingleResult();
+        var row=em.createQuery("select r.current,cast(r.baselineStatus as string),cast(r.work.lifecycleStatus as string),cast(r.member.status as string),r.sourceContentRevision,r.episode.contentRevision,r.sourceContentHash,r.episode.contentHash,r.sourceContentS3Key,r.episode.contentS3Key,r.sourceContentS3Version,r.episode.contentS3Version,cast(r.episode.status as string),case when r.baselineSeed is null then true else false end,r.baselineHash,r.work.id from ValidationReport r where r.id=:r",Object[].class).setParameter("r",r.getId()).getSingleResult();
         if(!Boolean.TRUE.equals(row[0])||"INVALIDATED".equals(row[1])||readyRequired&&!"READY".equals(row[1])||!"ACTIVE".equals(row[2])||!"ACTIVE".equals(row[3])
                 ||!Objects.equals(row[4],row[5])||!Objects.equals(row[6],row[7])||!Objects.equals(row[8],row[9])||!Objects.equals(row[10],row[11])||"ARCHIVED".equals(row[12]))
+            throw error(ValidationErrorCode.VALIDATION_SOURCE_VERSION_CONFLICT);
+        // #381: live report(seed 없음)는 설정 버전 fingerprint를 다시 계산한다. 이벤트 없이 확정 설정 version을 바꾼 쓰기는 기존 409로 멈춘다.
+        if(Boolean.TRUE.equals(row[13])&&row[14]!=null&&!row[14].equals(liveSettings.fingerprint((UUID)row[15])))
             throw error(ValidationErrorCode.VALIDATION_SOURCE_VERSION_CONFLICT);
     }
     public void requireRead(UUID reportId,UUID jobId,UUID token) {

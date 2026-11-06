@@ -55,7 +55,7 @@ public record ValidationFindingDetailResponse(UUID findingId, ValidationBranch b
             @Schema(description = "이 조각 안에 있는 판정 근거 문장의 위치(조각 quote 기준 code point [start,end))") List<Highlight> highlights) {}
     @Schema(name = "ValidationFindingHighlight", description = "인용 조각 안의 강조 구간. 조각 quote 기준 Unicode code point [start,end)")
     public record Highlight(int start, int end) {}
-    @Schema(name = "ValidationFindingBasisQuote", description = "판정이 근거로 그대로 옮긴 문장. 저장 설정값은 고정 기준 행의 값, 원문은 서버가 hash 확인한 원문과 대조한 인용입니다.")
+    @Schema(name = "ValidationFindingBasisQuote", description = "판정이 근거로 그대로 옮긴 문장. 저장 설정값은 판정이 읽은 설정 행의 값, 원문은 서버가 hash 확인한 원문과 대조한 인용입니다.")
     public record BasisQuote(@Schema(description = "근거 종류") ValidationQuoteSourceKind kind,
             @Schema(description = "작가용 표기. 설정은 '설정 · 대상 · 설정명'(설정명을 하나로 정할 수 없으면 '설정 · 대상'), 회차는 'N화', 설정집은 '설정집 · 제목'", example = "설정 · 살점폭발 · 폭발 위력") String label,
             @Schema(description = "근거 문장 그대로", example = "폭발력 자체는 그리 세지 않다.") String quote,
@@ -71,15 +71,15 @@ public record ValidationFindingDetailResponse(UUID findingId, ValidationBranch b
             ValidationJudgmentHistoryReason reason, @Schema(description = "REVISION_SUPERSEDED의 질문 변경 사유") String changeReason, LocalDateTime createdAt) {}
     @Schema(name = "ValidationFindingPriorRevision", description = "같은 설정 질문의 이전 revision 결과와 당시 판단")
     public record PriorRevision(long checkRevision, String outcome, String changeReason, UUID findingId, ValidationFindingSummaryResponse.Judgment judgment) {}
-    @Schema(name = "ValidationFindingBasis", description = "#314 B2. 정정 요청에 그대로 옮기는 고정 기준 항목. entryRef→entryRef, entryHash→expectedEntryHash, targetId→character/worldSetting.targetId, currentVersion→expectedSnapshotVersion(캐릭터)·expectedVersion(세계관)입니다. baselineId·expectedBaselineRevision·expectedBaselineHash·expectedReportVersion은 GET /{reportId}의 baselineId·baselineRevision·baselineHash·reportVersion을 씁니다.")
-    public record Basis(@Schema(description = "고정 기준 항목 참조", example = "B1") String entryRef,
-            @Schema(description = "고정 기준 항목 자체의 hash(정정 요청 expectedEntryHash)", example = "0000000000000000000000000000000000000000000000000000000000000000") String entryHash,
+    @Schema(name = "ValidationFindingBasis", description = "#314 B2. 정정 요청에 그대로 옮기는 기준 항목(#381 이후 report는 finding에 저장한 대표 대상·근거 문장 대상의 지금 확정 설정 행). entryRef→entryRef, entryHash→expectedEntryHash, targetId→character/worldSetting.targetId, currentVersion→expectedSnapshotVersion(캐릭터)·expectedVersion(세계관)입니다. baselineId·expectedBaselineRevision·expectedBaselineHash·expectedReportVersion은 GET /{reportId}의 baselineId·baselineRevision·baselineHash·reportVersion을 씁니다.")
+    public record Basis(@Schema(description = "기준 항목 참조. #381 이후 report는 지금 확정 설정 색인의 참조", example = "B1") String entryRef,
+            @Schema(description = "기준 항목 행 자체의 hash(정정 요청 expectedEntryHash). #381 이후 report는 지금 행의 hash", example = "0000000000000000000000000000000000000000000000000000000000000000") String entryHash,
             @Schema(description = "CHARACTER면 정정 요청 character, WORLD_SETTING이면 worldSetting을 채웁니다") ValidationSubjectType subjectType,
             @Schema(description = "실제 캐릭터·세계관 ID") UUID targetId,
-            @Schema(description = "고정 기준 당시 대상 이름", example = "카일") String subjectName,
+            @Schema(description = "대상 이름(legacy report는 고정 기준 당시, #381 이후 report는 지금 이름)", example = "카일") String subjectName,
             @Schema(description = "캐릭터: finding의 settingKey가 이 항목의 slot을 가리킬 때의 factType. 그 밖에는 null이며 작가가 편집한 slot을 사용합니다.", nullable = true) CharacterFactType factType,
             @Schema(description = "캐릭터: 위와 같은 조건의 factKey", example = "age", nullable = true) String factKey,
             @Schema(description = "세계관: settingKey가 이 항목의 저장 경로를 가리킬 때의 범위명(WorldSettingPropertyUpdateRequest.currentScopeName). root 설정과 그 밖은 null", nullable = true) String scopeName,
             @Schema(description = "세계관: 같은 조건의 저장 설정명(currentSettingName). 캐릭터와 그 밖은 null", nullable = true) String settingName,
-            @Schema(description = "고정 기준 당시 캐릭터 snapshotVersion 또는 세계관 version. 저장되지 않은 legacy 항목은 null", nullable = true) Long currentVersion) {}
+            @Schema(description = "캐릭터 snapshotVersion 또는 세계관 version(legacy report는 고정 기준 당시, #381 이후 report는 id로 읽은 지금 값). 저장되지 않은 legacy 항목은 null", nullable = true) Long currentVersion) {}
 }

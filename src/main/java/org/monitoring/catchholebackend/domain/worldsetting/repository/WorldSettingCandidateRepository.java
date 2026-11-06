@@ -50,6 +50,19 @@ public interface WorldSettingCandidateRepository extends JpaRepository<WorldSett
 
     List<WorldSettingCandidate> findAllBySourceEpisodeId(UUID episodeId);
 
+    /** #381 대상별 확정 현재값 후보(이력 전용 제외)의 가장 늦은 출처 회차. 후보 엔티티를 읽지 않는 grouped scalar 조회다. */
+    @Query("""
+            select new org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingLatestSourceEpisode(
+                candidate.targetWorldSetting.id, max(episode.episodeNo))
+            from WorldSettingCandidate candidate
+            join candidate.sourceEpisode episode
+            where candidate.targetWorldSetting.id in :worldSettingIds
+              and candidate.reviewStatus = org.monitoring.catchholebackend.domain.worldsetting.type.WorldSettingReviewStatus.CONFIRMED
+              and candidate.historyOnly = false
+            group by candidate.targetWorldSetting.id
+            """)
+    List<WorldSettingLatestSourceEpisode> findLatestConfirmedSourceEpisodes(@Param("worldSettingIds") Collection<UUID> worldSettingIds);
+
     Optional<WorldSettingCandidate> findByIdAndWorkId(UUID id, UUID workId);
 
     Optional<WorldSettingCandidate> findByIdAndWorkIdAndAnalysisJobBatchId(UUID id, UUID workId, UUID batchId);

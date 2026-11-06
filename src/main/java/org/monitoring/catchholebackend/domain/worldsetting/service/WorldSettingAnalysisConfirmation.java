@@ -43,7 +43,7 @@ public class WorldSettingAnalysisConfirmation {
 
     /** GH312 S3: release 회차의 사람 확정 진입점. 회차 전체 확정만 이 회차의 확정 설정을 쓴다. */
     public void assertManualWriteAllowed(WorldSettingCandidate candidate) {
-        sourceGuard.assertManualWriteAllowed(candidate.getAnalysisJob(), candidate.getSourceEpisode());
+        sourceGuard.assertManualWriteAllowed(candidate.getWork().getId(), candidate.getAnalysisJob(), candidate.getSourceEpisode());
     }
 
     public AutomaticReviewHoldReason automaticHold(WorldSettingCandidate candidate, WorldSetting actual) {

@@ -17,6 +17,7 @@ import org.springframework.stereotype.Repository;
 public class AnalysisJobClaimRepository {
 
     private final EntityManager entityManager;
+    private final org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock settingsLock;
 
     // 작품의 부분 관계 결과는 inline 관계 분석을 맡을 때만 새 Worker를 요구한다.
     // 활성 백필의 이관 조건은 deferInlineRelationshipAnalysis와 같으며 Work 잠금 뒤 다시 검사한다.
@@ -42,12 +43,13 @@ public class AnalysisJobClaimRepository {
                         or exists (select b.workId from RelationshipBackfillWork b where b.workId = job.work.id
                             and (a.generation = b.publishedGeneration or a.generation = b.buildingGeneration)))))
             and
-            """ + AnalysisJobEligibility.DOMAIN;
+            """ + AnalysisJobEligibility.DOMAIN + " and " + AnalysisJobEligibility.VALIDATION_LOCK;
 
     public Optional<AnalysisJob> findClaimableJob(WorkerAnalysisJobClaimRequest request) {
         if (request.effectiveSupportedAnalysisModes().isEmpty() || request.effectiveSupportedSourceKinds().isEmpty()) {
             return Optional.empty();
         }
+        var window = settingsLock.window();
         // 회차가 많이 대기한 한 작품이 다른 작품을 scan 한도 밖으로 밀지 않도록 작품 단위로 고른다.
         List<UUID> workIds = entityManager.createQuery("select job.work.id from AnalysisJob job where "
                         + ELIGIBLE + " group by job.work.id order by min(job.createdAt), job.work.id", UUID.class)
@@ -57,6 +59,8 @@ public class AnalysisJobClaimRepository {
                 .setParameter("supportsCharacterComparisonGroups", Boolean.TRUE.equals(request.supportsCharacterComparisonGroups()))
                 .setParameter("supportsRelationshipAnalysis", Boolean.TRUE.equals(request.supportsRelationshipAnalysis()))
                 .setParameter("supportsRelationshipPartialResults", Boolean.TRUE.equals(request.supportsRelationshipPartialResults()))
+                .setParameter("lockNow", window.now())
+                .setParameter("lockQueuedCutoff", window.queuedCutoff())
                 .setMaxResults(100)
                 .getResultList();
         for (UUID workId : workIds) {
@@ -68,7 +72,8 @@ public class AnalysisJobClaimRepository {
             if (locked.isEmpty()) {
                 continue;
             }
-            // 잠금을 얻기 전에 생성된 조회 snapshot으로 판단하지 않는다.
+            // 잠금을 얻기 전에 생성된 조회 snapshot으로 판단하지 않는다. 검수 접수도 Work 잠금 아래라 설정 잠금 조건도 여기서 다시 본다.
+            var lockedWindow = settingsLock.window();
             List<AnalysisJob> jobs = entityManager.createQuery("select job from AnalysisJob job where "
                             + ELIGIBLE + " and job.work.id = :workId order by job.createdAt, job.runSequence, job.id",
                             AnalysisJob.class)
@@ -79,6 +84,8 @@ public class AnalysisJobClaimRepository {
                     .setParameter("supportsRelationshipAnalysis", Boolean.TRUE.equals(request.supportsRelationshipAnalysis()))
                     .setParameter("supportsRelationshipPartialResults", Boolean.TRUE.equals(request.supportsRelationshipPartialResults()))
                     .setParameter("workId", workId)
+                    .setParameter("lockNow", lockedWindow.now())
+                    .setParameter("lockQueuedCutoff", lockedWindow.queuedCutoff())
                     .setLockMode(LockModeType.PESSIMISTIC_WRITE)
                     .setMaxResults(1)
                     .getResultList();

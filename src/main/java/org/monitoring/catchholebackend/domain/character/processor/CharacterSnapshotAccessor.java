@@ -45,18 +45,28 @@ public class CharacterSnapshotAccessor {
             WorkCharacter character,
             Map<CharacterSnapshotSlot, List<CharacterFact>> sourceFactsBySlot
     ) {
+        Map<CharacterSnapshotSlot, String> lastSourceFactValues = new java.util.HashMap<>();
+        sourceFactsBySlot.forEach((slot, sourceFacts) -> {
+            if (!sourceFacts.isEmpty()) {
+                lastSourceFactValues.put(slot, sourceFacts.getLast().getFactValue());
+            }
+        });
+        return readWithLastSourceFactValues(character, lastSourceFactValues);
+    }
+
+    /** {@link #read(WorkCharacter, Map)}와 같은 보완 규칙을 slot별 마지막 근거 Fact의 표시값만으로 적용한다(#381, Fact 엔티티 없이). */
+    public Map<CharacterSnapshotSlot, CharacterSnapshotEntry> readWithLastSourceFactValues(
+            WorkCharacter character,
+            Map<CharacterSnapshotSlot, String> lastSourceFactValues
+    ) {
         Map<CharacterSnapshotSlot, CharacterSnapshotEntry> entries = read(character);
         entries.replaceAll((slot, entry) -> {
-            if (entry.factValuePersisted()) {
-                return entry;
-            }
-            List<CharacterFact> sourceFacts = sourceFactsBySlot.getOrDefault(slot, List.of());
-            if (sourceFacts.isEmpty()) {
+            if (entry.factValuePersisted() || !lastSourceFactValues.containsKey(slot)) {
                 return entry;
             }
             return new CharacterSnapshotEntry(
                     slot,
-                    sourceFacts.getLast().getFactValue(),
+                    lastSourceFactValues.get(slot),
                     entry.valueJson(),
                     false
             );

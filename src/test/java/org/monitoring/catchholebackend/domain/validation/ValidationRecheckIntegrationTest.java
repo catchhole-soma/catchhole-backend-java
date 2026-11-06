@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import java.util.*;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -27,6 +28,7 @@ import org.monitoring.catchholebackend.domain.validation.event.ValidationStaging
 @SpringBootTest(properties="spring.config.import=") @AutoConfigureMockMvc @ActiveProfiles("test") @Transactional
 class ValidationRecheckIntegrationTest extends ValidationRecheckFixture {
     @Autowired AnalysisRunStateService states;
+    @Autowired org.monitoring.catchholebackend.domain.validation.processor.ValidationSourceManifests sourceManifests;
     @Autowired org.springframework.context.ApplicationEventPublisher events;
     @Test void changedManuscriptCreatesNewReportWithoutExtraction() throws Exception {
         var first = start(); var before = stored(first); replace("바뀐 합성 원고");
@@ -38,7 +40,7 @@ class ValidationRecheckIntegrationTest extends ValidationRecheckFixture {
         assertThat(next.path("current").asBoolean()).isTrue(); assertThat(next.path("previousReportId")).isEqualTo(first.path("reportId"));
         assertThat(get(before.getId()).path("current").asBoolean()).isFalse();
         assertThat(stored(next).getSourceContentHash()).isEqualTo(target.getContentHash());
-        assertThat(stored(next).getBaselineSeed().path("target").path("contentS3Key").asText()).isEqualTo(target.getContentS3Key());
+        assertThat(stored(next).getSourceContentS3Key()).isEqualTo(target.getContentS3Key()); assertThat(stored(next).getBaselineSeed()).isNull();
         mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/works/"+work.getId()+"/episodes").header("Authorization","Bearer "+token))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].validationReportId").value(next.path("reportId").asText()));
         mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/works/"+work.getId()+"/analysis-jobs/batches").header("Authorization","Bearer "+token))
@@ -70,22 +72,25 @@ class ValidationRecheckIntegrationTest extends ValidationRecheckFixture {
         var first=start(); replace("새 원고"); postOk(recheckPath(first),recheck(first,"new"));
         conflict(recheckPath(first),recheck(first,"old"),"VALIDATION_REPORT_VERSION_CONFLICT"); noExtraction();
     }
-    @Test void actualConfirmedHistorySelectsDiagnosticMode() throws Exception {
+    @Test @DisplayName("실제 확정 이력이 있으면 진단 재검수가 되고 현재 확정 설정으로 바로 준비된다")
+    void actualConfirmedHistorySelectsDiagnosticMode() throws Exception {
         var first=start();
         var job=AnalysisJob.create(work,null,target,AnalysisJobType.SETTING_EXTRACTION); em.persist(job);
         var confirmed=WorldSettingCandidate.create(work,target,job,WorldSettingCategory.RACE,"합성 종족","서식지","북부",JsonNodeFactory.instance.arrayNode(),BigDecimal.ONE,null);
         ReflectionTestUtils.setField(confirmed,"reviewStatus",WorldSettingReviewStatus.CONFIRMED); em.persist(confirmed); job.succeed(null,0,0); em.flush();
         replace("확정 뒤 고친 원고"); var result=postOk(recheckPath(first),recheck(first,"diagnostic"));
         assertThat(result.path("mode").asText()).isEqualTo("DIAGNOSTIC_ONLY");
-        assertThat(result.path("status").asText()).isEqualTo("HELD_INCOMPLETE");
-        assertThat(result.path("holdReason").asText()).isEqualTo("DIAGNOSTIC_BASELINE_UNAVAILABLE");
+        // #381 소유자 결정: 진단도 기록 입력이 아니라 현재 확정 설정과 대조하므로 직전 반영 Job의 입력을 입증하지 못해도 보류하지 않는다.
+        assertThat(result.path("status").asText()).isEqualTo("WAITING_FOR_ERROR_REVIEW"); assertThat(result.path("baselineStatus").asText()).isEqualTo("READY");
+        assertThat(result.path("holdReason").isNull()).isTrue();
         assertThat(result.path("previousApplicationReceipt").path("applicationId").asText()).isEqualTo(confirmed.getId().toString());
         assertThat(result.path("previousApplicationReceipt").path("analysisJobId").asText()).isEqualTo(job.getId().toString());
         assertThat(result.path("extractionJobId").isNull()).isTrue(); assertThat(result.path("candidateGeneration").isNull()).isTrue();
         assertThat(confirmed.getReviewStatus()).isEqualTo(WorldSettingReviewStatus.CONFIRMED);
         assertThat(em.createQuery("select count(j) from AnalysisJob j",Long.class).getSingleResult()).isEqualTo(1);
     }
-    @Test void legacyCharacterConfirmationWithoutJobStillRequiresHeldDiagnostic() throws Exception {
+    @Test @DisplayName("Job 없는 legacy 캐릭터 확정도 진단 재검수를 고르고 seed 없이 현재 확정 설정으로 준비된다")
+    void legacyCharacterConfirmationWithoutJobRechecksAgainstCurrentSettings() throws Exception {
         var first=start();
         var confirmed=org.monitoring.catchholebackend.domain.character.entity.SettingCandidate.create(work,target,null,null,
                 org.monitoring.catchholebackend.domain.character.type.SettingEntityType.CHARACTER,"합성 인물","합성 인물",character.getId(),
@@ -93,14 +98,15 @@ class ValidationRecheckIntegrationTest extends ValidationRecheckFixture {
                 org.monitoring.catchholebackend.domain.character.type.SettingValueType.NUMBER,JsonNodeFactory.instance.objectNode().put("value",20),
                 JsonNodeFactory.instance.arrayNode(),BigDecimal.ONE,null);
         ReflectionTestUtils.setField(confirmed,"reviewStatus",org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.CONFIRMED);em.persist(confirmed);
-        states.confirmedSettingsChanged(work.getId());world.updateProperty("서식지","서식지","live fallback을 금지할 값");em.flush();
+        states.confirmedSettingsChanged(work.getId());world.updateProperty("서식지","서식지","작가가 확정한 현재값");em.flush();
         var result=postOk(recheckPath(first),recheck(first,"legacy-no-job"));
         assertThat(result.path("mode").asText()).isEqualTo("DIAGNOSTIC_ONLY");
         assertThat(result.path("previousApplicationReceipt").path("kind").asText()).isEqualTo("CHARACTER_CONFIRMATION");
         assertThat(result.path("previousApplicationReceipt").path("applicationId").asText()).isEqualTo(confirmed.getId().toString());
         assertThat(result.path("previousApplicationReceipt").path("analysisJobId").isNull()).isTrue();
-        assertThat(result.path("status").asText()).isEqualTo("HELD_INCOMPLETE");assertThat(result.path("holdReason").asText()).isEqualTo("DIAGNOSTIC_BASELINE_UNAVAILABLE");
+        assertThat(result.path("status").asText()).isEqualTo("WAITING_FOR_ERROR_REVIEW");assertThat(result.path("holdReason").isNull()).isTrue();
         assertThat(stored(result).getBaselineSeed()).isNull();assertThat(stored(result).getBaselineEntries()).isNull();
+        assertThat(result.path("baselineHash").asText()).isEqualTo(liveSettings.fingerprint(work.getId()));
         assertThat(result.path("extractionJobId").isNull()).isTrue();assertThat(result.path("candidateGeneration").isNull()).isTrue();
         assertThat(em.createQuery("select count(j) from AnalysisJob j",Long.class).getSingleResult()).isZero();
         assertThat(em.createQuery("select count(c) from SettingCandidate c",Long.class).getSingleResult()).isEqualTo(1);
@@ -113,18 +119,27 @@ class ValidationRecheckIntegrationTest extends ValidationRecheckFixture {
         job.claim("synthetic-no-llm","합성 완료",java.time.LocalDateTime.now().plusMinutes(1));
         assertThat(states.prepareInput(job)).isTrue(); states.seal(job); job.completeAutomaticApplication(); job.succeed(null,0,0); em.flush(); return job;
     }
-    @Test void diagnosticUsesRecordedPreApplicationInputAndExcludesTargetSelfEvidence() throws Exception {
+    @Test @DisplayName("진단 재검수는 직전 반영의 기록 입력이 아니라 현재 확정 설정의 fingerprint로 준비하고 대상 회차를 출처에 넣지 않는다")
+    void diagnosticRecheckUsesCurrentConfirmedSettings() throws Exception {
         var first=start(); var job=appliedJob();
         states.confirmedSettingsChanged(work.getId()); world.updateProperty("서식지","서식지","101화가 반영한 현재값"); em.flush();
         var result=postOk(recheckPath(first),recheck(first,"pre-application"));
         assertThat(result.path("mode").asText()).isEqualTo("DIAGNOSTIC_ONLY"); assertThat(result.path("baselineStatus").asText()).isEqualTo("READY");
         assertThat(result.path("previousApplicationReceipt").path("applicationId").asText()).isEqualTo(job.getId().toString());
-        assertThat(stored(result).getBaselineSeed().path("worldSettings").toString()).contains("북부").doesNotContain("101화가 반영한 현재값");
-        assertThat(stored(result).getBaselineSeed().path("sources").findValuesAsText("episodeNo")).doesNotContain("101");
+        var report=stored(result);
+        assertThat(report.getBaselineSeed()).isNull(); assertThat(report.getBaselineEntries()).isNull();
+        assertThat(report.getBaselineHash()).isEqualTo(liveSettings.fingerprint(work.getId())).isEqualTo(report.getBaselineFingerprint()).isEqualTo(report.getConfirmedStateHash());
+        assertThat(report.getPreviousApplicationJobId()).isEqualTo(job.getId()); assertThat(report.getPreviousApplicationAt()).isNotNull();
+        assertThat(sourceManifests.manifests(report.getId()).findValuesAsText("episodeNo")).containsExactly("100");
+        // 판정 입력은 현재 확정 설정이다: 작가가 반영한 값을 그대로 읽는다.
+        var index=liveSettings.index(work.getId());
+        assertThat(liveSettings.entries(index,List.of(index.subjects().stream().filter(s->s.id().equals(world.getId())).findFirst().orElseThrow().subjectRef())).toString())
+                .contains("101화가 반영한 현재값");
         assertThat(job.getAutomaticAppliedAt()).isNotNull(); assertThat(em.createQuery("select count(j) from AnalysisJob j",Long.class).getSingleResult()).isEqualTo(1);
     }
     @ParameterizedTest @ValueSource(booleans={false,true})
-    void unchangedRecordedEpisodeAndBookSourcesStillPrepareDiagnostic(boolean bookSource) throws Exception {
+    @DisplayName("회차·설정집 출처의 확정 이력이 있어도 진단 재검수는 기록 입력을 검사하지 않고 준비된다")
+    void diagnosticRecheckPreparesWithoutInspectingRecordedSources(boolean bookSource) throws Exception {
         AnalysisJob source;
         if(bookSource) {
             var batch=org.monitoring.catchholebackend.domain.upload.entity.UploadBatch.create(work,member,org.monitoring.catchholebackend.domain.upload.type.UploadType.SETTING_BOOK,org.monitoring.catchholebackend.domain.upload.type.UploadSourceType.FILE);em.persist(batch);
@@ -140,19 +155,22 @@ class ValidationRecheckIntegrationTest extends ValidationRecheckFixture {
         var first=start();var applied=appliedJob();states.confirmedSettingsChanged(work.getId());em.flush();
         var result=postOk(recheckPath(first),recheck(first,"unchanged-source"));
         assertThat(result.path("mode").asText()).isEqualTo("DIAGNOSTIC_ONLY");assertThat(result.path("baselineStatus").asText()).isEqualTo("READY");
-        assertThat(stored(result).getBaselineSeed().path("worldSettings").toString()).contains(source.getSourceContentHash(),confirmed.getId().toString());
+        assertThat(stored(result).getBaselineSeed()).isNull();
+        assertThat(sourceManifests.manifests(stored(result).getId()).findValuesAsText("sourceKind")).containsExactlyElementsOf(bookSource?List.of("EPISODE","SETTING_BOOK"):List.of("EPISODE"));
         assertThat(result.path("previousApplicationReceipt").path("applicationId").asText()).isEqualTo(applied.getId().toString());
         assertThat(em.createQuery("select count(j) from AnalysisJob j",Long.class).getSingleResult()).isEqualTo(2);
         assertThat(em.createQuery("select count(c) from WorldSettingCandidate c",Long.class).getSingleResult()).isEqualTo(1);
     }
-    @Test void purgedPreApplicationInputCannotRestoreDiagnosticBaseline() throws Exception {
+    @Test @DisplayName("직전 반영 입력의 근거가 파기돼도 진단 재검수는 현재 확정 설정으로 준비되고 늦은 정규화는 아무것도 바꾸지 않는다")
+    void purgedPreApplicationInputDoesNotHoldDiagnosticRecheck() throws Exception {
         var first=start(); var job=appliedJob();
         states.purgeSourceEvidenceForWorkForUpdate(work.getId(),prior.getId(),100); em.flush();
         var result=postOk(recheckPath(first),recheck(first,"purged-diagnostic"));
-        assertThat(result.path("mode").asText()).isEqualTo("DIAGNOSTIC_ONLY"); assertThat(result.path("holdReason").asText()).isEqualTo("DIAGNOSTIC_BASELINE_UNAVAILABLE");
-        var held=stored(result);var version=held.getVersion();
-        assertThat(held.getBaselineSeed()).isNull(); baselines.materialize(held.getId()); assertThat(held.getBaselineSeed()).isNull();
-        assertThat(held.getHoldReason()).isEqualTo("DIAGNOSTIC_BASELINE_UNAVAILABLE");assertThat(held.getVersion()).isEqualTo(version);
+        assertThat(result.path("mode").asText()).isEqualTo("DIAGNOSTIC_ONLY"); assertThat(result.path("baselineStatus").asText()).isEqualTo("READY");
+        assertThat(result.path("holdReason").isNull()).isTrue();
+        var ready=stored(result);var version=ready.getVersion();
+        assertThat(ready.getBaselineSeed()).isNull(); baselines.materialize(ready.getId()); assertThat(ready.getBaselineSeed()).isNull();
+        assertThat(ready.getBaselineEntries()).isNull(); assertThat(ready.getVersion()).isEqualTo(version);
         assertThat(job.getAutomaticAppliedAt()).isNotNull();
     }
     @Test void inProgressLegacyExtractionIsNotCutOffByDiagnosticAdmission() throws Exception {
@@ -169,7 +187,7 @@ class ValidationRecheckIntegrationTest extends ValidationRecheckFixture {
     @Test void delayedReplacementCleanupKeepsTheNewCurrentReport() throws Exception {
         var first=start(); replace("보존할 새 원고"); var next=postOk(recheckPath(first),recheck(first,"retained"));
         states.purgeSourceEvidenceForWorkForUpdate(work.getId(),target.getId(),101,target.getContentS3Key()); em.flush();
-        assertThat(stored(next).getBaselineSeed()).isNotNull(); assertThat(stored(next).getStatus().name()).isEqualTo("WAITING_FOR_ERROR_REVIEW");
+        assertThat(stored(next).getBaselineHash()).isNotNull(); assertThat(stored(next).getStatus().name()).isEqualTo("WAITING_FOR_ERROR_REVIEW");
         assertThat(stored(first).getBaselineSeed()).isNull(); noExtraction();
     }
     @Test void migratedInvalidatedReportWithoutFingerprintCanRecapture() throws Exception {
@@ -197,25 +215,5 @@ class ValidationRecheckIntegrationTest extends ValidationRecheckFixture {
     @Test void staleTargetRevisionIsRejectedEvenWithCurrentHashKeyAndVersion() throws Exception {
         var first=start();replace("새 원고");var input=recheck(first,"old-revision");input.put("expectedContentRevision",0);
         conflict(recheckPath(first),input,"VALIDATION_SOURCE_VERSION_CONFLICT");noExtraction();
-    }
-    @Test void diagnosticBaselineCarriesOnlyTheActuallyCorrectedCurrentSlot() throws Exception {
-        var first=start();appliedJob();states.confirmedSettingsChanged(work.getId());world.updateProperty("서식지","서식지","타겟 회차 반영값");em.flush();
-        var diagnostic=postOk(recheckPath(first),recheck(first,"diagnostic-first"));
-        var input=correction(diagnostic,"characters","diagnostic-age-fix");
-        input.put("character",Map.of("targetId",character.getId(),"expectedSnapshotVersion",character.getSnapshotVersion(),"factType","AGE","factKey","age","edit",characterEdit(21,1)));
-        var receipt=postOk(correctionPath(diagnostic),input);var command=recheck(diagnostic,"diagnostic-corrected");
-        command.remove("expectedBaselineHash");command.put("correctionReceiptId",receipt.path("correctionId").asText());
-        var result=postOk(recheckPath(diagnostic),command);var seed=stored(result).getBaselineSeed();
-        assertThat(seed.path("characters").path("character:"+character.getId()).path("slots").path("AGE:age").path("factValue").asText()).isEqualTo("21");
-        assertThat(seed.path("worldSettings").toString()).contains("북부").doesNotContain("타겟 회차 반영값");
-        assertThat(seed.path("explicitAuthorCorrections").size()).isEqualTo(1);
-        assertThat(seed.path("explicitAuthorCorrections").get(0).path("factKey").asText()).isEqualTo("age");
-        var second=correction(result,"characters","diagnostic-second-age-fix");
-        second.put("character",Map.of("targetId",character.getId(),"expectedSnapshotVersion",character.getSnapshotVersion(),"factType","AGE","factKey","age","edit",characterEdit(22,1)));
-        var secondReceipt=postOk(correctionPath(result),second);var secondCommand=recheck(result,"diagnostic-corrected-again");
-        secondCommand.remove("expectedBaselineHash");secondCommand.put("correctionReceiptId",secondReceipt.path("correctionId").asText());
-        var again=postOk(recheckPath(result),secondCommand);
-        assertThat(stored(again).getBaselineSeed().path("characters").path("character:"+character.getId()).path("slots").path("AGE:age").path("factValue").asText()).isEqualTo("22");
-        assertThat(stored(again).getBaselineSeed().path("explicitAuthorCorrections").size()).isEqualTo(2);
     }
 }

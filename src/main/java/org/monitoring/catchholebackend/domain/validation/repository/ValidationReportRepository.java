@@ -10,6 +10,10 @@ public interface ValidationReportRepository extends JpaRepository<ValidationRepo
     Optional<ValidationReport> findByEpisodeIdAndCurrentTrue(UUID episodeId);
     List<ValidationReport> findAllByWorkId(UUID workId);
 
+    /** #381 live report(seed 없이 현재 확정 설정을 읽음) 여부. seed JSON을 읽지 않고 DB에서 IS NULL만 확인한다. */
+    @org.springframework.data.jpa.repository.Query("select count(r) > 0 from ValidationReport r where r.id = :id and r.baselineSeed is null")
+    boolean isLiveSettingsReport(@org.springframework.data.repository.query.Param("id") UUID id);
+
     /** GH312 S4: 검수 단계 계산에 필요한 실행·검토 종료·release Job·회차 전체 확정 상태를 scalar로 함께 읽는다. 행마다 엔티티를 읽지 않는다. */
     @org.springframework.data.jpa.repository.Query("""
             select new org.monitoring.catchholebackend.domain.validation.repository.ValidationReportState(

@@ -597,3 +597,9 @@ V115는 캐릭터·세계관 후보의 `closed_at`·`closure_request_id`와 `CLO
 먼저 main에 반영된 V113·V114는 그대로 유지합니다. 이 기능의 파일은 공유 환경에 배포되지 않아 충돌하던 번호만 V115~V117로 옮겼으며 SQL 본문은 바꾸지 않았습니다. 빈 PostgreSQL에서 전체 Flyway 적용과 JPA validate를 실행하는 후보·관계 통합 테스트로 기존 검수 스키마와 함께 검증합니다.
 
 Backend를 먼저 적용한 뒤 Front를 배포합니다. `CLOSED` 저장 후에는 이를 모르는 이전 Backend enum으로 단순 롤백하지 않습니다. 이미 확정된 설정과 근거 보존, 원문 파기 정책은 그대로 유지하며 [시작 확인과 명시적 종료 계약](analysis-review-continuation.md)을 따릅니다.
+
+## V119: 검수 현재 설정 읽기
+
+#381부터 검수 접수는 확정 설정을 `validation_reports.baseline_seed`·`baseline_entries`에 복사하지 않습니다. V119는 READY report에 두 열을 요구하던 `ck_validation_reports_ready_baseline`을 지우고 `baseline_hash`만 요구하는 `ck_validation_reports_ready_baseline_v2`로 바꿉니다. `validation_findings.quoted_subjects` JSONB(nullable, 근거 문장의 대상·설정 이름표, 값 없음)도 추가합니다.
+
+기존 report의 seed·entries는 이관하거나 지우지 않습니다. seed가 있는 report는 애플리케이션이 저장 기준을 그대로 읽으며, 두 열은 마지막 legacy report가 정리된 뒤 별도 migration에서 지웁니다. V118은 main의 #382가 먼저 사용해 이 기능은 V119입니다. 결정과 배포 순서는 [ADR-0004](adr/0004-validation-live-settings-lock.md)를 따르고, migration 계약은 `ValidationLiveSettingsMigrationContractTest`와 `ErrorFirstValidationPostgresIntegrationTest`(Flyway·JPA validate·새 CHECK)로 검증합니다.

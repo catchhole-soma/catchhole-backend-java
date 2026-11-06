@@ -56,7 +56,7 @@ public class CharacterAnalysisConfirmation {
 
     /** GH312 S3: release 회차의 사람 확정·승격 진입점. 회차 전체 확정만 이 회차의 확정 설정을 쓴다. */
     public void assertManualWriteAllowed(SettingCandidate candidate) {
-        sourceGuard.assertManualWriteAllowed(candidate.getAnalysisJob(), candidate.getEpisode());
+        sourceGuard.assertManualWriteAllowed(candidate.getWork().getId(), candidate.getAnalysisJob(), candidate.getEpisode());
     }
 
     /** 비교 검증을 마친 수동 후보의 제안값은 유지하고, 현재값을 보호해야 할 때만 이력으로 저장한다. */

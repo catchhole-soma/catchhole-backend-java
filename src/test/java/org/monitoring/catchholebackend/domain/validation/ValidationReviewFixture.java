@@ -13,11 +13,30 @@ import org.springframework.http.MediaType;
 abstract class ValidationReviewFixture extends ValidationWorkerFixture {
     static final Map<String,Object> SPAN=Map.of("source_ref","T1","start",0,"end",2,"quote","처음");
     @Autowired org.monitoring.catchholebackend.domain.work.repository.WorkPurgeDataRepository workPurge;
+    @Autowired org.monitoring.catchholebackend.domain.validation.mapper.ValidationDataMapper validationDataMapper;
     String priorHash;
 
     // ---- synthetic execution with real stored findings ----
     JsonNode begin() throws Exception {
         source();priorHash=sha("합성 앞 원고");prior.updateContentStorage(prior.getContentS3Key(),prior.getContentS3Version(),priorHash);em.flush();start();return claim();
+    }
+    /**
+     * #381 이전에 접수한 legacy(seed) report로 실행을 시작한다. 실행을 끈 채 접수해 그때의 seed·기준 항목을 두고({@link #toLegacySeed}),
+     * 켠 뒤 같은 접수를 다시 보내 queue한다.
+     */
+    JsonNode beginLegacy() throws Exception {
+        source();priorHash=sha("합성 앞 원고");prior.updateContentStorage(prior.getContentS3Key(),prior.getContentS3Version(),priorHash);em.flush();
+        org.mockito.Mockito.when(executionProperties.enabled()).thenReturn(false);toLegacySeed(stored(start()));
+        org.mockito.Mockito.when(executionProperties.enabled()).thenReturn(true);start();return claim();
+    }
+    /**
+     * 판정 묶음에 옮길 모델 설정 행(B 참조 → 행). legacy report는 저장 기준 항목이고, #381 live report는 게시 검증·SETTINGS와 같은 현재 확정 설정의
+     * 전체 상태(작품의 모든 주체)다. 출처는 저장 manifest 행이다.
+     */
+    Map<String,JsonNode> modelSettings(UUID reportId) throws Exception {
+        var r=stored(get(reportId));JsonNode entries=r.getBaselineEntries();
+        if(entries==null) {var index=liveSettings.index(work.getId());entries=liveSettings.entries(index,index.subjects().stream().map(s->s.entryRef()).toList());}
+        return validationDataMapper.toValidationSettings(entries,validationDataMapper.toSourceReferences(r,sourceManifests.manifests(r.getId())));
     }
     String sha(String text) throws Exception {return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(text.getBytes(java.nio.charset.StandardCharsets.UTF_8)));}
     Map<String,Object> cite(int start,int end,String quote) {return Map.of("sourceRef","T1","sourceHash",target.getContentHash(),"sourceVersion",target.getContentS3Version(),"start",start,"end",end,"quote",quote);}
@@ -62,6 +81,17 @@ abstract class ValidationReviewFixture extends ValidationWorkerFixture {
     /** 실제 확정 이력 대신 mode만 바꾼 합성 진단 report의 실행을 시작한다. */
     JsonNode diagnosticStart() throws Exception {
         source();start();var job=claim();em.createNativeQuery("update validation_reports set mode='DIAGNOSTIC_ONLY' where id=:r").setParameter("r",reportId(job)).executeUpdate();em.clear();return job;
+    }
+    /** #381 검토 단계: 오탈자 제안 두 건으로 실행을 COMPLETED로 끝낸다. 판단할 항목이 남아 자동 검토 종료가 없다. 현재 staging을 반환한다. */
+    JsonNode typoReviewPending() throws Exception {
+        source();var report=start();var job=claim();prePlan(job,List.of());savePlan(job,"MERGED_PLAN","PLAN",Map.of("questions",List.of()));typos(job);
+        assertThat(finish(job,"review-pending")).isEqualTo("COMPLETED");return get(UUID.fromString(report.path("reportId").asText()));
+    }
+    /** 모든 오탈자 제안을 원문 유지로 판단하고 검토를 종료한다. 검토 종료가 만든 release 추출 Job을 반환한다. */
+    UUID completeReviewKeepingTypos(UUID report) throws Exception {
+        for(var finding:findings(report,"?size=100").path("content"))judge(report,finding,"KEEP_ORIGINAL");
+        var completed=postOk("/"+report+"/review-completion",Map.of("expectedReportVersion",get(report).path("reportVersion").asLong(),"idempotencyKey","review-done"));
+        return UUID.fromString(completed.path("extractionJobId").asText());
     }
     UUID zeroFindingCompletion() throws Exception {
         source();start();var job=claim();prePlan(job,List.of());savePlan(job,"MERGED_PLAN","PLAN",Map.of("questions",List.of()));

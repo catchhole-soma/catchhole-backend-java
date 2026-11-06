@@ -10,10 +10,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * Disabled startup needs no budgets. Enabled execution requires every explicit limit.
  * Configuration v2 (#349 grid v4): output caps, models and reasoning efforts are per generation role
  * (PLANNER, JUDGE, TYPO); the branch limits no longer carry output tokens or a catalogue page size.
+ * settingsLockQueuedTimeout (#381): how long a QUEUED validation job keeps locking confirmed-setting edits after its last status change.
  */
 @ConfigurationProperties("validation.execution")
 public record ValidationExecutionProperties(boolean enabled, Duration leaseDuration, Integer maxLeaseRecoveries,
-        Limits setting, Limits typo, Map<ValidationRole,RoleBudget> roles, String queryEmbeddingModel) {
+        Duration settingsLockQueuedTimeout, Limits setting, Limits typo, Map<ValidationRole,RoleBudget> roles, String queryEmbeddingModel) {
     /** OpenAI Responses reasoning efforts the Worker accepts (validation_execution configurationV2). */
     public static final Set<String> REASONING_EFFORTS=Set.of("none","minimal","low","medium","high","xhigh");
     private static final String MODEL_PATTERN="[A-Za-z0-9._-]{1,100}";
@@ -38,7 +39,9 @@ public record ValidationExecutionProperties(boolean enabled, Duration leaseDurat
     public ValidationExecutionProperties {
         roles=roles==null?Map.of():Map.copyOf(roles);
         if(enabled) {
-            if(leaseDuration==null||leaseDuration.isNegative()||leaseDuration.isZero()||leaseDuration.toMillis()<1||maxLeaseRecoveries==null||maxLeaseRecoveries<0||setting==null||typo==null)
+            if(leaseDuration==null||leaseDuration.isNegative()||leaseDuration.isZero()||leaseDuration.toMillis()<1||maxLeaseRecoveries==null||maxLeaseRecoveries<0
+                    ||settingsLockQueuedTimeout==null||settingsLockQueuedTimeout.isNegative()||settingsLockQueuedTimeout.isZero()||settingsLockQueuedTimeout.toMillis()<1
+                    ||setting==null||typo==null)
                 throw new IllegalArgumentException("검수 실행 제한을 명시적으로 설정해야 합니다.");
             setting.validate();typo.validate();
             for(var role:ValidationRole.values()) {

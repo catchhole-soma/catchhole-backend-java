@@ -41,11 +41,14 @@ public class ValidationWorkerServiceImpl implements ValidationWorkerService {
     private final ValidationReviewGate reviewGate;
     private final ValidationReviewCompletionRepository completions;
     private final ValidationExecutionRepository results;
+    private final ValidationSourceManifests sourceManifests;
 
     @Override @Transactional public void queuePrepared(ValidationReport r) {
-        if(!properties.enabled()||!r.isCurrent()||r.getBaselineStatus()!=ValidationPreparationStatus.READY||r.getBaselineSeed()==null||r.getBaselineEntries()==null||jobs.findByReportId(r.getId()).isPresent())return;
-        access.current(r);data.validateSavedValidationSeed(r.getMember().getId(),r.getWork().getId(),r.getId());
-        String manifest=journal.hash(r.getBaselineSeed().path("sources"));
+        // #381: live report는 seed·entries가 없고 baselineHash(설정 버전 fingerprint)만 있다. legacy report는 기존 seed 검증을 그대로 거친다.
+        if(!properties.enabled()||!r.isCurrent()||r.getBaselineStatus()!=ValidationPreparationStatus.READY||r.getBaselineHash()==null||jobs.findByReportId(r.getId()).isPresent())return;
+        access.current(r);data.validateValidationBaseline(r.getMember().getId(),r.getWork().getId(),r.getId());
+        // manifestHash는 저장 manifest 행으로 계산한다. legacy seed.sources와 같은 순서·값이라 hash도 같다.
+        String manifest=sourceManifests.manifestHash(sourceManifests.manifests(r.getId()));
         var input=JsonNodeFactory.instance.objectNode().put("contractVersion",1).put("reportId",r.getId().toString()).put("reportRevision",r.getRevision())
                 .put("baselineRevision",r.getBaselineRevision()).put("targetRevision",r.getSourceContentRevision()).put("baselineHash",r.getBaselineHash())
                 .put("targetHash",r.getSourceContentHash()).put("manifestHash",manifest);
@@ -89,8 +92,9 @@ public class ValidationWorkerServiceImpl implements ValidationWorkerService {
         access.currentInput(r,false);
         if(r.getVersion()!=c.expectedReportVersion())throw error(VALIDATION_REPORT_VERSION_CONFLICT);
         if(!episodes.findFirstByWorkIdAndStatusNotOrderByEpisodeNoDesc(work,org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus.ARCHIVED).map(e->e.getId().equals(r.getEpisode().getId())).orElse(false))throw error(VALIDATION_TARGET_INVALID);
-        data.validateSavedValidationSeed(member,work,report);
-        if(r.getBaselineStatus()!=ValidationPreparationStatus.READY) {baselines.materialize(report);em.flush();em.refresh(r);}
+        data.validateValidationBaseline(member,work,report);
+        // 저장 seed의 늦은 정규화는 legacy report에만 있다. live report는 접수 때 READY다.
+        if(r.getBaselineSeed()!=null&&r.getBaselineStatus()!=ValidationPreparationStatus.READY) {baselines.materialize(report);em.flush();em.refresh(r);}
         access.current(r);
         var j=jobs.findByReportId(report).orElse(null);
         if(j==null)queuePrepared(r);

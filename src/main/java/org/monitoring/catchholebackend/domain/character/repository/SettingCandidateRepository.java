@@ -99,6 +99,19 @@ public interface SettingCandidateRepository extends JpaRepository<SettingCandida
     List<ConfirmedCharacterIdentityRow> findVerifiedConfirmedIdentities(
             @Param("workId") UUID workId, @Param("cutoff") int cutoff);
 
+    /** #381 findConfirmedDiscoveries와 같은 조건·순서의 별칭 원문. 후보 엔티티를 영속성 컨텍스트에 올리지 않는다. */
+    @Query("""
+            select new org.monitoring.catchholebackend.domain.character.repository.CharacterDiscoveryAlias(
+                candidate.matchedCharacterId, candidate.entityName)
+            from SettingCandidate candidate
+            where candidate.work.id = :workId
+              and candidate.candidateKind = org.monitoring.catchholebackend.domain.character.type.SettingCandidateKind.CHARACTER_DISCOVERY
+              and candidate.reviewStatus = org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.CONFIRMED
+              and candidate.matchedCharacterId is not null
+            order by candidate.createdAt, candidate.id
+            """)
+    List<CharacterDiscoveryAlias> findConfirmedDiscoveryAliases(@Param("workId") UUID workId);
+
     @Query("""
             select min(coalesce(episode.episodeNo, 0)) from SettingCandidate candidate
             left join candidate.episode episode

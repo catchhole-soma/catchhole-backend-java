@@ -9,6 +9,7 @@ import org.monitoring.catchholebackend.domain.validation.dto.response.*;
 import org.monitoring.catchholebackend.domain.validation.entity.*;
 import org.monitoring.catchholebackend.domain.validation.mapper.ValidationReviewMapper;
 import org.monitoring.catchholebackend.domain.validation.processor.ValidationFindingTargets;
+import org.monitoring.catchholebackend.domain.validation.processor.ValidationLiveSettings;
 import org.monitoring.catchholebackend.domain.validation.processor.ValidationReviewGate;
 import org.monitoring.catchholebackend.domain.validation.processor.ValidationSourceWindow;
 import org.monitoring.catchholebackend.domain.validation.repository.*;
@@ -37,6 +38,7 @@ public class ValidationReviewServiceImpl implements ValidationReviewService {
     private final ValidationReviewMapper mapper;
     private final EntityManager em;
     private final ValidationFindingTargets targets;
+    private final ValidationLiveSettings liveSettings;
     private final org.monitoring.catchholebackend.domain.validation.processor.ValidationFindingLabels labels;
     private final org.monitoring.catchholebackend.domain.validation.processor.ValidationFindingContexts contexts;
 
@@ -66,15 +68,19 @@ public class ValidationReviewServiceImpl implements ValidationReviewService {
             var span=f.getPayload().path("span");
             evidence=evidence.stream().filter(e->e.getSourceRef().equals(span.path("source_ref").asText())&&e.getStart()<span.path("end").asInt()&&e.getEnd()>span.path("start").asInt()).toList();
         }
-        // #314 B2: 정정 연결 항목은 이 finding revision의 질문 상태(이전 revision이면 check 이력)와 report 고정 기준으로만 계산한다.
+        // #314 B2: 정정 연결 항목. legacy(seed) report는 이 finding revision의 질문 상태(이전 revision이면 check 이력)와 report 고정 기준으로 계산하고,
+        // #381 live report는 finding에 저장한 대상(V102 대표 대상·quoted_subjects)의 현재 행으로 만든다(ValidationFindingTargets.basis).
+        // #381 live report는 저장 대상(V102 대표 대상·quoted_subjects)의 현재 행을 id로 한 번만 읽어 basis와 근거 문장 표기가 함께 쓴다. 기준이 지워진 report는 읽지 않는다.
+        var keys=r.getBaselineSeed()==null&&r.getBaselineHash()!=null&&f.getBranch()==ValidationBranch.SETTING?ValidationFindingTargets.storedSubjects(f):List.<ValidationLiveSettings.Key>of();
+        Map<ValidationLiveSettings.Key,ValidationLiveSettings.Row> live=keys.isEmpty()?Map.of():liveSettings.rows(workId,keys);
         List<ValidationFindingTargets.Basis> basis=List.of();
         if(f.getCheckId()!=null) {
             var revision=f.getCheckRevision();
             var state=Objects.equals(current,revision)?reviews.checkState(f.getCheckId(),revision).orElse(null)
                     :checkHistory.stream().filter(h->h.getRevision()==revision).map(ValidationCheckHistory::getState).findFirst().orElse(null);
-            basis=targets.basis(r,state,f);
+            basis=targets.basis(r,state,f,live);
         }
-        return mapper.toDetailResponse(f,byFinding.get(f.getId()),current,!checkHistory.isEmpty(),labels.describe(r,f,evidence),
+        return mapper.toDetailResponse(f,byFinding.get(f.getId()),current,!checkHistory.isEmpty(),labels.describe(r,f,evidence,live),
                 histories.findAllByFindingIdInOrderByCreatedAtAscIdAsc(related.stream().map(ValidationFinding::getId).toList()),reasons,List.copyOf(prior),basis);
     }
     @Override public ValidationSourceContextResponse getValidationFindingSourceContext(Long memberId,UUID workId,UUID reportId,UUID findingId,String sourceRef,

@@ -65,6 +65,7 @@ class ValidationExecutionPostgresIntegrationTest {
     @Autowired WorkPurgeDataRepository physical;
     @Autowired ObjectStorageService hashes;
     @Autowired AnalysisStateJournal journal;
+    @Autowired org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobClaimRepository analysisClaims;
     @MockitoBean ObjectStorage storage;
     final Map<String,String> texts=new ConcurrentHashMap<>();
     TransactionTemplate tx;
@@ -216,5 +217,42 @@ class ValidationExecutionPostgresIntegrationTest {
         assertThat(results.getValidationProgress(f.member(),f.work(),f.report()).get("completedChecks")).isEqualTo(0L);assertThat(jdbc.queryForObject("select count(*) from validation_check_history where outcome='NO_CONFLICT' and change_reason='NEW_CLUE'",Integer.class)).isEqualTo(2);
         var finish=results.completeValidationJob(id(recovered),lease(recovered),new Complete(scope(recovered),"pending-all","MODEL_CALL_FAILED"));assertThat(finish.get("status").toString()).isEqualTo("FAILED");
         episodes.replaceEpisodeFile(f.member(),f.work(),f.target(),file("인용 파기"));zeroCopies(f.report());noExtraction();
+    }
+    @Test @DisplayName("#381 검수 접수가 Work를 잠근 동안 추출 claim은 그 작품을 건너뛰고 접수 커밋 뒤에는 대기 검수가 claim을 막으며 검수가 끝나면 claim된다")
+    void validationIntakeUnderWorkLockDefersSettingExtractionClaim() throws Exception {
+        record Seed(Long member,UUID work,UUID batch,UUID target,String hash,String key,String version,UUID analysisJob) {}
+        var seed=tx.execute(s->{
+            var member=Member.register("execution-"+UUID.randomUUID()+"@example.invalid","synthetic-only","01012345678","합성 작가");em.persist(member);
+            var work=Work.create(member,"격리 검수",WorkGenre.FANTASY,null);em.persist(work);String prior="앞선 합성 원고";texts.put("synthetic/prior/"+work.getId(),prior);
+            var priorEpisode=Episode.create(work,null,100,"앞 회차","synthetic/prior/"+work.getId(),"v1",hashes.contentHash(prior),prior.length());em.persist(priorEpisode);work.updateLatestEpisodeNo(100);
+            em.persist(WorkCharacter.create(work,"합성 인물",null,20,1,null,null,null,null,null,null));
+            var batch=episodes.uploadEpisodes(member.getId(),work.getId(),new EpisodeUploadRequest(EpisodeUploadType.SINGLE_EPISODE,101,"합성",null),List.of(file("😀가😀가 합성 원고")));em.flush();
+            // 앞 회차의 대기 추출 Job. 검수 대상 회차(101)와 겹치지 않아 기존 claim 조건은 만족한다.
+            var extraction=org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob.create(work,em.find(org.monitoring.catchholebackend.domain.upload.entity.UploadBatch.class,batch.batchId()),priorEpisode,
+                    org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION);em.persist(extraction);
+            var e=em.createQuery("select e from Episode e where e.work=:w and e.episodeNo=101",Episode.class).setParameter("w",work).getSingleResult();em.flush();
+            return new Seed(member.getId(),work.getId(),batch.batchId(),e.getId(),e.getContentHash(),e.getContentS3Key(),e.getContentS3Version(),extraction.getId());
+        });
+        var request=new org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysisJobClaimRequest("synthetic-no-llm",null,
+                Set.of(org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION),null,null,null,null,null,null,null,null);
+        var intakeHoldsWork=new CountDownLatch(1);var release=new CountDownLatch(1);UUID report;
+        try(var pool=Executors.newSingleThreadExecutor()) {
+            var intake=pool.submit(()->tx.execute(s->{
+                var started=admissions.start(seed.member(),seed.work(),new ValidationStartRequest("initial",seed.batch(),seed.target(),seed.hash(),seed.key(),seed.version()));
+                intakeHoldsWork.countDown();await(release);return started.reportId();}));
+            await(intakeHoldsWork);
+            try {
+                assertThat(claimable(request)).as("접수 트랜잭션이 Work를 잠근 동안 claim은 그 작품을 건너뛴다(SKIP LOCKED)").isEmpty();
+            } finally {release.countDown();}
+            report=intake.get(20,TimeUnit.SECONDS);
+        }
+        assertThat(jdbc.queryForObject("select status from validation_jobs where report_id=?",String.class,report)).isEqualTo("QUEUED");
+        assertThat(claimable(request)).as("커밋된 대기 검수가 있는 작품의 추출").isEmpty();
+        jdbc.update("update validation_jobs set status='CANCELED' where report_id=?",report);
+        assertThat(claimable(request)).contains(seed.analysisJob());
+    }
+    Optional<UUID> claimable(org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysisJobClaimRequest request) {
+        Optional<UUID> claimed=tx.execute(s->analysisClaims.findClaimableJob(request).map(org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob::getId));
+        return claimed;
     }
 }

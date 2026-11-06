@@ -7,6 +7,8 @@ GH310 검수 실행이 저장한 finding에 작가 판단을 저장하고(S1) �
 추출 성공은 설정 확정이 아니다. 회차 전체 확정(아래 S3)만 release 회차의 확정 설정을 쓴다.
 #314 B1은 접수 전 자격 조회와 미완료 검수 동안의 다음 회차 등록 차단을 더한다(아래 "접수 자격 조회·다음 회차 차단 (#314 B1)").
 #314 B2는 정책을 바꾸지 않고 서버가 이미 가진 정보를 공개 계약에 더한다: 항목의 대상·설정명, 등급·대상 서버 필터, 정정 연결 기준 항목, APPLIED report의 재검수 안내, 재검수 기준 식별값 계약(아래 "검수 공개 계약 보강 (#314 B2)").
+#381([ADR-0004](adr/0004-validation-live-settings-lock.md))은 검수가 확정 설정을 복사하지 않고 현재 설정을 읽게 바꿨다. 접수부터 검토 종료까지 확정 설정 수정이 잠긴다(`docs/validation-execution-v1.md` "확정 설정 잠금과 현재 설정 읽기").
+응답 모양은 그대로이며, 상세 basis·표기·정정이 읽는 값이 바뀐 점은 아래 B2 절과 "상세 화면 표기"에 적었다.
 
 ## 저장 모델 (V96)
 
@@ -83,7 +85,7 @@ JPA `@Version`은 사용하지 않는다. 검사 순서와 오류는 다음과 �
 - `judgmentLocked`/`lockReason` ∈ `REPORT_INVALIDATED, BASELINE_NOT_READY, EXECUTION_NOT_STARTED, EXECUTION_IN_PROGRESS, EXECUTION_CANCELED, REVIEW_COMPLETED`.
 - `allowedActions`는 화면 안내용이다. `SAVE_JUDGMENT`(잠금 없음+현재 항목 존재), `COMPLETE_REVIEW`, `RETRY`(실행 활성화+유효 report+PARTIAL/FAILED 또는 Job 없는 READY 기준),
   `RECHECK`(현재 포인터가 무효 report, 또는 #314 B2: 회차 전체 확정 APPLIED인 현재 report이고 회차가 재검수 요청과 같은 `ValidationRecheckAdmission` 조건을 만족), `APPLY_SETTINGS`(S3: 검토 종료 receipt가 있고 무효 report가 아니며 회차 전체 확정이 APPLIED가 아님).
-  최신 회차·seed·예산·추출 진행 같은 실제 조건은 각 요청에서 서버가 다시 검증한다.
+  최신 회차·기준·예산·추출 진행 같은 실제 조건은 각 요청에서 서버가 다시 검증한다.
 - DIAGNOSTIC_ONLY report는 판단 저장은 가능하지만 항상 `BLOCKED(DIAGNOSTIC_ONLY)`다. 이미 반영된 회차의 진단은 새 추출을 만들지 않는다.
 
 `ValidationStagingResponse.errorReviewStatus`도 이 판정을 사용한다. 무효 report `INVALIDATED`, 실행 미완료(Job 없음·진행·PARTIAL·FAILED·CANCELED) `NOT_STARTED`,
@@ -366,6 +368,7 @@ Job이 재개를 기다리는 순차 실패(journal PENDING/INCOMPLETE이면서 
 | 보류 → 결정 저장 → 명시 반영 | 반영 방식·세계관 결정 초안 저장 또는 허용된 제외 뒤 `POST /settings-application` | APPLICATION_HELD → APPLIED. 다시 보류되면 APPLICATION_HELD(attempt 증가) |
 | 확정 뒤 진단 재검수 | APPLIED 회차를 `POST /rechecks` | 이전 report INVALIDATED(이력의 application APPLIED) → 새 report(mode DIAGNOSTIC_ONLY) VALIDATING → AWAITING_REVIEW에서 멈춤. 검토 종료·추출·반영 없음 |
 | (참고) 추출 실패 | release Job 실패 | EXTRACTION_FAILED → 공개 재시도(같은 Job) → REVIEW_COMPLETED → APPLIED/APPLICATION_HELD |
+| 검수 중 설정 화면 수정(#381) | 접수 뒤 검토 종료 전에 설정 화면에서 캐릭터·세계관을 저장 | 409 `VALIDATION_SETTINGS_LOCKED`(`lockReason` EXECUTION 또는 REVIEW), 단계 그대로. REVIEW 단계의 리포트 안 정정은 허용되고 report는 INVALIDATED → 재검수 |
 | 미완료 중 다음 회차 업로드(#314 B1) | APPLIED 전에 102화를 어떤 방식으로든 업로드 | 409 `VALIDATION_NEXT_EPISODE_BLOCKED`, context의 report로 이동. 원고 교체로 INVALIDATED여도 막히며 재검수 → 새 report가 APPLIED가 된 뒤(또는 확정 뒤 진단 재검수 중)에만 업로드 성공 |
 
 ### 알려진 한계 (#314 또는 후속)
@@ -483,17 +486,21 @@ GH310_EXECUTION_POSTGRES_JDBC_URL=jdbc:postgresql://127.0.0.1:<disposable-port>/
 | 컬럼 | 의미 |
 | --- | --- |
 | `impact` | SETTING 판정 payload의 `impact`(`type.ValidationImpact` = SEVERE/CAUTION/REFERENCE, 검수 Worker 계약과 `ValidationDecisionValidator`가 허용하는 세 값). TYPO는 null |
-| `subject_type`, `subject_id`, `subject_name` | 질문이 가리키는 고정 기준 항목의 대상(`type.ValidationSubjectType` = CHARACTER/WORLD_SETTING), 실제 캐릭터·세계관 ID, 고정 기준 당시 이름 |
+| `subject_type`, `subject_id`, `subject_name` | 질문이 가리키는 기준 항목의 대상(`type.ValidationSubjectType` = CHARACTER/WORLD_SETTING), 실제 캐릭터·세계관 ID, 판정 저장 당시 이름 |
 | `setting_key`, `setting_name` | 질문 속성이 그 대상의 고정 slot/path 하나와 정확히 맞을 때만. 캐릭터 `"AGE:age"`(slot key), 세계관 저장 경로 키 `["범위","설정명"]`/`[null,"설정명"]`(`WorldSettingAnalysisStateMapper.pathKey`). 표시명은 캐릭터 schema 표시명(`CharacterSettingDisplayNameResolver`), 세계관 `"범위 / 설정명"` 또는 `"설정명"` |
 
 CHECK: impact·subject_type은 SETTING에서만 세 값/두 값, 대상이 없으면 나머지 대상·설정 컬럼도 null, `setting_key`와 `setting_name`은 함께 null이거나 함께 값이다.
 
+#381 V119는 `quoted_subjects` JSONB(nullable)를 더했다. 판정 근거 문장 중 저장 설정값 인용(B 인용)마다 `{ref, subjectType, subjectId, subjectName, settingKey, settingName}`을 B 인용 순서대로 최대 3개 담고, B 인용이 없으면 빈 배열이다.
+이름·key만 담고 설정값은 담지 않는다(인용 문장 자체는 payload에 있다). 설정은 인용을 담은 값 leaf에서 정하며 모든 leaf가 한 key·표시명으로 모일 때만 채운다. #381 이후 report의 게시 때 한 번 쓰고, legacy report·V119 이전 finding·오탈자는 null이다.
+
 ### 계산 규칙 (`processor.ValidationFindingTargets`)
 
-`ValidationResultServiceImpl.publishValidationUnit`이 SETTING finding을 저장하는 순간 **그 check revision의 질문 상태와 report의 고정 기준(`baselineEntries`)만** 읽어 한 번 기록한다. 현재 캐릭터·세계관 값은 읽지 않으며 이후 설정 변경으로 다시 계산하지 않는다(판정과 같은 고정 기준).
+`ValidationResultServiceImpl.publishValidationUnit`이 SETTING finding을 저장하는 순간 **그 check revision의 질문 상태와 게시 검증 문맥의 기준 항목만** 읽어 한 번 기록한다. 이후 설정 변경으로 다시 계산하지 않는다.
+legacy report의 기준 항목은 고정 기준(`baselineEntries`)이다. #381 이후 report는 Work 잠금 아래 읽은 현재 확정 설정이며, 잠금 때문에 판정이 읽은 값과 같다.
 
-1. 항목 참조: `B<n>`은 `baselineEntries` 순번, `S<n>`은 `ValidationDataMapper.toSubjectRefs`(모델 투영 `toValidationSettings`와 같은 identity 규칙: 같은 대상의 세계관 항목과 확정 이력은 같은 S-ref)다.
-2. 대표 대상(2026-11-03 판정 작성 제목에서 바꿈): 저장할 판정의 `basis_quotes` 중 저장 설정값 인용(`B<n>` 참조)이 있으면 **그 첫 인용이 가리키는 고정 기준 항목**(그 항목이 있고 정정 가능한 domain일 때)이다.
+1. 항목 참조: `B<n>`은 기준 항목 순번, `S<n>`은 `ValidationDataMapper.toSubjectRefs`(모델 투영 `toValidationSettings`와 같은 identity 규칙: 같은 대상의 세계관 항목과 확정 이력은 같은 S-ref)다. legacy는 `baselineEntries` 순번이다. #381 이후 report는 현재 주체 색인이라 B와 S 번호가 같다.
+2. 대표 대상(2026-11-03 판정 작성 제목에서 바꿈): 저장할 판정의 `basis_quotes` 중 저장 설정값 인용(`B<n>` 참조)이 있으면 **그 첫 인용이 가리키는 기준 항목**(그 항목이 있고 정정 가능한 domain일 때)이다.
    판정이 "이 값과 어긋난다"고 옮긴 값의 대상이므로 서술자나 질문에 이름만 나온 대상보다 우선한다(31화 시험: 질문 대상 첫 참조가 서술자 얀델이라 정수 등급 충돌이 `얀델`로 표시됐다). 그런 인용이 없으면(근거 문장 없음·이전 회차/설정집 원문 인용만·이전 Worker)
    이전 규칙: 질문 `draft.subject_refs`의 첫 참조, 없으면 BASELINE 조회 의무의 `evidence_refs` 항목. 같은 대상의 항목이 여럿이면 정정 가능한 domain(characters·worldSettings)을 먼저, 그다음 기준 순서.
    상세 `basis`의 slot/path 연결도 같은 대표 대상을 쓴다. 이미 저장된 finding은 저장 때 기록한 대상을 그대로 두며 다시 계산하지 않는다(backfill 없음). 항목 identity가 `character:<uuid>`/`world:<uuid>`가 아니면(임시 대상·대상 없는 이력) `subject.id`는 null이고 **이름으로 연결하지 않는다**(A5).
@@ -506,6 +513,8 @@ CHECK: impact·subject_type은 SETTING에서만 세 값/두 값, 대상이 없�
 - 상세 `basis[]`: 질문이 비교한 고정 기준 항목(`subject_refs`의 모든 항목 + BASELINE 조회 항목, `ValidationDecisionValidator`가 `evidence_bundle.settings`로 요구하는 집합) 중 실제 대상에 연결된 characters·worldSettings 항목을 기준 순서로 담는다.
   `{entryRef, entryHash, subjectType, targetId, subjectName, factType, factKey, scopeName, settingName, currentVersion}`. slot/path(`factType/factKey`, `scopeName/settingName`)는 finding의 `settingKey`가 그 항목(대표 대상)을 가리킬 때만 채운다.
   상세는 finding revision의 질문 상태(이전 revision이면 check 이력)를 읽어 계산하며, report 기준이 파기된 뒤에는 finding도 함께 지워지므로 빈 basis를 보지 않는다. 정정 요청 매핑은 `docs/validation-execution-v1.md` "명시적 기준 정정"의 B2 표다.
+  #381 이후 report는 판정 때의 B·S 번호를 쓰지 않는다. finding에 저장한 대상(V102 대표 대상, 그다음 `quoted_subjects`의 주체, 중복 제거, 최대 3개)의 지금 행으로 만든다.
+  `entryRef`는 지금 색인 참조, `entryHash`는 지금 행의 hash, `currentVersion`은 id로 읽은 지금 version이다. 보관·삭제된 주체는 빠지고, slot/path는 legacy와 같이 대표 대상이고 finding `settingKey`가 있을 때만 채운다.
 - `ValidationStagingResponse`에는 필드를 추가하지 않았다. 정정 요청의 `baselineId`·`expectedBaselineRevision`·`expectedBaselineHash`·`expectedReportVersion`은 이미 있는 단건 조회의 `baselineId`·`baselineRevision`·`baselineHash`·`reportVersion`이다.
 
 ### APPLIED report의 재검수 안내
@@ -545,14 +554,18 @@ GH310_EXECUTION_POSTGRES_JDBC_URL=jdbc:postgresql://127.0.0.1:<disposable-port>/
 - `settingKey`·`settingName`은 질문의 `property_or_rule`(모델 자유 문구)이 고정 slot/path 하나와 정확히 같을 때만 채운다. "손 사용"처럼 규칙·행동을 묻는 질문은 대상만 있고 설정명은 null이다. 검수 Worker 계약에 구조화된 slot/path 참조가 생기기 전까지 근사 매칭으로 추정하지 않는다(AI 후속 후보).
 - V102 이전에 저장된 finding은 백필이 등급·대상만 채우고 `settingKey`·`settingName`은 null이다(표시명 규칙이 Java schema 해석기라 SQL로 재현하지 않음). 2026-10-30 기준 운영은 검수 실행이 꺼져 있어 해당 행이 없다.
 - `basis`는 실제 대상에 연결된 characters·worldSettings 항목만 담는다. 세계관 확정 이력(worldHistory) 항목과 임시 대상은 정정 요청이 받지 않으므로 제외한다. slot/path가 null인 basis로 정정할 때는 작가가 편집한 slot의 factType/factKey(세계관은 현재 경로)를 Front가 요청에 넣는다.
-- 정정은 고정 기준과 현재 설정이 그대로일 때만 성공한다(기존 `VALIDATION_CORRECTION_CONFLICT` 규칙). 기준 이후 설정이 바뀐 APPLIED report의 basis는 표시용이며 정정은 409다.
+- legacy report의 정정은 고정 기준과 현재 설정이 그대로일 때만 성공한다(기존 `VALIDATION_CORRECTION_CONFLICT` 규칙). 기준 이후 설정이 바뀐 APPLIED report의 basis는 표시용이며 정정은 409다.
+  #381 이후 report의 basis는 지금 행이라, 상세를 본 뒤 그 행이 바뀌었을 때만 정정이 409다.
+- #381 이후 report에서 B 인용이 정정할 수 없는 항목을 가리키면 `quoted_subjects`의 그 항목은 `ref`만 두고 나머지가 null이다. 검증을 통과한 판정에서는 생기지 않는다.
 - 무효 report의 `RECHECK` 안내는 기존대로 회차 조건을 조회하지 않는다. 최신 회차가 아니면 요청이 `VALIDATION_TARGET_INVALID`다.
 
 ## 상세 화면 표기 (오류 리포트 가독성, 2026-11-02)
 
 31화 로컬 리포트에 대한 소유자 피드백(제목이 판정 사유 전문 132자, 비교 기준이 검색 조각 전체 850자, 화면의 `T1`·`E2`·`limited`, 판정이 쓰지 않은 조각 10개를 모두 나열, `비교 원문 13` 같은 내부 출처 표기)에 따라
-상세가 내부 참조 없이 읽히도록 서버가 표기를 만든다. 계산은 `processor.ValidationFindingLabels`가 report 고정 출처(baselineSeed)·고정 기준(baselineEntries)과
-저장된 판정 payload(evidence_bundle 포함)만으로 하며 현재 설정값은 읽지 않는다. 기존 필드는 그대로 두고 필드만 더했다.
+상세가 내부 참조 없이 읽히도록 서버가 표기를 만든다. 계산은 `processor.ValidationFindingLabels`가 한다. 기존 필드는 그대로 두고 필드만 더했다.
+legacy report는 고정 출처(baselineSeed)·고정 기준(baselineEntries)과 저장된 판정 payload(evidence_bundle 포함)만 읽는다.
+#381 이후 report는 출처를 저장 manifest 행에서 읽는다. 저장 설정값 근거 문장의 대상·설정명은 finding의 `quoted_subjects`에서 정하고, 없으면 첫 B 인용만 V102 대표 대상으로 표기한다.
+값 전체(`settingValue`)는 report가 유효하고 회차 전체 확정(APPLIED) 전일 때만 그 대상의 현재 행을 id로 읽어 정한다. 그 기간에는 잠금과 무효화 때문에 현재 값이 판정 때 값과 같다. APPLIED 뒤에는 설정이 바뀔 수 있어 null이다(인용 문장만 보인다).
 
 | 필드 | 값 |
 |---|---|
@@ -586,7 +599,7 @@ GH310_EXECUTION_POSTGRES_JDBC_URL=jdbc:postgresql://127.0.0.1:<disposable-port>/
 - 판정 사유(`payload.reason`)는 그대로이며 새 Worker는 원인 → 결과 두 문장(`기존 설정은 … 그런데 31화에서는 …`)으로 쓴다(`docs/validation-execution-v1.md` "판정 작성 제목").
 - 블록 병합(`ValidationFindingContexts.Reader.grouped`·`ValidationSourceWindow.touching`): 같은 출처의 원문 인용(질문 `target_spans`끼리, 같은 회차·같은 설정집의 근거 문장끼리)을 위치 순으로 놓고, 다음 인용의 처음 창(위아래 2줄)이 지금 블록의 창과 겹치거나
   맞닿으면(두 창 사이 원문이 공백·줄바꿈뿐이라 그 사이에 보여 줄 줄이 없으면) 한 블록으로 합친다. 합친 블록은 `quote`=첫 인용, `start`=가장 작은 start, `end`=가장 큰 end, `label`=그 구간 위치, `context`=그 구간 둘레 창이라 같은 줄이 두 블록에 나오지 않는다.
-  원문을 읽지 못했거나(READY 아님) 위치가 원문 밖이면 합치지 않는다. 저장 설정값 블록은 같은 고정 기준 항목·같은 label·같은 값 전체(`settingValue`)를 가리킬 때만 합치고 값 안의 위치 순으로 강조한다. `basisQuotes[]` 목록은 합치지 않는다.
+  원문을 읽지 못했거나(READY 아님) 위치가 원문 밖이면 합치지 않는다. 저장 설정값 블록은 같은 기준 항목·같은 label·같은 값 전체(`settingValue`)를 가리킬 때만 합치고 값 안의 위치 순으로 강조한다. `basisQuotes[]` 목록은 합치지 않는다.
 - 더 보기는 합친 블록에도 같다(창 경계의 길이 0 anchor). 인용 하나가 아닌 블록의 `start~end`가 1,000자를 넘으면 그 구간을 anchor로 다시 읽는 요청은 400이므로 Front의 `다시 불러오기`는 처음 창이 없는(READY가 아닌) 블록에만 있고, 그런 블록은 합치지 않는다.
 - 대상 귀속: 위 "#314 B2 계산 규칙" 2번(첫 저장 설정값 근거 문장의 항목 우선).
 - 공통 fixture: `findingSummary*`·`findingDetail`의 `headline`, `findingDetail.blocks[].quotes`(이번 원고 두 위치를 합친 블록), `invariants.findingHeadline`·`findingBlockMerge`·`findingSubjectRule`.

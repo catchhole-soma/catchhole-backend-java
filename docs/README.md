@@ -16,6 +16,7 @@
 | [ADR-0001 API 다중화](adr/0001-api-multi-instance-ecs-fargate.md) | #336 제안: 서버 장애 대응을 위한 ECS Fargate 다중 task·ALB 비교, #280과의 관계, 전환·검증 기준 |
 | [ADR-0002 공용 Redis](adr/0002-shared-redis.md) | #336 제안: 다중화 시 인증 데이터를 공유할 Redis 위치와 장애 영향 범위 |
 | [ADR-0003 중앙 로그·지표 수집](adr/0003-central-logs-and-metrics.md) | #336 제안: Loki·Alloy와 CloudWatch Logs 병행, 고정 수집 대상 해소 |
+| [ADR-0004 검수 현재 설정 읽기와 설정 잠금](adr/0004-validation-live-settings-lock.md) | #381 승인: 접수 때 확정 설정 복사 폐지, 접수부터 검토 종료까지의 확정 설정 잠금, 지문·출처 manifest, 계약 변경과 배포 순서 |
 | [2026-09-10 운영 현황](operations-status-2026-09-10.md) | #171 AWS·컨테이너 확인 결과, DB 연결 한도·백업·비용, 재확인 방법과 미확인 항목 |
 | [RDS 백업·삭제 보호](rds-backup-policy.md) | #172 RPO 15분·RTO 2시간 목표·보존 7일의 근거, 설정 재확인, 삭제 절차, T4·T5 확인 경로·권한 |
 | [RDS 자원·백업 알림](../deploy/RDS_BACKUP_MONITORING.md) | #174 연결 예산 29개와 DB 한도, 자원·백업 원천/임계값·수집 신뢰성, Discord 대응·운영 검증 상태 |

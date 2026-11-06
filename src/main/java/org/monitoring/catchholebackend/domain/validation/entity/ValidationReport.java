@@ -89,6 +89,16 @@ public class ValidationReport extends BaseEntity {
         baselineSeed = seed.deepCopy(); baselineHash = hash; baselineFingerprint = hash; confirmedStateHash = confirmedHash;
         version++;
     }
+    /**
+     * #381 복사 없는 준비 완료. 판정 입력은 현재 확정 설정이며 세 hash 열은 모두 설정 버전 fingerprint다(접수 뒤 우회 쓰기를 알아보는 안전장치).
+     * seed·entries는 쓰지 않는다. 무효화된 report는 바꾸지 않는다.
+     */
+    public void readyWithoutSeed(String fingerprint) {
+        if (status == ValidationReportStatus.INVALIDATED) return;
+        baselineHash = fingerprint; baselineFingerprint = fingerprint; confirmedStateHash = fingerprint;
+        baselineStatus = ValidationPreparationStatus.READY; status = ValidationReportStatus.WAITING_FOR_ERROR_REVIEW; holdReason = null;
+        version++;
+    }
     public void baselineReady(JsonNode entries) {
         if (status == ValidationReportStatus.INVALIDATED) return;
         baselineEntries = entries.deepCopy(); baselineStatus = ValidationPreparationStatus.READY;

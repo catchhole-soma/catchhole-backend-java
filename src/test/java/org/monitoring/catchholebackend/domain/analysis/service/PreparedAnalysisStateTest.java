@@ -38,7 +38,8 @@ class PreparedAnalysisStateTest {
     private final AnalysisJobSourceRepository jobSources = mock(AnalysisJobSourceRepository.class);
     private final AnalysisStateJournal journal = spy(new AnalysisStateJournal());
     private final AnalysisRunStateServiceImpl service = new AnalysisRunStateServiceImpl(jobs, journal, List.of(),
-            mock(ApplicationEventPublisher.class), mock(AnalysisPendingReferenceSource.class), jobSources);
+            mock(ApplicationEventPublisher.class), mock(AnalysisPendingReferenceSource.class), jobSources,
+            mock(org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock.class));
     private AnalysisJob job;
     private Episode episode;
 
@@ -180,7 +181,8 @@ class PreparedAnalysisStateTest {
         advisory.putObject("pending").put("quote", "미확정 근거");
         when(pending.capture(any())).thenReturn(advisory);
         var capturingService = new AnalysisRunStateServiceImpl(jobs, journal, capturedSources,
-                mock(ApplicationEventPublisher.class), pending, jobSources);
+                mock(ApplicationEventPublisher.class), pending, jobSources,
+                mock(org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock.class));
         AnalysisJob target = AnalysisJob.create(job.getWork(), null, episode, AnalysisJobType.SETTING_EXTRACTION);
         ReflectionTestUtils.setField(target, "id", UUID.randomUUID());
         target.configureReviewMode(AnalysisReviewMode.AUTOMATIC);

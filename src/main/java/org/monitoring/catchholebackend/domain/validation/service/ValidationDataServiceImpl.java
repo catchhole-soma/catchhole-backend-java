@@ -15,7 +15,10 @@ import org.monitoring.catchholebackend.global.exception.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 저장 baseline만 읽는다. 원문 I/O 전후 scalar projection은 JPA 1차 캐시와 분리한다. */
+/**
+ * 검수 Worker의 고정 출처·설정 읽기. legacy report는 저장 baseline을, #381 live report는 현재 확정 설정(ValidationLiveSettings)을 읽는다.
+ * 원문 I/O 전후 scalar projection은 JPA 1차 캐시와 분리한다.
+ */
 @Service @RequiredArgsConstructor @Transactional(readOnly = true)
 public class ValidationDataServiceImpl implements ValidationDataService {
     private final ValidationReportRepository reports;
@@ -25,11 +28,15 @@ public class ValidationDataServiceImpl implements ValidationDataService {
     private final EntityManager em;
     private final org.monitoring.catchholebackend.domain.validation.processor.ValidationExecutionAccess execution;
     private final org.monitoring.catchholebackend.domain.validation.processor.ValidationSourceTexts texts;
+    private final org.monitoring.catchholebackend.domain.validation.processor.ValidationLiveSettings liveSettings;
+    private final org.monitoring.catchholebackend.domain.validation.processor.ValidationSourceManifests sourceManifests;
 
     @Override
-    public void validateSavedValidationSeed(Long memberId, UUID workId, UUID reportId) {
+    public void validateValidationBaseline(Long memberId, UUID workId, UUID reportId) {
         var r=reports.findByIdAndWorkId(reportId,workId).filter(x->x.getMember().getId().equals(memberId)).orElseThrow(()->new AppException(ValidationErrorCode.VALIDATION_NOT_FOUND));
-        execution.currentInput(r,false);var seed=r.getBaselineSeed();
+        execution.currentInput(r,false);
+        if(reports.isLiveSettingsReport(reportId)) {validateLiveBaseline(r,workId);return;}
+        var seed=r.getBaselineSeed();
         if(seed==null||r.getBaselineHash()==null||!r.getBaselineHash().equals(r.getBaselineFingerprint())||!r.getBaselineHash().equals(journal.hash(seed))
                 ||!seed.path("characters").isObject()||!seed.path("worldSettings").isObject()||!seed.path("worldHistory").isArray()||!seed.path("sources").isArray()
                 ||!workId.toString().equals(seed.path("workId").asText())||memberId.longValue()!=seed.path("memberId").asLong()
@@ -42,6 +49,18 @@ public class ValidationDataServiceImpl implements ValidationDataService {
         for(var source:mapper.toSourceReferences(r).entrySet())if(!"READY".equals(texts.status(workId,r.getSourceEpisodeNo(),source.getValue(),source.getKey().equals("T1"))))throw changed();
     }
 
+    /**
+     * #381 seed 없는 report. 세 hash 열이 같은 설정 버전 fingerprint이고 지금 다시 계산한 값과 같아야 하며(이벤트 없이 확정 설정을 바꾼 쓰기 감지),
+     * 대상 원고와 저장 manifest의 모든 출처가 지금도 같은 원문으로 읽힐 수 있어야 한다. 설정 행은 읽지 않는다.
+     */
+    private void validateLiveBaseline(ValidationReport r, UUID workId) {
+        String fingerprint=r.getBaselineHash();
+        if(fingerprint==null||!fingerprint.equals(r.getBaselineFingerprint())||!fingerprint.equals(r.getConfirmedStateHash())
+                ||!fingerprint.equals(liveSettings.fingerprint(workId)))throw changed();
+        for(var source:mapper.toSourceReferences(r,sourceManifests.manifests(r.getId())).entrySet())
+            if(!"READY".equals(texts.status(workId,r.getSourceEpisodeNo(),source.getValue(),source.getKey().equals("T1"))))throw changed();
+    }
+
     @Override
     public JsonNode readValidationData(Long memberId, UUID workId, UUID reportId, ValidationDataRequest request) {
         return readValidationData(memberId,workId,reportId,request,null,null);
@@ -50,46 +69,47 @@ public class ValidationDataServiceImpl implements ValidationDataService {
     public JsonNode readValidationData(Long memberId, UUID workId, UUID reportId, ValidationDataRequest request, UUID jobId, UUID leaseToken) {
         if (memberId == null || request == null || request.offset() < 0 || request.limit() < 1 || request.limit() > 100)
             throw new AppException(CommonErrorCode.REQUEST_VALIDATION_FAILED);
-        requireCurrentReport(memberId, workId, reportId, request, jobId, leaseToken);
+        boolean live = requireCurrentReport(memberId, workId, reportId, request, jobId, leaseToken);
         ValidationReport report = reports.findById(reportId).orElseThrow(() -> new AppException(ValidationErrorCode.VALIDATION_NOT_FOUND));
-        if (report.getBaselineSeed() == null || report.getBaselineEntries() == null
-                || !Objects.equals(journal.hash(report.getBaselineSeed()), request.expectedBaselineHash())) throw changed();
-        var refs = mapper.toSourceReferences(report);
-        ObjectNode response = mapper.toResponse(report);
+        // #381: live report(seed 없음)는 현재 확정 설정을 읽는다. baselineHash는 설정 버전 fingerprint이며 requireCurrentReport가 요청 값·지금 값과 대조한다.
+        if (!live && (report.getBaselineSeed() == null || report.getBaselineEntries() == null
+                || !Objects.equals(journal.hash(report.getBaselineSeed()), request.expectedBaselineHash()))) throw changed();
+        var manifests = sourceManifests.manifests(reportId);
+        var refs = mapper.toSourceReferences(report, manifests);
+        ObjectNode response = mapper.toResponse(report, sourceManifests.manifestHash(manifests));
         switch (request.operation()) {
             case "INPUT" -> {
                 response.set("target", refs.get("T1"));
                 var sources = response.putArray("sources"); refs.forEach((ref, source) -> { if (!ref.equals("T1")) sources.add(source); });
-                response.put("entryCount", report.getBaselineEntries().size());
+                response.put("entryCount", live ? liveSettings.index(workId).subjects().size() : report.getBaselineEntries().size());
                 response.set("modelSourceCatalogue",mapper.toValidationSourceCatalogue(refs));
-            }
-            case "ENTRIES" -> {
-                response.set("entries", mapper.toEntries(report.getBaselineEntries(), request.offset(), request.limit()));
-                var projected=mapper.toValidationSettings(report.getBaselineEntries(),refs);var models=response.putArray("modelSettings");
-                projected.values().stream().skip(request.offset()).limit(request.limit()).forEach(models::add);
-                var proofs=response.putArray("authorCorrectionProofs");int index=0;
-                for(var entry:report.getBaselineEntries()) {
-                    index++;if(index>request.offset()&&index<=(long)request.offset()+request.limit()&&entry.path("state").path("explicitAuthorCorrections").isArray())
-                        proofs.addObject().put("entryRef","B"+index).set("proofs",entry.path("state").path("explicitAuthorCorrections").deepCopy());
-                }
-                int next = (int) Math.min(report.getBaselineEntries().size(), (long) request.offset() + request.limit());
-                response.put("nextOffset", next).put("hasMore", next < report.getBaselineEntries().size());
             }
             case "SUBJECTS" -> {
                 // #349 grid v4: the Worker reads the subject list once at start; there is no paging (offset/limit are ignored).
-                var subjects=mapper.toValidationSubjectCatalogue(report.getBaselineEntries(),refs);
-                response.set("subjects",subjects);response.put("subjectCount",subjects.size()).put("entryCount",report.getBaselineEntries().size());
+                // live: 색인 행(이름·별칭)만 scalar로 읽는다.
+                JsonNode entries = live ? liveSettings.entries(liveSettings.index(workId), Set.of()) : report.getBaselineEntries();
+                var subjects=mapper.toValidationSubjectCatalogue(entries,refs);
+                response.set("subjects",subjects);response.put("subjectCount",subjects.size()).put("entryCount",entries.size());
             }
             case "SETTINGS" -> {
                 // #349 grid v4: current rows of the requested subjects only (characters/worldSettings), in B order; worldHistory is never returned.
-                var wanted=request.subjectRefs();var known=new HashSet<String>();
-                ValidationDataMapper.toSubjectRefs(report.getBaselineEntries()).values().forEach(known::add);
-                if(wanted==null||wanted.isEmpty()||wanted.size()>100||wanted.stream().anyMatch(ref->ref==null||!ref.matches("S[1-9][0-9]*")||!known.contains(ref)))
+                var wanted=request.subjectRefs();
+                if(wanted==null||wanted.isEmpty()||wanted.size()>100||wanted.stream().anyMatch(ref->ref==null||!ref.matches("S[1-9][0-9]*")))
                     throw new AppException(CommonErrorCode.REQUEST_VALIDATION_FAILED);
-                var rows=mapper.toValidationCurrentSettings(report.getBaselineEntries(),refs,wanted);var settings=response.putArray("settings");rows.forEach(settings::add);
+                JsonNode entries;
+                if(live) {
+                    // live: 요청 주체(최대 100개)만 id로 전체 상태를 읽고 나머지는 색인 행으로 둔다(S_n == B_n).
+                    var index=liveSettings.index(workId);
+                    if(wanted.stream().anyMatch(ref->index.find(ref).isEmpty()))throw new AppException(CommonErrorCode.REQUEST_VALIDATION_FAILED);
+                    entries=liveSettings.entries(index,wanted);
+                } else {
+                    entries=report.getBaselineEntries();
+                    if(!new HashSet<>(ValidationDataMapper.toSubjectRefs(entries).values()).containsAll(wanted))throw new AppException(CommonErrorCode.REQUEST_VALIDATION_FAILED);
+                }
+                var rows=mapper.toValidationCurrentSettings(entries,refs,wanted);var settings=response.putArray("settings");rows.forEach(settings::add);
                 var proofs=response.putArray("authorCorrectionProofs");
                 for(var row:rows) {
-                    var entry=report.getBaselineEntries().path(Integer.parseInt(row.path("entry_ref").asText().substring(1))-1);
+                    var entry=entries.path(Integer.parseInt(row.path("entry_ref").asText().substring(1))-1);
                     if(entry.path("state").path("explicitAuthorCorrections").isArray())proofs.addObject().put("entryRef",row.path("entry_ref").asText()).set("proofs",entry.path("state").path("explicitAuthorCorrections").deepCopy());
                 }
             }
@@ -123,18 +143,24 @@ public class ValidationDataServiceImpl implements ValidationDataService {
         return response;
     }
 
-    private void requireCurrentReport(Long member, UUID work, UUID report, ValidationDataRequest request, UUID jobId, UUID leaseToken) {
+    /** 읽기 전후의 현재성 확인. live report면 true를 돌려준다(seed 여부는 JSON을 읽지 않고 DB의 IS NULL로 판단). */
+    private boolean requireCurrentReport(Long member, UUID work, UUID report, ValidationDataRequest request, UUID jobId, UUID leaseToken) {
         execution.requireRead(report,jobId,leaseToken);
         var state = em.createQuery("""
                 select r.baselineHash, r.sourceContentHash, cast(r.baselineStatus as string),
                        cast(r.status as string), cast(r.work.lifecycleStatus as string), cast(r.member.status as string),
-                       r.current, r.sourceContentRevision, r.episode.contentRevision
+                       r.current, r.sourceContentRevision, r.episode.contentRevision,
+                       case when r.baselineSeed is null then true else false end
                 from ValidationReport r where r.id = :report and r.work.id = :work and r.member.id = :member
                 """, Object[].class).setParameter("report", report).setParameter("work", work).setParameter("member", member)
                 .getResultStream().findFirst().orElseThrow(() -> new AppException(ValidationErrorCode.VALIDATION_NOT_FOUND));
         if (!Objects.equals(state[0], request.expectedBaselineHash()) || !Objects.equals(state[1], request.expectedTargetHash())
                 || !"READY".equals(state[2]) || "INVALIDATED".equals(state[3]) || !"ACTIVE".equals(state[4]) || !"ACTIVE".equals(state[5])
                 || !Boolean.TRUE.equals(state[6]) || !Objects.equals(state[7],state[8])) throw changed();
+        boolean live = Boolean.TRUE.equals(state[9]);
+        // #381: 접수 뒤 이벤트 없이 확정 설정 version을 바꾼 쓰기를 알아보는 안전장치. 기존 409이며 Worker는 INPUT_CHANGED로 멈춘다.
+        if (live && !Objects.equals(liveSettings.fingerprint(work), state[0])) throw changed();
+        return live;
     }
 
     private String nullable(JsonNode node, String field) { return node.path(field).isTextual() ? node.path(field).asText() : null; }

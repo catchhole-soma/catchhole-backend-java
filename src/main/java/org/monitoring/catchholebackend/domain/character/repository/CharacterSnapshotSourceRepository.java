@@ -53,6 +53,17 @@ public interface CharacterSnapshotSourceRepository extends JpaRepository<Charact
             Collection<String> factKeys
     );
 
+    /** #381 slot별 근거 Fact 표시값을 slot 안 sourceOrder 순으로 읽는다. Fact·후보 엔티티는 읽지 않는다. */
+    @Query("""
+            select new org.monitoring.catchholebackend.domain.character.repository.CharacterSnapshotSourceValue(
+                source.workCharacter.id, source.factType, source.factKey, fact.factValue)
+            from CharacterSnapshotSource source
+            join source.sourceFact fact
+            where source.workCharacter.id in :characterIds
+            order by source.workCharacter.id, source.factType, source.factKey, source.sourceOrder
+            """)
+    List<CharacterSnapshotSourceValue> findSourceFactValues(@Param("characterIds") Collection<UUID> characterIds);
+
     boolean existsBySourceFactId(UUID sourceFactId);
 
     List<CharacterSnapshotSource> findAllBySourceFactIdIn(Collection<UUID> sourceFactIds);

@@ -37,6 +37,18 @@ public interface AnalysisRunStateService {
     // 작품 잠금 아래 의미 있는 정식 설정 변경 전에 호출한다. 완료 기록은 무효화하지 않는다.
     void assertSettingMutationAllowed(UUID workId);
 
+    /**
+     * 사람이 검수가 읽는 확정 설정(캐릭터·세계관)을 실제로 바꾸기 전에 호출한다. assertSettingMutationAllowed에 더해
+     * 같은 작품의 검수가 확정 설정을 잠근 동안(접수부터 검토 종료까지) 409 VALIDATION_SETTINGS_LOCKED(#381). 관계·후보 제외·종료처럼 확정 설정을 바꾸지 않는 쓰기는 쓰지 않는다.
+     */
+    void assertConfirmedSettingMutationAllowed(UUID workId);
+
+    /**
+     * 검수 리포트 자신의 정정(ValidationCorrectionService)이 확정 설정을 바꾸기 전에 호출한다. assertConfirmedSettingMutationAllowed와 같지만
+     * 그 리포트의 검토 단계 잠금만 통과시킨다(#381). 실행 중인 그 리포트와 다른 리포트의 잠금은 그대로 409다.
+     */
+    void assertReportCorrectionAllowed(UUID workId, UUID reportId);
+
     void confirmedSettingsChanged(UUID workId);
 
     // 작품 잠금을 먼저 획득하고 후보·정식 설정을 잠그기 전에 호출한다.

@@ -3,6 +3,7 @@
     "execution": {
       "lease-duration": "60s",
       "max-lease-recoveries": 2,
+      "settings-lock-queued-timeout": "10m",
       "setting": {
         "model-calls": 200,
         "lookups": 300,

@@ -39,6 +39,7 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
     private final ApplicationEventPublisher eventPublisher;
     private final AnalysisPendingReferenceSource pendingReferenceSource;
     private final AnalysisJobSourceRepository jobSourceRepository;
+    private final org.monitoring.catchholebackend.domain.validation.processor.ValidationSettingsLock settingsLock;
 
     @Override
     @Transactional
@@ -426,6 +427,18 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
         if (analysisJobRepository.existsUnfinishedOrderedAnalysis(workId)) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_REVIEW_WAIT_REQUIRED);
         }
+    }
+
+    @Override
+    public void assertConfirmedSettingMutationAllowed(UUID workId) {
+        assertSettingMutationAllowed(workId);
+        settingsLock.assertUnlocked(workId);
+    }
+
+    @Override
+    public void assertReportCorrectionAllowed(UUID workId, UUID reportId) {
+        assertSettingMutationAllowed(workId);
+        settingsLock.assertUnlockedForCorrection(workId, reportId);
     }
 
     @Override

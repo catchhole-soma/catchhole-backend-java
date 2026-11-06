@@ -74,6 +74,8 @@ class ErrorFirstValidationIntegrationTest {
     @Autowired List<AnalysisAutomaticApplicationContributor> contributors;
     @Autowired org.monitoring.catchholebackend.domain.validation.service.ValidationBaselineService baselines;
     @Autowired org.monitoring.catchholebackend.domain.work.repository.WorkPurgeDataRepository workPurge;
+    @Autowired org.monitoring.catchholebackend.domain.validation.processor.ValidationLiveSettings liveSettings;
+    @Autowired org.monitoring.catchholebackend.domain.validation.processor.ValidationSourceManifests sourceManifests;
     @MockitoBean ObjectStorage storage;
     final ObjectMapper json = new ObjectMapper();
     Member member;
@@ -153,6 +155,23 @@ class ErrorFirstValidationIntegrationTest {
     }
 
     @Test
+    @DisplayName("검수 접수는 확정 설정을 복사하지 않고 세 기준 hash에 같은 설정 버전 fingerprint를 둔다")
+    void admissionIsReadyWithoutSeedAndThreeHashesAreTheSettingsFingerprint() throws Exception {
+        prepare(); em.persist(WorldSetting.create(work, WorldSettingCategory.RACE, "인간", "서식지", "북부")); em.flush();
+        var receipt = start("live-settings");
+        var r = stored(receipt);
+        assertThat(r.getBaselineStatus().name()).isEqualTo("READY"); assertThat(r.getStatus().name()).isEqualTo("WAITING_FOR_ERROR_REVIEW"); assertThat(r.getHoldReason()).isNull();
+        assertThat(r.getBaselineSeed()).isNull(); assertThat(r.getBaselineEntries()).isNull();
+        String fingerprint = liveSettings.fingerprint(work.getId());
+        assertThat(r.getBaselineHash()).isEqualTo(fingerprint); assertThat(r.getBaselineFingerprint()).isEqualTo(fingerprint); assertThat(r.getConfirmedStateHash()).isEqualTo(fingerprint);
+        assertThat(receipt.path("baselineHash").asText()).isEqualTo(fingerprint);
+        assertThat(receipt.path("baselineFingerprint").asText()).isEqualTo(fingerprint);
+        assertThat(receipt.path("confirmedStateHash").asText()).isEqualTo(fingerprint);
+        assertThat(sourceManifests.manifests(r.getId()).findValuesAsText("episodeNo")).containsExactly("100", "70");
+        assertThat(em.createNativeQuery("select count(*) from validation_reports where baseline_seed is null and baseline_entries is null and baseline_status = 'READY'").getSingleResult()).isEqualTo(1L);
+    }
+
+    @Test
     @DisplayName("검토 결과가 없는 접수는 Worker가 어떤 추출 작업도 claim하지 못한다")
     void workerCannotStartExtractionBeforeErrorReviewCompletes() throws Exception {
         prepare(); start("no-review");
@@ -169,14 +188,16 @@ class ErrorFirstValidationIntegrationTest {
         assertThat(count("WorldSettingCandidate")).isZero(); assertThat(count("CharacterFact")).isZero(); assertThat(count("CharacterSnapshotSource")).isZero();
     }
 
-    @Test @DisplayName("중복 키와 새 키의 동일 입력은 기준을 다시 캡처하거나 Job을 만들지 않는다")
-    void duplicateAdmissionKeepsFrozenBaselineAndIds() throws Exception {
+    @Test @DisplayName("중복 키와 새 키의 동일 입력은 기준을 다시 준비하거나 Job을 만들지 않는다")
+    void duplicateAdmissionKeepsBaselineFingerprintAndIds() throws Exception {
         prepare(); var setting = WorldSetting.create(work, WorldSettingCategory.RACE, "인간", "서식지", "북부"); em.persist(setting);
-        var first = start("one"); var r = stored(first); String hash = r.getBaselineHash();
-        setting.updateProperty("서식지", "서식지", "직접 DB 변경");
+        var first = start("one"); var r = stored(first); String hash = r.getBaselineHash(); long sources = count("ValidationBaselineSource"); long version = r.getVersion();
+        // 이벤트 없이 확정 설정을 바꾸는 쓰기. 재전송은 기준을 다시 준비하지 않고, 설정 버전 fingerprint가 달라져 실행 전 검증이 알아본다(#381).
+        setting.updateProperty("서식지", "서식지", "직접 DB 변경"); em.flush();
         var same = start("one"); var newKey = start("two");
         assertThat(same.path("reportId")).isEqualTo(first.path("reportId")); assertThat(newKey.path("baselineId")).isEqualTo(first.path("baselineId"));
-        assertThat(r.getBaselineHash()).isEqualTo(hash); assertThat(r.getBaselineSeed().toString()).contains("북부").doesNotContain("직접 DB 변경");
+        assertThat(r.getBaselineHash()).isEqualTo(hash); assertThat(r.getBaselineSeed()).isNull(); assertThat(r.getVersion()).isEqualTo(version);
+        assertThat(count("ValidationBaselineSource")).isEqualTo(sources); assertThat(liveSettings.fingerprint(work.getId())).isNotEqualTo(hash);
         assertThat(count("ValidationReport")).isEqualTo(1); assertThat(count("ValidationRequestKey")).isEqualTo(2); assertNoExtraction();
     }
 
@@ -301,67 +322,52 @@ class ErrorFirstValidationIntegrationTest {
         states.purgeSourceEvidenceForWorkForUpdate(work.getId(), prior.getId(), 70); em.flush(); baselines.materialize(r.getId());
         assertThat(r.getBaselineSeed()).isNull(); assertThat(count("ValidationBaselineSource")).isZero(); assertNoExtraction();
     }
-    @Test
-    @DisplayName("캐릭터 과거 Fact의 효력 회차와 원문 출처 회차를 각각 보존한다")
-    void preservesCharacterHistoryEffectiveEpisodeIndependentOfSourceEpisode() throws Exception {
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1, 30})
+    @DisplayName("접수 준비는 설정·후보·Fact·분석 Job을 읽지 않고 조회 수와 엔티티 로드가 확정 설정 크기와 무관하다")
+    void intakeQueryAndEntityLoadCountsDoNotDependOnSettingsSize(int subjects) throws Exception {
         prepare();
-        var owner = org.monitoring.catchholebackend.domain.character.entity.WorkCharacter.create(work, "기존 인물", null, null, null,
-                JsonNodeFactory.instance.objectNode(), JsonNodeFactory.instance.objectNode(), JsonNodeFactory.instance.objectNode(), JsonNodeFactory.instance.objectNode(), JsonNodeFactory.instance.objectNode(), null);
-        em.persist(owner);
-        var priorEpisode = em.createQuery("select e from Episode e where e.work = :work and e.episodeNo = 70", Episode.class).setParameter("work", work).getSingleResult();
-        var priorJob = AnalysisJob.create(work, null, priorEpisode, AnalysisJobType.SETTING_EXTRACTION); em.persist(priorJob);
-        var c = SettingCandidate.create(work, priorEpisode, null, priorJob, SettingEntityType.CHARACTER, "기존 인물", "기존 인물", owner.getId(), SettingCandidateMatchStatus.MATCHED,
-                "직업", "수리공", SettingValueType.STRING, null, JsonNodeFactory.instance.arrayNode(), BigDecimal.ONE, null);
-        em.persist(c); ReflectionTestUtils.setField(c, "reviewStatus", SettingCandidateReviewStatus.CONFIRMED);
-        var historical = CharacterFact.create(owner, c, CharacterFactType.PROFILE, "직업", "수리공", "수리공", null, priorEpisode, null, priorJob, BigDecimal.ONE, 12);
-        em.persist(historical); em.flush();
-        var receipt = start("character-history");
-        var captured = em.find(ValidationReport.class, UUID.fromString(receipt.path("reportId").asText()));
-        var history = captured.getBaselineSeed().path("characters").elements().next().path("historyFacts").get(0);
-        assertThat(history.path("effectiveFromEpisodeNo").asInt()).isEqualTo(12);
-        assertThat(history.path("supportingSource").path("source").path("episodeNo").asInt()).isEqualTo(70);
-    }
-    @Test
-    @DisplayName("기준 준비는 과거 분석 Job을 엔티티로 읽지 않고 출처 메타데이터만 조회한다")
-    void baselineCaptureChecksPriorSourcesWithoutLoadingAnalysisJobEntities() throws Exception {
-        prepare();
-        var owner = org.monitoring.catchholebackend.domain.character.entity.WorkCharacter.create(work, "기존 인물", null, null, null,
-                JsonNodeFactory.instance.objectNode(), JsonNodeFactory.instance.objectNode(), JsonNodeFactory.instance.objectNode(), JsonNodeFactory.instance.objectNode(), JsonNodeFactory.instance.objectNode(), null);
-        em.persist(owner);
         var priorEpisode = em.createQuery("select e from Episode e where e.work = :work and e.episodeNo = 70", Episode.class).setParameter("work", work).getSingleResult();
         var priorJob = AnalysisJob.create(work, null, priorEpisode, AnalysisJobType.SETTING_EXTRACTION);
         // 운영의 큰 Job처럼 출처 확인과 무관한 입력 JSON을 채운다.
         ReflectionTestUtils.setField(priorJob, "automaticInputState", JsonNodeFactory.instance.objectNode().put("payload", "x".repeat(200_000)));
         em.persist(priorJob);
-        var c = SettingCandidate.create(work, priorEpisode, null, priorJob, SettingEntityType.CHARACTER, "기존 인물", "기존 인물", owner.getId(), SettingCandidateMatchStatus.MATCHED,
-                "직업", "수리공", SettingValueType.STRING, null, JsonNodeFactory.instance.arrayNode(), BigDecimal.ONE, null);
-        em.persist(c); ReflectionTestUtils.setField(c, "reviewStatus", SettingCandidateReviewStatus.CONFIRMED);
-        em.persist(CharacterFact.create(owner, c, CharacterFactType.PROFILE, "직업", "수리공", "수리공", null, priorEpisode, null, priorJob, BigDecimal.ONE, 12));
-        var current = WorldSetting.create(work, WorldSettingCategory.RACE, "기존 종족", "서식지", "남부"); em.persist(current);
-        var history = WorldSettingCandidate.create(work, priorEpisode, priorJob, WorldSettingCategory.RACE, "기존 종족", "서식지", "남부",
-                JsonNodeFactory.instance.arrayNode().add(JsonNodeFactory.instance.objectNode().put("quote", "남부에 산다")), BigDecimal.ONE, null);
-        ReflectionTestUtils.setField(history, "targetWorldSetting", current); ReflectionTestUtils.setField(history, "reviewStatus", WorldSettingReviewStatus.CONFIRMED);
-        ReflectionTestUtils.setField(history, "finalCategory", WorldSettingCategory.RACE); ReflectionTestUtils.setField(history, "finalSubjectName", "기존 종족");
-        ReflectionTestUtils.setField(history, "finalSettingName", "서식지"); ReflectionTestUtils.setField(history, "finalValue", "남부");
-        ReflectionTestUtils.setField(history, "finalOperation", WorldSettingOperation.ADD);
-        em.persist(history);
+        for (int i = 0; i < subjects; i++) {
+            var owner = org.monitoring.catchholebackend.domain.character.entity.WorkCharacter.create(work, "인물" + i, null, 20, 1, null, null, null, null, null, null);
+            em.persist(owner);
+            var c = SettingCandidate.create(work, priorEpisode, null, priorJob, SettingEntityType.CHARACTER, owner.getName(), owner.getName(), owner.getId(), SettingCandidateMatchStatus.MATCHED,
+                    "직업", "수리공" + i, SettingValueType.STRING, null, JsonNodeFactory.instance.arrayNode().add(JsonNodeFactory.instance.objectNode().put("quote", "근거" + i)), BigDecimal.ONE, null);
+            em.persist(c); ReflectionTestUtils.setField(c, "reviewStatus", SettingCandidateReviewStatus.CONFIRMED);
+            var fact = CharacterFact.create(owner, c, CharacterFactType.PROFILE, "직업", "수리공" + i, "수리공" + i, null, priorEpisode, null, priorJob, BigDecimal.ONE, 12);
+            em.persist(fact); em.persist(org.monitoring.catchholebackend.domain.character.entity.CharacterSnapshotSource.create(owner, CharacterFactType.PROFILE, "직업", fact, 0));
+            var setting = WorldSetting.create(work, WorldSettingCategory.RACE, "종족" + i, "서식지", "남부"); em.persist(setting);
+            var history = WorldSettingCandidate.create(work, priorEpisode, priorJob, WorldSettingCategory.RACE, "종족" + i, "서식지", "남부",
+                    JsonNodeFactory.instance.arrayNode().add(JsonNodeFactory.instance.objectNode().put("quote", "남부에 산다")), BigDecimal.ONE, null);
+            ReflectionTestUtils.setField(history, "targetWorldSetting", setting); ReflectionTestUtils.setField(history, "reviewStatus", WorldSettingReviewStatus.CONFIRMED);
+            ReflectionTestUtils.setField(history, "finalCategory", WorldSettingCategory.RACE); ReflectionTestUtils.setField(history, "finalSubjectName", "종족" + i);
+            ReflectionTestUtils.setField(history, "finalSettingName", "서식지"); ReflectionTestUtils.setField(history, "finalValue", "남부");
+            ReflectionTestUtils.setField(history, "finalOperation", WorldSettingOperation.ADD);
+            em.persist(history);
+        }
         em.flush(); em.clear();
         var statistics = em.getEntityManagerFactory().unwrap(org.hibernate.SessionFactory.class).getStatistics();
         statistics.clear();
 
-        var receipt = start("source-metadata-only");
+        var receipt = start("intake-" + subjects);
 
-        assertThat(statistics.getEntityStatistics(AnalysisJob.class.getName()).getLoadCount()).isZero();
-        var seed = em.find(ValidationReport.class, UUID.fromString(receipt.path("reportId").asText())).getBaselineSeed();
-        var world = seed.path("worldHistory").get(0);
-        assertThat(world.path("sourceAvailability").asText()).isEqualTo("AVAILABLE");
-        assertThat(world.path("sourceEpisodeNo").asInt()).isEqualTo(70);
-        assertThat(world.path("sourceEpisodeId").asText()).isEqualTo(priorEpisode.getId().toString());
-        assertThat(world.path("evidenceSpans").toString()).contains("남부에 산다");
-        var fact = seed.path("characters").elements().next().path("historyFacts").get(0);
-        assertThat(fact.path("supportingSource").path("source").path("episodeNo").asInt()).isEqualTo(70);
-        assertThat(seed.toString()).doesNotContain("SOURCE_EVIDENCE_PURGED");
+        for (Class<?> forbidden : List.of(AnalysisJob.class, SettingCandidate.class, WorldSettingCandidate.class, CharacterFact.class,
+                org.monitoring.catchholebackend.domain.character.entity.CharacterSnapshotSource.class,
+                org.monitoring.catchholebackend.domain.character.entity.WorkCharacter.class, WorldSetting.class))
+            assertThat(statistics.getEntityStatistics(forbidden.getName()).getLoadCount()).as(forbidden.getSimpleName()).isZero();
+        // 접수 HTTP 요청 전체(인증·작품 잠금·자격 판정·report·출처 목록 2행·fingerprint scalar 2번·요청 키·응답): SQL 29번(조회 19·insert 4·update 3 포함),
+        // 엔티티 로드 7개(Member·Work·UploadBatch·UploadFile·Episode 3). 인물·세계관·후보 0·1·30개 모두 같다. 앞 회차·설정집 수에만 비례한다(출처 행마다 insert와 파기 대기 확인).
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(INTAKE_STATEMENTS);
+        assertThat(statistics.getEntityLoadCount()).isEqualTo(INTAKE_ENTITY_LOADS);
+        var r = stored(receipt);
+        assertThat(r.getBaselineSeed()).isNull(); assertThat(r.getBaselineEntries()).isNull();
+        assertThat(sourceManifests.manifests(r.getId()).findValuesAsText("episodeNo")).containsExactly("100", "70");
     }
+    static final long INTAKE_STATEMENTS = 29, INTAKE_ENTITY_LOADS = 7;
     @Test
     @DisplayName("기준 준비의 파기 대기 확인은 이력 수가 아니라 출처 수만큼만 조회한다")
     void baselineCaptureChecksPurgeOncePerSourceInsteadOfPerHistoryRow() throws Exception {
@@ -384,18 +390,19 @@ class ErrorFirstValidationIntegrationTest {
 
         var receipt = start("purge-check-once");
 
-        // 앞 회차 원고 2개(70·100화)와 과거 Job 출처 1개뿐이므로 이력 6행이 늘어도 파기 대기 확인은 최대 3번이다.
+        // 앞 회차 원고 2개(70·100화)뿐이므로 이력 6행이 있어도 파기 대기 확인은 출처마다 한 번이다(#381부터 이력은 복사하지 않는다).
         long purgeChecks = java.util.Arrays.stream(statistics.getQueries())
                 .filter(query -> query.contains("EpisodeSourcePurgeRequest") && query.contains("retainedContentKey"))
                 .mapToLong(query -> statistics.getQueryStatistics(query).getExecutionCount()).sum();
-        assertThat(purgeChecks).isBetween(1L, 3L);
-        var seed = em.find(ValidationReport.class, UUID.fromString(receipt.path("reportId").asText())).getBaselineSeed();
-        assertThat(seed.path("worldHistory").findValuesAsText("sourceAvailability")).hasSize(6).containsOnly("AVAILABLE");
+        assertThat(purgeChecks).isEqualTo(2);
+        var r = stored(receipt);
+        assertThat(r.getBaselineSeed()).isNull();
+        assertThat(sourceManifests.manifests(r.getId())).hasSize(2);
     }
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    @DisplayName("세계관 확정 이력과 보관한 설정집의 실제 revision도 고정한다")
-    void freezesWorldHistoryAndActualBookRevisionsBeforeLaterSettingEdits(boolean archivedBook) throws Exception {
+    @DisplayName("보관한 설정집의 실제 revision도 출처 목록에 고정하고 이후 설정 수정이 출처 목록을 바꾸지 않는다")
+    void freezesActualBookRevisionsInManifestBeforeLaterSettingEdits(boolean archivedBook) throws Exception {
         prepare();
         var bookBatch = org.monitoring.catchholebackend.domain.upload.entity.UploadBatch.create(work, member, org.monitoring.catchholebackend.domain.upload.type.UploadType.SETTING_BOOK, org.monitoring.catchholebackend.domain.upload.type.UploadSourceType.FILE);
         em.persist(bookBatch);
@@ -403,43 +410,65 @@ class ErrorFirstValidationIntegrationTest {
         var r1 = org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision.create(book, 1,
                 new org.monitoring.catchholebackend.global.storage.StoredTextObject("synthetic/book-r1", "v1", "1".repeat(64), 2), org.monitoring.catchholebackend.domain.upload.type.SettingBookReferenceTimeKind.EPISODE, 12);
         em.persist(r1); book.linkCurrentRevision(r1);
-        var bookJob = AnalysisJob.createSettingBook(work, book, r1); em.persist(bookJob);
         var r2 = org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision.create(book, 2,
                 new org.monitoring.catchholebackend.global.storage.StoredTextObject("synthetic/book-r2", "v2", "2".repeat(64), 2));
         em.persist(r2); book.linkCurrentRevision(r2);
         if (archivedBook) book.archive();
         var current = WorldSetting.create(work, WorldSettingCategory.RACE, "기존 종족", "서식지", "남부"); em.persist(current);
-        for (String value : List.of("북부", "남부", "사라진 경로", "과거 조건")) {
-            var c = WorldSettingCandidate.create(work, null, bookJob, WorldSettingCategory.RACE, "기존 종족", "서식지", value,
-                    JsonNodeFactory.instance.arrayNode().add(JsonNodeFactory.instance.objectNode().put("quote", value)), BigDecimal.ONE, null);
-            ReflectionTestUtils.setField(c, "targetWorldSetting", current); ReflectionTestUtils.setField(c, "reviewStatus", WorldSettingReviewStatus.CONFIRMED);
-            ReflectionTestUtils.setField(c, "finalCategory", WorldSettingCategory.RACE); ReflectionTestUtils.setField(c, "finalSubjectName", "기존 종족");
-            ReflectionTestUtils.setField(c, "finalSettingName", value.equals("사라진 경로") ? "폐허" : "서식지"); ReflectionTestUtils.setField(c, "finalValue", value);
-            ReflectionTestUtils.setField(c, "finalOperation", value.equals("북부") ? WorldSettingOperation.ADD : WorldSettingOperation.UPDATE);
-            ReflectionTestUtils.setField(c, "historyOnly", value.equals("과거 조건")); ReflectionTestUtils.setField(c, "effectiveFromEpisodeNo", 12);
-            ReflectionTestUtils.setField(c, "rawComparisonJson", JsonNodeFactory.instance.objectNode().put("condition", "비가 올 때"));
-            em.persist(c);
-        }
         em.flush();
         var receipt = start("book-history");
         // 다음 회차가 등록되어도 과거 검사 자료에는 포함하지 않는다.
         em.persist(Episode.create(work, null, 102, "후속", "synthetic/102", "v1", "c".repeat(64), 2));
         var captured = em.find(ValidationReport.class, UUID.fromString(receipt.path("reportId").asText()));
-        assertThat(captured.getBaselineSeed().path("worldHistory").size()).isEqualTo(4);
-        assertThat(captured.getBaselineSeed().path("worldHistory").findValuesAsText("value")).containsExactlyInAnyOrder("북부", "남부", "사라진 경로", "과거 조건");
-        assertThat(captured.getBaselineSeed().path("worldHistory").findValuesAsText("sourceSettingBookRevisionId")).containsOnly(r1.getId().toString());
-        assertThat(captured.getBaselineSeed().path("sources").findValuesAsText("revisionId")).contains(r1.getId().toString(), r2.getId().toString());
-        assertThat(captured.getBaselineSeed().path("sources").findValuesAsText("episodeNo")).doesNotContain("101", "102");
-        var frozen = captured.getBaselineSeed().deepCopy();
-        states.invalidateRunsForSettingBookChangeForUpdate(work.getId(), book.getId(), "동일 원문의 비교를 다시 준비했습니다.");
-        assertThat(captured.getBaselineSeed()).isNotNull();
-        current.updateProperty("서식지", "서식지", "최신 수정");
-        em.flush(); baselines.materialize(captured.getId()); em.flush(); em.refresh(captured);
-        assertThat(captured.getBaselineSeed().toString()).isEqualTo(frozen.toString());
-        assertThat(captured.getBaselineEntries().toString()).contains("북부", "사라진 경로", "비가 올 때").doesNotContain("최신 수정");
+        var manifests = sourceManifests.manifests(captured.getId());
+        assertThat(manifests.findValuesAsText("revisionId")).containsExactly(r1.getId().toString(), r2.getId().toString());
+        assertThat(manifests.findValuesAsText("episodeNo")).containsExactly("100", "70");
+        // 접수 시점에 보관되지 않은 현재 판만 RAG 범위다.
+        assertThat(manifests.get(3).path("currentRevision").asBoolean()).isEqualTo(!archivedBook);
+        assertThat(manifests.get(2).path("currentRevision").asBoolean()).isFalse();
+        var frozen = manifests.deepCopy();
+        current.updateProperty("서식지", "서식지", "최신 수정"); em.flush();
+        assertThat(sourceManifests.manifests(captured.getId())).isEqualTo(frozen);
+        assertThat(captured.getBaselineSeed()).isNull();
     }
     @Test
-    @DisplayName("파기 대기 중 만든 기준은 세계관 과거 인용을 다시 복사하지 않는다")
+    @DisplayName("저장 manifest 행은 저장 순서와 무관하게 접수 순서(앞 회차 번호 내림차순, 설정집 id·revision 순)로 다시 읽혀 legacy seed.sources와 같은 hash가 된다")
+    void manifestRowsReadBackInIntakeOrderRegardlessOfInsertionOrder() throws Exception {
+        prepare();
+        for (int b = 0; b < 3; b++) {
+            var bookBatch = org.monitoring.catchholebackend.domain.upload.entity.UploadBatch.create(work, member, org.monitoring.catchholebackend.domain.upload.type.UploadType.SETTING_BOOK, org.monitoring.catchholebackend.domain.upload.type.UploadSourceType.FILE);
+            em.persist(bookBatch);
+            var book = org.monitoring.catchholebackend.domain.upload.entity.UploadFile.create(bookBatch, org.monitoring.catchholebackend.domain.upload.type.UploadFileRole.SETTING_BOOK, "book-" + b + ".txt", "text/plain", "synthetic-book-" + b, 2); em.persist(book);
+            for (int no = 1; no <= 2; no++) {
+                var revision = org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision.create(book, no,
+                        new org.monitoring.catchholebackend.global.storage.StoredTextObject("synthetic/book-" + b + "-" + no, "v1", String.valueOf(no).repeat(64), 2));
+                em.persist(revision); book.linkCurrentRevision(revision);
+            }
+        }
+        em.flush();
+        var report = stored(start("manifest-order"));
+        // 접수가 쓰던 순서: 회차 번호 내림차순, 그다음 접수의 설정집 revision 조회 순서(설정집 id, revisionNo).
+        var expected = new java.util.ArrayList<String>(List.of("100", "70"));
+        em.createQuery("select r.id from SettingBookRevision r where r.settingBook.batch.work.id = :id order by r.settingBook.id, r.revisionNo", UUID.class)
+                .setParameter("id", work.getId()).getResultList().forEach(id -> expected.add(id.toString()));
+        var seedSources = sourceManifests.manifests(report.getId());
+        // 행을 지우고 역순으로 다시 저장해도(생성 시각·id가 바뀜) 같은 순서로 읽는다.
+        var rows = em.createQuery("select s from ValidationBaselineSource s where s.report.id = :r", org.monitoring.catchholebackend.domain.validation.entity.ValidationBaselineSource.class)
+                .setParameter("r", report.getId()).getResultList();
+        var copies = rows.stream().map(row -> new Object[]{row.getEpisode(), row.getSettingBookRevision(), row.getSourceManifest().deepCopy()}).toList();
+        rows.forEach(em::remove); em.flush();
+        for (int i = copies.size() - 1; i >= 0; i--)
+            em.persist(org.monitoring.catchholebackend.domain.validation.entity.ValidationBaselineSource.create(report, (Episode) copies.get(i)[0],
+                    (org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision) copies.get(i)[1], (JsonNode) copies.get(i)[2]));
+        em.flush(); em.clear();
+        var manifests = sourceManifests.manifests(report.getId());
+        var actual = new java.util.ArrayList<String>();
+        manifests.forEach(m -> actual.add("EPISODE".equals(m.path("sourceKind").asText()) ? m.path("episodeNo").asText() : m.path("revisionId").asText()));
+        assertThat(actual).isEqualTo(expected).hasSize(8);
+        assertThat(sourceManifests.manifestHash(manifests)).isEqualTo(sourceManifests.manifestHash(seedSources));
+    }
+    @Test
+    @DisplayName("파기 대기 중인 앞 회차는 출처 목록에 넣지 않고 그 원문 위치나 인용을 어디에도 복사하지 않는다")
     void baselineCreatedWhilePriorSourcePurgeIsPendingCannotCopyThatOriginal() throws Exception {
         prepare();
         var prior = em.createQuery("select e from Episode e where e.work = :work and e.episodeNo = 70", Episode.class).setParameter("work", work).getSingleResult();
@@ -452,35 +481,14 @@ class ErrorFirstValidationIntegrationTest {
         ReflectionTestUtils.setField(historical, "finalSubjectName", "과거 종족");
         ReflectionTestUtils.setField(historical, "finalSettingName", "특징");
         ReflectionTestUtils.setField(historical, "finalValue", "유지한 확정값");
-        ReflectionTestUtils.setField(historical, "rawComparisonJson", JsonNodeFactory.instance.objectNode().put("explanation", "파기할 인용문"));
         em.persist(historical);
         em.persist(org.monitoring.catchholebackend.domain.episode.entity.EpisodeSourcePurgeRequest.requestDeletion(prior, null)); prior.archive(); em.flush();
         var receipt = start("purge-pending");
         var captured = em.find(ValidationReport.class, UUID.fromString(receipt.path("reportId").asText()));
-        assertThat(captured.getBaselineSeed().path("worldHistory").get(0).path("value").asText()).isEqualTo("유지한 확정값");
-        assertThat(captured.getBaselineSeed().toString()).doesNotContain("파기할 인용문", "synthetic/70.txt");
-        assertThat(captured.getBaselineSeed().path("sources").findValuesAsText("episodeNo")).doesNotContain("70");
-    }
-    @Test
-    @DisplayName("파기 대기 중 만든 기준은 캐릭터 인용과 저장 위치를 다시 복사하지 않는다")
-    void characterHistoryCannotRecopyPurgePendingQuoteOrStorageBinding() throws Exception {
-        prepare();
-        String original = "파기할 합성 인용문";
-        var prior = em.createQuery("select e from Episode e where e.work = :work and e.episodeNo = 70", Episode.class).setParameter("work", work).getSingleResult();
-        prior.updateContentStorage("synthetic/70.txt", "v1", storedText.contentHash(original));
-        when(storage.getText("synthetic/70.txt")).thenReturn(original);
-        var owner = org.monitoring.catchholebackend.domain.character.entity.WorkCharacter.create(work, "기존 인물", null, null, null,
-                JsonNodeFactory.instance.objectNode(), JsonNodeFactory.instance.objectNode(), JsonNodeFactory.instance.objectNode(), JsonNodeFactory.instance.objectNode(), JsonNodeFactory.instance.objectNode(), null);
-        em.persist(owner);
-        var previous = AnalysisJob.create(work, null, prior, AnalysisJobType.SETTING_EXTRACTION); em.persist(previous);
-        var c = SettingCandidate.create(work, prior, null, previous, SettingEntityType.CHARACTER, "기존 인물", "기존 인물", owner.getId(), SettingCandidateMatchStatus.MATCHED,
-                "직업", "수리공", SettingValueType.STRING, null, JsonNodeFactory.instance.arrayNode().add(JsonNodeFactory.instance.objectNode().put("quote", original)), BigDecimal.ONE, null);
-        em.persist(c); ReflectionTestUtils.setField(c, "reviewStatus", SettingCandidateReviewStatus.CONFIRMED);
-        em.persist(CharacterFact.create(owner, c, CharacterFactType.PROFILE, "직업", "수리공", "수리공", null, prior, null, previous, BigDecimal.ONE, 12));
-        em.persist(org.monitoring.catchholebackend.domain.episode.entity.EpisodeSourcePurgeRequest.requestDeletion(prior, null)); prior.archive(); em.flush();
-        var receipt = start("char-purge-pending");
-        var captured = em.find(ValidationReport.class, UUID.fromString(receipt.path("reportId").asText()));
-        assertThat(captured.getBaselineSeed().toString()).doesNotContain(original, "synthetic/70.txt").contains("수리공", "SOURCE_EVIDENCE_PURGED");
+        assertThat(captured.getBaselineSeed()).isNull(); assertThat(captured.getBaselineEntries()).isNull();
+        var manifests = sourceManifests.manifests(captured.getId());
+        assertThat(manifests.findValuesAsText("episodeNo")).containsExactly("100");
+        assertThat(manifests.toString()).doesNotContain("파기할 인용문", "synthetic/70.txt");
     }
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
@@ -531,7 +539,7 @@ class ErrorFirstValidationIntegrationTest {
     }
     @ParameterizedTest
     @ValueSource(strings = {"SOURCE_UNAVAILABLE", "HASH_MISMATCH", "QUOTE_NOT_FOUND"})
-    @DisplayName("과거 원문 저장소 장애와 무관하게 확정값을 유지하고 검증 불가 인용만 제외한다")
+    @DisplayName("과거 원문 저장소 장애나 인용 불일치와 무관하게 접수하고 접수 중 과거 원문을 읽지 않는다")
     void historicalSourceValidationPreservesReceiptAndExtractionGate(String outcome) throws Exception {
         prepare();
         var owner = org.monitoring.catchholebackend.domain.character.entity.WorkCharacter.create(work, "기존", null, null, null,
@@ -554,12 +562,8 @@ class ErrorFirstValidationIntegrationTest {
         }
         em.flush();
         long before = count("AnalysisJob"); var r = stored(start("source-unavailable"));
-        assertThat(r.getStatus().name()).isEqualTo("WAITING_FOR_ERROR_REVIEW");
-        var historical = r.getBaselineSeed().path("characters").elements().next().path("historyFacts").get(0);
-        assertThat(historical.path("factValue").asText()).isEqualTo("수리공");
-        assertThat(historical.path("supportingSource").path("unavailableReason").asText())
-                .isEqualTo(outcome.equals("QUOTE_NOT_FOUND") ? "SOURCE_EVIDENCE_PURGED" : "EVIDENCE_UNAVAILABLE");
-        assertThat(historical.path("supportingSource").path("evidenceSpans")).isEmpty();
+        assertThat(r.getStatus().name()).isEqualTo("WAITING_FOR_ERROR_REVIEW"); assertThat(r.getBaselineStatus().name()).isEqualTo("READY");
+        assertThat(r.getBaselineSeed()).isNull();
         org.mockito.Mockito.verify(storage, org.mockito.Mockito.never()).getText(prior.getContentS3Key());
         assertThat(r.getSourceContentHash()).isEqualTo(target.getContentHash()); assertThat(r.getSourceContentS3Key()).isEqualTo(target.getContentS3Key());
         assertThat(count("AnalysisJob")).isEqualTo(before); assertThat(count("ValidationReport")).isEqualTo(1);

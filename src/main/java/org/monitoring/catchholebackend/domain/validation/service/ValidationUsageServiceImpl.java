@@ -25,6 +25,7 @@ public class ValidationUsageServiceImpl implements ValidationUsageService {
     private final AiTokenAccountRepository accounts;
     private final AiTokenService accountService;
     private final org.monitoring.catchholebackend.domain.validation.mapper.ValidationDataMapper sources;
+    private final org.monitoring.catchholebackend.domain.validation.processor.ValidationSourceManifests sourceManifests;
 
     @Transactional public Map<String,Object> reserveValidationUsage(UUID id,UUID lease,Reserve command) {
         var job=access.running(id,lease,command.scope());
@@ -67,7 +68,8 @@ public class ValidationUsageServiceImpl implements ValidationUsageService {
         var model=job.getConfiguration().path("models").path("INDEX_EMBEDDING");
         if(index==null||index.contractVersion()!=1||!job.getInputDigest().equals(index.inputDigest())||!job.getManifestHash().equals(index.manifestHash())
                 ||!model.path("model").asText().equals(index.indexModel())||!model.path("version").asText().equals(index.indexVersion())||model.path("dimensions").asInt()!=index.indexDimensions())throw error(VALIDATION_RESULT_INVALID);
-        var source=sources.toSourceReferences(job.getReport()).get(index.sourceRef());
+        // #381: 출처는 저장 manifest 행으로 만든다(seed가 없는 report 포함, legacy seed와 같은 값·순서).
+        var source=sources.toSourceReferences(job.getReport(),sourceManifests.manifests(job.getReport().getId())).get(index.sourceRef());
         boolean indexed=source!=null&&("EPISODE".equals(source.path("sourceKind").asText())
                 ||"SETTING_BOOK".equals(source.path("sourceKind").asText())&&source.path("currentRevision").asBoolean(false));
         if(!indexed||!index.sourceHash().equals(source.path("contentHash").asText()))throw error(VALIDATION_RESULT_INVALID);

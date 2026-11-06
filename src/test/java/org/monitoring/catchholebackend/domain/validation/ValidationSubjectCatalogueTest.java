@@ -4,13 +4,12 @@ import com.fasterxml.jackson.databind.*;
 import java.nio.file.Path;
 import java.util.*;
 import org.junit.jupiter.api.*;
-import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal;
 import org.monitoring.catchholebackend.domain.validation.mapper.ValidationDataMapper;
 
 /** 합성 기준 항목만 쓴다. SUBJECTS·SETTINGS 투영이 AI projection(subject_catalogue·current_settings)과 같은 공통 vector를 만드는지 본다. */
 @DisplayName("검수 주체 목록과 현재값 설정 투영 (#349 grid v4)")
 class ValidationSubjectCatalogueTest {
-    final ObjectMapper json=new ObjectMapper();final ValidationDataMapper mapper=new ValidationDataMapper(new AnalysisStateJournal());
+    final ObjectMapper json=new ObjectMapper();final ValidationDataMapper mapper=new ValidationDataMapper();
     JsonNode vector() throws Exception {return json.readTree(Path.of("docs/contracts/validation-execution-v1.json").toFile()).path("execution").path("subjectCatalogueVector");}
 
     @Test @DisplayName("주체마다 한 행, S 번호 순, 첫 항목의 domain·name과 aliases의 순서 있는 합집합이다")

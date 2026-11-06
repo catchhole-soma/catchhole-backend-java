@@ -6,7 +6,7 @@ import jakarta.validation.constraints.*;
 public record ValidationDataRequest(
         @NotBlank @Pattern(regexp = "[a-f0-9]{64}") String expectedBaselineHash,
         @NotBlank @Pattern(regexp = "[a-f0-9]{64}") String expectedTargetHash,
-        @NotBlank @Pattern(regexp = "INPUT|ENTRIES|SUBJECTS|SETTINGS|READ_SOURCE|VALIDATE") String operation,
+        @NotBlank @Pattern(regexp = "INPUT|SUBJECTS|SETTINGS|READ_SOURCE|VALIDATE") String operation,
         @Min(0) int offset,
         @Min(1) @Max(100) int limit,
         String sourceRef,

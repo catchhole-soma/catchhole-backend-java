@@ -136,6 +136,8 @@ class ValidationSettingsApplicationIntegrationTest extends ValidationSettingsApp
     @Test @DisplayName("일반 회차는 기존 자동 반영 contributor로 확정되고 사람의 그룹 확정도 그대로 동작한다")
     void releaseOnlyPathDoesNotChangeLegacyAutomaticApply() {
         var f=fixture();
+        // #381: 101화 검수는 접수만 되고 Worker가 가져가지 않았다. 대기 잠금 시간이 지나 같은 작품의 자동 추출·사람 확정을 더 이상 막지 않는 상태로 둔다.
+        jdbc.update("update validation_jobs set updated_at=? where report_id=?",java.time.LocalDateTime.now().minusMinutes(11),f.report());
         // 검수 report가 없는 앞 회차(100화)의 일반 자동 분석. 101화의 검수 report는 이 회차의 판단에 쓰지 않는다.
         var job=tx.execute(s->{
             var work=em.find(Work.class,f.work());var episode=em.createQuery("select e from Episode e where e.work=:w and e.episodeNo=100",Episode.class).setParameter("w",work).getSingleResult();
@@ -176,6 +178,37 @@ class ValidationSettingsApplicationIntegrationTest extends ValidationSettingsApp
         assertThat(applied.holdReasons()).isEmpty();assertThat(applied.extractionJobId()).isEqualTo(r.job());assertThat(applied.reportVersion()).isEqualTo(reportVersion(f));
         assertThat(characters(f)).isEqualTo(2);assertThat(facts(f)).isEqualTo(1);assertThat(worldSettings(f)).isEqualTo(1);assertThat(automaticAppliedAt(r.job())).isNotNull();
         assertThat(reviews.getValidationReview(f.member(),f.work(),f.report()).application().status()).isEqualTo(ValidationApplicationStatus.APPLIED);
+    }
+
+    @Test @DisplayName("#381 다른 회차의 검수가 대기 중이면 명시 반영은 VALIDATION_SETTINGS_LOCKED로 receipt·확정 설정을 바꾸지 않고 검수가 끝나면 반영된다")
+    void explicitApplyWaitsWhileAnotherValidationIsQueued() {
+        var r=release();var f=r.f();
+        var review=inJob(r.job(),job->{var d=discovery(job,"에르웬");stat(job,d.getProvisionalSubjectKey(),"에르웬",35,CharacterFactOperation.ADD);
+            var d2=discovery(job,"비요른");var held=stat(job,d2.getProvisionalSubjectKey(),"비요른",50,CharacterFactOperation.REVIEW_REQUIRED);world(job,"엘프","서식지","북부");return held.getId();});
+        completeExtraction(r);
+        UUID lockJob=queueValidationOnPriorEpisode(f);
+        // 검토 대기 후보 제외는 확정 설정을 바꾸지 않아 잠금 중에도 허용한다.
+        characterReview.dismissSettingCandidate(f.member(),f.work(),review);
+        long version=reportVersion(f);
+        assertThatThrownBy(()->apply(f,"locked")).extracting(ValidationSettingsApplicationIntegrationTest::code).isEqualTo("VALIDATION_SETTINGS_LOCKED");
+        var row=applicationRow(f);
+        assertThat(row.get("status")).isEqualTo("HELD_REVIEW");assertThat(((Number)row.get("attempt")).longValue()).isEqualTo(1);assertThat(reportVersion(f)).isEqualTo(version);
+        assertThat(confirmed(f)).isZero();assertThat(characters(f)).isZero();assertThat(facts(f)).isZero();assertThat(worldSettings(f)).isZero();
+        jdbc.update("update validation_jobs set status='CANCELED' where id=?",lockJob);
+        var applied=apply(f,"after-lock");
+        assertThat(applied.status()).isEqualTo(ValidationApplicationStatus.APPLIED);assertThat(applied.attempt()).isEqualTo(2);
+        assertThat(characters(f)).isEqualTo(2);assertThat(worldSettings(f)).isEqualTo(1);
+    }
+    /** 앞 회차(100)에 막 접수된 QUEUED 검수 하나. 다음 회차 등록 차단과 별개로 같은 작품의 잠금만 만든다. */
+    UUID queueValidationOnPriorEpisode(Fixture f) {
+        return tx.execute(s->{
+            var work=em.find(Work.class,f.work());
+            var prior=em.createQuery("select e from Episode e where e.work.id=:w and e.episodeNo=100",Episode.class).setParameter("w",f.work()).getSingleResult();
+            var report=org.monitoring.catchholebackend.domain.validation.entity.ValidationReport.create(work,prior,em.find(org.monitoring.catchholebackend.domain.validation.entity.ValidationReport.class,f.report()).getBatch(),"0".repeat(64));
+            em.persist(report);
+            var job=org.monitoring.catchholebackend.domain.validation.entity.ValidationJob.queue(report,"1".repeat(64),"2".repeat(64),JSON.objectNode());em.persist(job);
+            return job.getId();
+        });
     }
 
     @Test @DisplayName("값을 고치고 반영 방식을 저장한 캐릭터 후보는 회차 전체 확정에서 그 값으로 현재 설정에 반영된다")

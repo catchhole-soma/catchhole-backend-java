@@ -36,6 +36,7 @@ public class ValidationCorrectionServiceImpl implements ValidationCorrectionServ
     private final CharacterSnapshotSourceManager snapshotSources;
     private final AnalysisStateJournal journal;
     private final EntityManager em;
+    private final org.monitoring.catchholebackend.domain.validation.processor.ValidationLiveSettings liveSettings;
     private final com.fasterxml.jackson.databind.ObjectMapper json = new com.fasterxml.jackson.databind.ObjectMapper();
 
     @Override @Transactional
@@ -56,16 +57,28 @@ public class ValidationCorrectionServiceImpl implements ValidationCorrectionServ
         if((request.character()==null)==(request.worldSetting()==null) || !report.getId().equals(request.baselineId())
                 || report.getBaselineStatus()!=ValidationPreparationStatus.READY || report.getBaselineRevision()!=request.expectedBaselineRevision()
                 || !Objects.equals(report.getBaselineHash(),request.expectedBaselineHash())) throw conflict();
-        JsonNode entry;
-        try {
-            int index=Integer.parseInt(request.entryRef().substring(1))-1;
-            entry=report.getBaselineEntries().get(index);
-        } catch(IndexOutOfBoundsException | NumberFormatException exception) {throw conflict();}
-        if(entry==null || !journal.hash(entry).equals(request.expectedEntryHash())) throw conflict();
-        JsonNode priorScopes=report.getBaselineSeed().path("explicitAuthorCorrections").deepCopy();
+        boolean legacy=report.getBaselineSeed()!=null;
+        JsonNode entry,priorScopes;
+        if(legacy) {
+            try {
+                int index=Integer.parseInt(request.entryRef().substring(1))-1;
+                entry=report.getBaselineEntries().get(index);
+            } catch(IndexOutOfBoundsException | NumberFormatException exception) {throw conflict();}
+            if(entry==null || !journal.hash(entry).equals(request.expectedEntryHash())) throw conflict();
+            priorScopes=report.getBaselineSeed().path("explicitAuthorCorrections").deepCopy();
+        } else {
+            // #381 live report: 대상은 요청 id로 찾는다. 상세 basis가 준 entryRef(지금 색인 참조)와 entryHash(현재 행 hash)가 지금도 같아야 한다(상세→정정 CAS).
+            // 이전 정정 scope는 정정 표에서 읽는다(접수 때 seed가 담던 것과 같은 작품 전체 scope).
+            var key=request.character()!=null
+                    ?new org.monitoring.catchholebackend.domain.validation.processor.ValidationLiveSettings.Key(org.monitoring.catchholebackend.domain.validation.processor.ValidationLiveSettings.CHARACTERS,request.character().targetId())
+                    :new org.monitoring.catchholebackend.domain.validation.processor.ValidationLiveSettings.Key(org.monitoring.catchholebackend.domain.validation.processor.ValidationLiveSettings.WORLD_SETTINGS,request.worldSetting().targetId());
+            var live=liveSettings.rows(workId,List.of(key)).get(key);
+            if(live==null || !live.subject().entryRef().equals(request.entryRef()) || !journal.hash(live.row()).equals(request.expectedEntryHash())) throw conflict();
+            entry=live.row();priorScopes=liveSettings.correctionScopes(workId);
+        }
         ObjectNode scope;
-        if(request.character()!=null) scope=correctCharacter(memberId,workId,entry,request.character());
-        else scope=correctWorldSetting(memberId,workId,entry,request.worldSetting());
+        if(request.character()!=null) scope=correctCharacter(memberId,workId,reportId,entry,request.character(),legacy);
+        else scope=correctWorldSetting(memberId,workId,reportId,entry,request.worldSetting(),legacy);
         scope.put("sourceKind","AUTHOR_MANUAL_EDIT").put("scopeKind","CURRENT_VALUE");
         if(priorScopes.isArray() && !priorScopes.isEmpty()) scope.set("priorCorrections",priorScopes);
         // Existing edit services synchronously invalidate the baseline. This receipt is saved only after that real edit succeeds.
@@ -75,7 +88,8 @@ public class ValidationCorrectionServiceImpl implements ValidationCorrectionServ
         em.flush(); return ValidationCorrectionReceipt.from(correction);
     }
 
-    private ObjectNode correctCharacter(Long memberId,UUID workId,JsonNode entry,ValidationCorrectionRequest.CharacterCorrection command) {
+    /** legacy(seed) report는 고정 기준 slot 전체가 지금 값과 같아야 한다. #381 live report의 기준 항목은 지금 행이라 이 비교를 하지 않는다. */
+    private ObjectNode correctCharacter(Long memberId,UUID workId,UUID reportId,JsonNode entry,ValidationCorrectionRequest.CharacterCorrection command,boolean frozenEntry) {
         if(!"characters".equals(entry.path("domain").asText()) || !entry.path("subjectRef").asText().equals("character:"+command.targetId())) throw conflict();
         var character=characters.findByIdAndWorkIdAndStatusForUpdate(command.targetId(),workId,CharacterStatus.ACTIVE).orElseThrow(this::conflict);
         em.refresh(character);
@@ -83,14 +97,16 @@ public class ValidationCorrectionServiceImpl implements ValidationCorrectionServ
         if(character.getSnapshotVersion()!=command.expectedSnapshotVersion() || state.path("snapshotVersion").asLong(-1)!=command.expectedSnapshotVersion()
                 || !character.getName().equals(state.path("name").asText())) throw conflict();
         var current=snapshots.read(character,snapshotSources.findSourceFactsBySlot(character));
-        if(current.size()!=state.path("slots").size()) throw conflict();
-        for(var slot:current.entrySet()) {
-            JsonNode frozen=state.path("slots").path(slot.getKey().factType().name()+":"+slot.getKey().factKey());
-            if(!Objects.equals(slot.getValue().factValue(),nullable(frozen,"factValue")) || !Objects.equals(value(slot.getValue().valueJson()),value(frozen.get("valueJson")))) throw conflict();
+        if(frozenEntry) {
+            if(current.size()!=state.path("slots").size()) throw conflict();
+            for(var slot:current.entrySet()) {
+                JsonNode frozen=state.path("slots").path(slot.getKey().factType().name()+":"+slot.getKey().factKey());
+                if(!Objects.equals(slot.getValue().factValue(),nullable(frozen,"factValue")) || !Objects.equals(value(slot.getValue().valueJson()),value(frozen.get("valueJson")))) throw conflict();
+            }
         }
         var key=new CharacterSnapshotSlot(command.factType(),command.factKey());
         var before=current.get(key); if(before==null) throw conflict();
-        characterEdits.correctCharacterSetting(memberId,workId,command.targetId(),command.edit(),command.expectedSnapshotVersion(),command.factType(),command.factKey());
+        characterEdits.correctCharacterSetting(memberId,workId,command.targetId(),command.edit(),command.expectedSnapshotVersion(),command.factType(),command.factKey(),reportId);
         var after=snapshots.read(character,snapshotSources.findSourceFactsBySlot(character)).get(key);
         var scope=JsonNodeFactory.instance.objectNode().put("domain","characters").put("targetId",command.targetId().toString())
                 .put("factType",command.factType().name()).put("factKey",command.factKey()).put("entityVersion",character.getSnapshotVersion())
@@ -98,18 +114,20 @@ public class ValidationCorrectionServiceImpl implements ValidationCorrectionServ
         scope.set("beforeValueJson",value(before.valueJson())); scope.set("afterValueJson",after==null?NullNode.instance:value(after.valueJson())); return scope;
     }
 
-    private ObjectNode correctWorldSetting(Long memberId,UUID workId,JsonNode entry,ValidationCorrectionRequest.WorldSettingCorrection command) {
+    /** legacy(seed) report는 고정 기준 속성 전체가 지금 값과 같아야 한다. #381 live report의 기준 항목은 지금 행이라 이 비교를 하지 않는다. */
+    private ObjectNode correctWorldSetting(Long memberId,UUID workId,UUID reportId,JsonNode entry,ValidationCorrectionRequest.WorldSettingCorrection command,boolean frozenEntry) {
         if(!"worldSettings".equals(entry.path("domain").asText()) || !entry.path("subjectRef").asText().equals("world:"+command.targetId())) throw conflict();
         var setting=worldSettings.findByIdAndWorkIdForUpdate(command.targetId(),workId).orElseThrow(this::conflict);
         em.refresh(setting);
         var edit=command.edit(); var state=entry.path("state");
         if(setting.getVersion()!=command.expectedVersion() || !Objects.equals(edit.version(),command.expectedVersion())
-                || state.path("version").asLong(-1)!=command.expectedVersion() || !setting.getPropertiesJson().equals(state.path("propertiesJson"))
+                || state.path("version").asLong(-1)!=command.expectedVersion() || frozenEntry && !setting.getPropertiesJson().equals(state.path("propertiesJson"))
                 || !setting.getCategory().name().equals(state.path("category").asText()) || !setting.getSubjectName().equals(state.path("subjectName").asText())) throw conflict();
         var beforePath=setting.getStoredPropertyPath(edit.currentScopeName(),edit.currentSettingName()); if(beforePath==null) throw conflict();
         String before=setting.getPropertyValue(beforePath.scopeName(),beforePath.settingName());
         var original=setting.getPropertiesJson().deepCopy();
-        worldEdits.updateWorldSettingProperty(memberId,workId,command.targetId(),edit);
+        // #381: 이 리포트의 검토 단계 설정 잠금만 통과하는 정정 전용 경로. 실행 중이거나 다른 리포트가 잠갔으면 409다.
+        worldEdits.correctWorldSettingProperty(memberId,workId,command.targetId(),edit,reportId);
         if(original.equals(setting.getPropertiesJson())) throw conflict();
         var afterPath=setting.getStoredPropertyPath(edit.scopeName(),edit.settingName()); if(afterPath==null) throw conflict();
         return JsonNodeFactory.instance.objectNode().put("domain","worldSettings").put("targetId",command.targetId().toString())
