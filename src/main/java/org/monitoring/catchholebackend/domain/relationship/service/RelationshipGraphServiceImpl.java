@@ -680,9 +680,17 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                         .add(identity.getCharacterId());
         }
         // GH385: exact names first, then an observed short or long form of exactly one confirmed
-        // profile name (the character-extraction containment rule). Several profiles hold. The
+        // profile name (the character-extraction containment rule). Several profiles hold. Current
+        // dashboard profile names carry no episode, so they only reveal such a collision (ordered
+        // input already holds them as representative names) and never resolve a name alone. The
         // result is keyed by raw names, so reuse, bindings and finalize merges below run unchanged.
-        Map<String, List<UUID>> known = RelationshipNameRules.resolve(confirmed, observedNames);
+        List<RelationshipNameRules.ProfileName> profiles =
+                observedNames.isEmpty()
+                        ? List.of()
+                        : characters.findNamesByWorkIdAndStatus(workId, CharacterStatus.ACTIVE).stream()
+                                .map(row -> new RelationshipNameRules.ProfileName(row.getId(), row.getName()))
+                                .toList();
+        Map<String, List<UUID>> known = RelationshipNameRules.resolve(confirmed, observedNames, profiles);
         known.forEach(
                 (name, identities) -> {
                     List<UUID> distinct = identities.stream().distinct().toList();

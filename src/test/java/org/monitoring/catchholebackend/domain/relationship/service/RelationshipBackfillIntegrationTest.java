@@ -761,6 +761,11 @@ class RelationshipBackfillIntegrationTest {
                     .filter(q -> q.contains("SettingCandidate") && q.contains("as characterId"))
                     .mapToLong(q -> statistics.getQueryStatistics(q).getExecutionCount()).sum();
             assertThat(identityQueries).isEqualTo(1);
+            long profileNameQueries = Arrays.stream(statistics.getQueries())
+                    .filter(q -> q.contains("WorkCharacter") && q.contains("character.name as name")
+                            && !q.contains(":ids"))
+                    .mapToLong(q -> statistics.getQueryStatistics(q).getExecutionCount()).sum();
+            assertThat(profileNameQueries).isLessThanOrEqualTo(1);
         } finally {
             statistics.setStatisticsEnabled(previouslyEnabled);
         }

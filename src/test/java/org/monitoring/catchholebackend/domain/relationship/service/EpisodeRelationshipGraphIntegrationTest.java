@@ -1091,7 +1091,7 @@ class EpisodeRelationshipGraphIntegrationTest {
     }
 
     @Test
-    @DisplayName("GH385 포함 비교용 확정 이름 목록도 scalar 조회 한 번이며 후보와 프로필 엔티티를 적재하지 않는다")
+    @DisplayName("GH385 포함 비교용 확정 이름 목록과 현재 프로필 이름은 각각 scalar 조회 한 번이며 후보와 프로필 엔티티를 적재하지 않는다")
     void containedNameLookupIsScalarAndDoesNotHydrateCandidatesOrProfiles() {
         UUID characterId = character("비요른 얀델");
         UUID profileNode =
@@ -1112,10 +1112,77 @@ class EpisodeRelationshipGraphIntegrationTest {
             assertThat(statistics.getEntityStatistics(WorkCharacter.class.getName()).getLoadCount()).isZero();
             assertThat(statistics.getEntityStatistics(AnalysisJob.class.getName()).getLoadCount()).isEqualTo(2);
             assertThat(identityQueryExecutions(statistics)).isEqualTo(1);
+            // Current profile names guard collisions through one scalar query as well.
+            assertThat(profileNameQueryExecutions(statistics)).isEqualTo(1);
         } finally {
             statistics.setStatisticsEnabled(previouslyEnabled);
         }
         assertThat(boundNodeId(second, sourceRef(context))).isEqualTo(profileNode);
+    }
+
+    private long profileNameQueryExecutions(org.hibernate.stat.Statistics statistics) {
+        return java.util.Arrays.stream(statistics.getQueries())
+                .filter(q -> q.contains("WorkCharacter") && q.contains("character.name as name") && !q.contains(":ids"))
+                .mapToLong(q -> statistics.getQueryStatistics(q).getExecutionCount())
+                .sum();
+    }
+
+    @ParameterizedTest(name = "ordered={0}")
+    @ValueSource(booleans = {false, true})
+    @DisplayName("GH385 현재 프로필 이름은 다른 프로필과의 같은 이름·포함 충돌을 보류로 바꾸고 순서 분석 입력과 같은 결과를 낸다")
+    void currentProfileNamesHoldCollisionsLikeOrderedInput(boolean ordered) {
+        UUID hans = character("한스"), hansHodge = character("한스 호지"), bjorn = character("비요른 얀델");
+        // The "한스 호지" discovery points at profile "한스" while a separate "한스 호지" profile exists.
+        String early = "한스와 한스 호지와 얀델과 비요른 얀델은 웃었다.";
+        confirmedAliasAt(1, early, hans, "한스");
+        confirmedAliasAt(1, early, hans, "한스 호지");
+        confirmedAliasAt(1, early, bjorn, "얀델");
+        confirmedAliasAt(1, early, bjorn, "비요른 얀델");
+        if (ordered) {
+            var input = new ObjectMapper().createObjectNode();
+            var characters = input.putArray("characters");
+            characters.addObject().put("name", "한스").put("actualCharacterId", hans.toString());
+            characters.addObject().put("name", "한스 호지").put("actualCharacterId", hansHodge.toString());
+            characters.addObject().put("name", "비요른 얀델").put("actualCharacterId", bjorn.toString());
+            doReturn(input).when(runState).getInputState(any());
+        }
+
+        String text = "한스 호지와 호지와 한스와 비요른은 보라를 만났다.";
+        UUID second = jobWithSource(2, text, ordered);
+        Context context = prepareWith(second, text,
+                observation("O1", text, "한스 호지", "보라"),
+                observation("O2", text, "호지", "보라"),
+                observation("O3", text, "한스", "보라"),
+                observation("O4", text, "비요른", "보라"));
+
+        var observed = context.observations();
+        // Same exact name on two profiles, and a short name contained in both: held, no node.
+        assertThat(observed.get(0).sourceNodeRefs()).isEmpty();
+        assertThat(observed.get(1).sourceNodeRefs()).isEmpty();
+        // The exact name wins although "한스 호지" (another profile) contains it.
+        String hansRef = observed.get(2).sourceNodeRefs().getFirst();
+        assertThat(knownCharacterId(second, hansRef)).isEqualTo(hans.toString());
+        assertThat(contextNode(context, hansRef).profileRegistered()).isTrue();
+        String bjornRef = observed.get(3).sourceNodeRefs().getFirst();
+        assertThat(knownCharacterId(second, bjornRef)).isEqualTo(bjorn.toString());
+        assertThat(contextNode(context, bjornRef).profileRegistered()).isTrue();
+        assertThat(context.nodes()).extracting(n -> n.name()).containsExactlyInAnyOrder("한스", "비요른", "보라");
+        assertThat(nodeCount()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("GH385 발견 기록 없는 현재 프로필 이름에만 겹치는 짧은 이름은 미연결 새 노드로 둔다")
+    void currentProfileNameAloneDoesNotResolve() {
+        character("비요른 얀델");
+        String text = "비요른과 보라는 다시 만났다.";
+        UUID first = jobWithSource(1, text, false);
+        Context context = prepareWith(first, text, observation("O1", text, "비요른", "보라"));
+
+        String ref = sourceRef(context);
+        assertThat(contextNode(context, ref).name()).isEqualTo("비요른");
+        assertThat(contextNode(context, ref).profileRegistered()).isFalse();
+        assertThat(knownCharacterId(first, ref)).isNull();
+        assertThat(nodeCount()).isEqualTo(2);
     }
 
     private Decision action(Context context, Operation operation, Kind kind, String summary) {

@@ -67,6 +67,18 @@ public interface WorkCharacterRepository extends JpaRepository<WorkCharacter, UU
             @Param("ids") java.util.Collection<UUID> ids
     );
 
+    /** 관계 노드 해소의 충돌 확인용 현재 프로필 이름 scalar 조회(GH385). jsonb 열을 가진 엔티티를 올리지 않는다. */
+    @Query("""
+            select character.id as id, character.name as name
+            from WorkCharacter character
+            where character.work.id = :workId
+              and character.status = :status
+            """)
+    List<WorkCharacterNameRow> findNamesByWorkIdAndStatus(
+            @Param("workId") UUID workId,
+            @Param("status") CharacterStatus status
+    );
+
     List<WorkCharacter> findAllByWorkIdAndStatusOrderByCreatedAtDesc(
             UUID workId,
             CharacterStatus status
