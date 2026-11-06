@@ -54,7 +54,7 @@
 3. 사전 점검 SQL로 대상 작품을 정한다(RDS 허용 IPv4에서 psql, 읽기 전용).
 4. 대상 작품의 node·edge·event 백업 표를 만든다.
 5. 작품마다 dry-run 보고서를 검토한다(특히 `LINK`, `HELD_COLLISION`·`SKIPPED` 사유, `CORRECTION_CONFLICT`, `blockers`).
-6. 작품마다 apply → 사후 점검 SQL → 보고서 건수와 대조한다. 관계 분석이 계속 도는 동안에는 dry-run 뒤 새 분석이 선·event를 더할 수 있으므로, 백업 건수는 dry-run이 아니라 apply 응답의 `before`와 대조한다(같으면 백업이 적용 직전 상태라 롤백 기준으로 쓸 수 있다).
+6. 작품마다 apply → 사후 점검 SQL → 보고서 건수와 대조한다. 관계 분석이 계속 도는 동안에는 dry-run 뒤 새 분석이 선·event를 더할 수 있으므로, 백업 건수는 dry-run이 아니라 apply 응답의 `before`와 대조한다. 건수 일치는 필요조건일 뿐이다. 작가의 선 정정·삭제는 행 수를 바꾸지 않으므로, 백업 직후 apply 직전에 아래 "백업 내용 대조" SQL이 0·0·0인지 확인하고 곧바로 apply한다. 0이 아니면 백업을 다시 만든다.
 7. 며칠 뒤 백업 표를 지우고, 건수만 이 문서의 검증 기록에 남긴다.
 
 호출은 API EC2의 SSM 세션 안에서 하고 키·응답을 디스크에 남기지 않는다. 배포 경로·사용자는 `deploy-api-ec2.yml`의 `API_EC2_DEPLOY_PATH`(기본 `/opt/catchhole`)·`API_EC2_DEPLOY_USER`이고, API 컨테이너는 호스트 `127.0.0.1:8080`에 열려 있다.
@@ -105,6 +105,18 @@ create table relationship_graph_edges_gh391_bak  as select * from relationship_g
 create table relationship_graph_events_gh391_bak as select * from relationship_graph_events where work_id in (:works);
 ```
 
+백업 내용 대조(백업 직후·apply 직전, 읽기 전용). 행 단위로 양쪽 차집합을 세므로 정정·삭제처럼 행 수가 그대로인 변경도 잡는다. 0·0·0이어야 백업이 지금 상태와 같다.
+
+```sql
+with w as (select distinct work_id from relationship_graph_nodes_gh391_bak)
+select (select count(*) from ((select * from relationship_graph_nodes  where work_id in (select work_id from w) except all select * from relationship_graph_nodes_gh391_bak)
+          union all (select * from relationship_graph_nodes_gh391_bak  except all select * from relationship_graph_nodes  where work_id in (select work_id from w))) d) nodes_diff,
+       (select count(*) from ((select * from relationship_graph_edges  where work_id in (select work_id from w) except all select * from relationship_graph_edges_gh391_bak)
+          union all (select * from relationship_graph_edges_gh391_bak  except all select * from relationship_graph_edges  where work_id in (select work_id from w))) d) edges_diff,
+       (select count(*) from ((select * from relationship_graph_events where work_id in (select work_id from w) except all select * from relationship_graph_events_gh391_bak)
+          union all (select * from relationship_graph_events_gh391_bak except all select * from relationship_graph_events where work_id in (select work_id from w))) d) events_diff;
+```
+
 사후 점검 SQL(작품별 `:w`):
 
 ```sql
@@ -131,7 +143,7 @@ from relationship_graph_edges where work_id=:w;            -- 백업 대비 감�
 select count(*) from relationship_graph_nodes where work_id=:w and merged_into_node_id is not null and character_id is not null; -- 0
 ```
 
-롤백(작품별, 정리 뒤 이 작품에 새 관계 분석이 시작되지 않았을 때만). `:cleanup_at`은 apply 응답을 받은 시각이다. prepare는 새 노드를 저장하고 그 id를 `bindings`에 동결하므로, 진행 중이거나 재개할 수 있는 분석이 있는데 노드를 백업으로 바꾸면 그 분석의 완료·반영이 없는 노드·선 id를 가리켜 실패한다. 그래서 정리 apply의 게이트와 같은 조건을 Work 잠금 아래에서 확인하고, 하나라도 0이 아니면 `rollback;`으로 멈추고 수동 판단한다.
+롤백(작품별, 정리 뒤 이 작품에 새 관계 분석이 시작되지 않았을 때만). `:cleanup_at`은 apply 응답을 받은 시각이다. prepare는 새 노드를 저장하고 그 id를 `bindings`에 동결하므로, 진행 중이거나 재개할 수 있는 분석이 있는데 노드를 백업으로 바꾸면 그 분석의 완료·반영이 없는 노드·선 id를 가리켜 실패한다. 백업 복원은 정리 뒤 작가가 한 선 정정·삭제도 되돌리므로(삭제한 관계가 되살아난다) 그 뒤 바뀐 선도 확인한다. 그래서 정리 apply의 게이트와 같은 조건과 정리 뒤 수정된 선을 Work 잠금 아래에서 확인하고, 하나라도 0이 아니면 `rollback;`으로 멈추고 수동 판단한다.
 
 ```sql
 begin;
@@ -142,6 +154,7 @@ select count(*) from relationship_graph_analyses where work_id=:w and status='IN
 select count(*) from relationship_graph_analyses where work_id=:w and status='APPLIED' and updated_at > :cleanup_at; -- 0
 select count(*) from relationship_graph_nodes n where n.work_id=:w
    and not exists (select 1 from relationship_graph_nodes_gh391_bak b where b.id=n.id);                             -- 0 (정리 뒤 prepare가 만든 노드)
+select count(*) from relationship_graph_edges where work_id=:w and updated_at > :cleanup_at;                       -- 0 (정리 뒤 작가의 선 정정·삭제)
 delete from relationship_graph_events where work_id=:w;
 delete from relationship_graph_edges  where work_id=:w;
 delete from relationship_graph_nodes  where work_id=:w;
@@ -154,7 +167,7 @@ commit;
 #### 검증 기록
 
 - 2026-11-06 로컬 운영 사본(100화 시험 작품, ordered, 노드 85·선 220·event 391, 정정·삭제 0): dry-run은 행을 바꾸지 않았고 apply 보고서와 같았다. 노드 `LINK` 1·`MERGE_UNLINKED` 9·`MERGE_LINKED` 2, 미연결 보류 3·건너뜀 3, 같은 프로필 연결 노드 보류 4·건너뜀 6(보관 프로필 연결 노드 보고 5 포함). 선 이동 140·합침 22(묶음 18)·자기 연결 0, event 이동 43(이름 맞바꿈 1)·근거 합침 3. 노드 85(대표 85→74)·선 220→198·event 391→388, 인용 수는 같은 인용 중복 2만 감소. 사후 점검 SQL 전부 0, 100화 화면 노드 69→58, canonical slot 중복 0, 순서 없는 쌍 겹침 22→24(전부 양방향 `DIRECTED`). 두 번째 apply는 변경 0, 백업 롤백은 원래 행과 일치했다.
-- 2026-11-06 운영(배포 `0f7221f0`): 사전 점검에서 노드 3개 이하 부하 시험 작품을 빼고 대상 36개 작품을 골랐다. 진행 중 분석 2·재개 가능 분석 6·백필 미완료 4로 막힌 12개 작품은 제외했다. dry-run 36개는 모두 `blockers`·`warnings` 0이었고, 100화 시험 작품은 로컬 사본과 건수가 같았다. 변경이 없는 6개를 뺀 30개만 백업하고 apply했다. 29개가 `applied=true`였고, 1개는 dry-run 뒤 끝난 새 분석이 같은 노드를 이미 연결해 `applied=false`(변경 0)였다. 노드 `LINK` 34·`MERGE_UNLINKED` 42·`MERGE_LINKED` 17, 보류 15·건너뜀 20. 대표 노드 499→440, 선 1015→936, event 1664→1644, 인용 22154→22104(같은 인용 중복만 감소). 백업 때 선·event가 dry-run보다 2·11 많았는데, 원인은 그 한 작품의 새 분석이었다. 백업 건수는 apply 응답 `before`와 같았고, 사후 점검 SQL은 30개 작품 모두 0이었다. 백업 표는 같은 날 지웠다.
+- 2026-11-06 운영(배포 `0f7221f0`): 사전 점검에서 노드 3개 이하 부하 시험 작품을 빼고 대상 36개 작품을 골랐다. 진행 중 분석 2·재개 가능 분석 6·백필 미완료 4로 막힌 12개 작품은 제외했다. dry-run 36개는 모두 `blockers`·`warnings` 0이었고, 100화 시험 작품은 로컬 사본과 건수가 같았다. 변경이 없는 6개를 뺀 30개만 백업하고 apply했다. 29개가 `applied=true`였고, 1개는 dry-run 뒤 끝난 새 분석이 같은 노드를 이미 연결해 `applied=false`(변경 0)였다. 노드 `LINK` 34·`MERGE_UNLINKED` 42·`MERGE_LINKED` 17, 보류 15·건너뜀 20. 대표 노드 499→440, 선 1015→936, event 1664→1644, 인용 22154→22104(같은 인용 중복만 감소). 백업 때 선·event가 dry-run보다 2·11 많았는데, 원인은 그 한 작품의 새 분석이었다. 백업 건수는 apply 응답 `before`와 같았고(백업 내용 대조 SQL은 이 실행 뒤 절차에 추가해 이번에는 돌리지 않았다), 사후 점검 SQL은 30개 작품 모두 0이었다. 백업 표는 같은 날 지웠다.
 
 ## 활성화와 작업 수명
 
