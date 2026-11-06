@@ -21,8 +21,10 @@
 
 새 설정 추출·재분석 요청은 `reviewMode`를 생략하면 자동 반영(`AUTOMATIC`)한다. 단일 회차는 직접 검토
 (`MANUAL`)를 명시할 수 있고, 새 다회차는 서버에서 자동 반영과 회차 순서를 고정한다. 회차 검증의 생략
-기본값과 기존 작업의 실패 재시도 정책은 바꾸지 않는다. 각 회차는 실제 시작 직전 저장 상태를 `automatic_input_state`로 고정하여
-1차의 인물·현재 상태와 2차의 관련 설정 비교가 같은 기준을 사용한다. 같은 작품의 앞 회차에서 보류한
+기본값과 기존 작업의 실패 재시도 정책은 바꾸지 않는다. 각 회차는 실제 시작(claim) 때 참고 정보와 확정 설정 지문을
+`automatic_input_state`로 고정하고, 캐릭터·세계관은 그 회차 동안 대상별로 실제 저장값을 읽는다. 그동안 GH201이 확정 설정 쓰기를
+막고 지문이 이를 확인하므로 1차의 인물·현재 상태와 2차의 관련 설정 비교가 같은 기준을 사용한다(아래 format 2 절).
+플래그를 켜기 전에 claim한 회차는 claim 때의 저장 상태 사본을 그대로 쓴다. 같은 작품의 앞 회차에서 보류한
 후보는 이전 업로드 묶음까지 별도 참고 문맥으로 수집하며 현재 설정이나 선택 가능한 인물로 승격하지 않는다.
 
 완료 트랜잭션은 검증 기록 봉인 → 캐릭터 자동 반영 → 세계관 자동 반영 → 자동 저장 완료 기록 → Job 성공을
@@ -46,7 +48,7 @@ V49는 반영 방식·자동 시작 문맥·자동 반영 완료 시각과 두 �
 ## 구현 경계
 
 - 분석 실행 ID는 업로드 batch ID와 분리한다. 기존 AnalysisJob에 모드·실행·순서·원문 버전·입력 hash를 저장한다.
-- 수동 누적 실행은 첫 Job의 S0와 선행 SEALED 기록으로 상태를 복원한다. 자동 누적 실행은 회차마다 실제 저장 상태를 고정한다. 두 경로 모두 회차 안에서 검증 완료 decision의 당시 값을 JSON 변경 기록으로 보존한다.
+- 수동 누적 실행은 첫 Job의 S0와 선행 SEALED 기록으로 상태를 복원한다. 자동 누적 실행은 회차마다 claim 때 참고 정보와 설정 지문을 고정하고 실제 저장 상태를 대상별로 읽는다(플래그를 켜기 전에 claim한 회차는 저장 상태 사본). 두 경로 모두 회차 안에서 검증 완료 decision의 당시 값을 JSON 변경 기록으로 보존한다.
 - 캐릭터·세계관 서비스가 기존 projector/operation 검증으로 승인한 변경만 기록한다. 후보 현재값이나 raw 응답은 replay 원본이 아니다.
 - claim capability가 없는 구 Worker에는 기존 모드만 전달한다. 새 모드의 Python 후보 교체도 같은 DB 트랜잭션에서 lease·run·입력·원문을 검증한다.
 - 임시 대상은 별도의 provisionalSubjectKey로 표현한다. 실제 UUID FK를 가장하거나 정식 대상을 미리 생성하지 않는다.
@@ -72,7 +74,7 @@ V49는 반영 방식·자동 시작 문맥·자동 반영 완료 시각과 두 �
 - 사용자 후보 수정은 해당 분석과 뒤의 분석을 무효화한다. 이 경우에도 원문·인용이 유효하고 현재 대기 중인 **명시적인 사용자 수정**은 참고할 수 있다. 캐릭터는 현재 편집값과 사용자가 연결한 인물 이름, 세계관은 저장된 최신 수정안을 사용한다. 제외 수정안·값을 비운 수정안·보관된 인물은 제외한다. 수정 전 AI 제안으로 되돌리지 않으며, 인용은 수정 전 원문이라는 점도 표시한다.
 - 미확정 참고는 확정 설정·대상 목록과 분리한다. 이 정보만으로 사실을 등록할 수 있는 API나 변경 기록을 만들지 않으며, 후속 분석 결과도 현재 회차의 추출 근거와 기존 비교 검증을 거쳐야 한다.
 
-참고는 고유 후보 ID별로 한 번만 담고 기존 정렬 규칙을 사용한다. 첫 claim에서 현재 설정과 함께 고정한 후에는
+참고는 고유 후보 ID별로 한 번만 담고 기존 정렬 규칙을 사용한다. 첫 claim에서 고정한 후에는
 그 회차의 1차·2차·실패 재시도에 같은 입력과 hash를 사용한다. 사용자 수정·제외·원문 교체/삭제는 기존의
 작품 잠금과 회차 이후 무효화 경로로 새 묶음까지 무효화한다. 이미 기록된 입력·hash·변경 기록을 수정 내용으로
 덮어쓰지 않으며, 사용자가 새 분석을 요청했을 때 최신 참고를 다시 선택한다. 이미 끝난 1~32화 데이터에
@@ -100,10 +102,11 @@ V44~48은 기존 Job·후보·비교 batch/decision 컬럼을 보완한다. 수�
 ID·번호·hash·S3 version, 입력 hash, journal 포맷/완성 상태를 함께 검증한다. 동일 이벤트의
 동일 내용은 한 번 적용하고 다른 내용은 거절한다. 현재 후보를 편집해도 저장 당시 값은 바뀌지 않는다.
 
-## 자동 누적 claim 입력 format 2 (#387, 플래그)
+## 자동 누적 claim 입력 format 2 (#387)
 
-`analysis.automatic-input.live-settings-enabled`(환경변수 `ANALYSIS_AUTOMATIC_INPUT_LIVE_SETTINGS_ENABLED`, 기본 false)를 켜면
-자동 누적 회차의 claim은 캐릭터·세계관을 복사하지 않고 `automatic_input_state`에 아래 객체만 저장한다.
+`analysis.automatic-input.live-settings-enabled`(환경변수 `ANALYSIS_AUTOMATIC_INPUT_LIVE_SETTINGS_ENABLED`)는 기본 true다.
+켜져 있으면 자동 누적 회차의 claim은 캐릭터·세계관을 복사하지 않고 `automatic_input_state`에 아래 객체만 저장한다.
+결정 배경과 버린 대안은 [ADR-0005](adr/0005-automatic-analysis-live-settings-input.md)에 있다.
 
 ```json
 {"formatVersion": 2, "fingerprintVersion": 1, "fingerprint": "<64 hex>", "references": { ... }}
@@ -143,7 +146,10 @@ format 2의 `outputStateHash`는 `{inputStateHash, changes}`의 hash다. 자동 
 
 ### 호환과 배포
 
-- 플래그를 켜기 전에 claim한 Job(format 1)과 그 재시도는 저장 사본을 그대로 읽는다. 입력은 claim 때 비어 있을 때만 만든다.
+- 배포와 함께 켠다(소유자 결정 2026-11-07). 끄려면 운영 `api.env`에 `ANALYSIS_AUTOMATIC_INPUT_LIVE_SETTINGS_ENABLED=false`를 넣고
+  backend를 재생성한다.
+- 플래그를 켜기 전에 claim한 Job(format 1)과 그 lease 만료 뒤 재claim·재시도는 저장 사본을 그대로 읽는다. 입력은 claim 때 비어 있을 때만
+  만든다. 같은 실행에서 켠 뒤 처음 claim하는 다음 회차는 format 2다.
 - 플래그를 끄면 새 claim만 format 1로 돌아가고 이미 format 2인 Job은 그대로 format 2로 읽는다.
 - 이 단계 이전 이미지로 되돌리려면 진행·대기·재개 대기인 format 2 Job이 없어야 한다(이전 코드는 format 2를 읽지 못한다).
 - AI Worker는 바꾸지 않는다. Worker는 `inputStateHash` 문자열만 비교한다.
