@@ -44,3 +44,12 @@
 - 관련 5개 통합 테스트 클래스: 36 tests, 0 failures/errors/skipped (1m 22s). 정상/보류 혼합, 형식 오류 격리, 직접 확정, 다음 회차 허용, 무효 리포트 차단, 진단 중 잠금과 완료 후 확정, 기존 HELD 명시 복구, 실제 예외 rollback을 확인했다.
 
 - 최종 전체 검증: `./gradlew test bootJar` 성공(10m 12s). 310 suites, 5,204 tests 중 4,867 passed / 337 skipped / 0 failures / 0 errors. bootJar 생성. `git diff --check` 통과. 운영 배포·기존 원문/후보 소급 처리는 하지 않았다.
+
+## 실제 검수 후 추출 snapshot 로컬 재생
+
+- 사용자 요청으로 실제 수정 회차의 저장된 원문 hash·확정 설정·후보·비교 결과·관계 완료 기록을 비공개 외부 fixture로 읽어 새 PostgreSQL 17/pgvector DB에서 Worker 완료를 재생했다. LLM 호출은 추가하지 않았다.
+- 기존 대기 29건 중 23건 CONFIRMED, 2건 자동 DISMISSED, 4건 PENDING_REVIEW. 기존 제외 3건은 보존됐다. 대기 4건은 애매한 3건과 이미 final_operation이 저장된 1건으로, 일반 자동 반영이 저장 결정을 건너뛰는 규칙과 같다.
+- 신규 인물의 Fact 4개, 새 장소의 속성 2개가 실제 DB에 저장됨을 확인했다. 저장 결정 대상의 기존값 보존·APPLIED·SUCCEEDED/SEALED·자동 처리 시각·멱등 재호출도 검증했다.
+- 실행: 별도 신규 loopback DB와 비공개 fixture 디렉터리를 환경변수로 제공한 `./gradlew test --tests '*ValidationLocalSnapshotReplayTest'` 성공. 원문·실제 식별자·전체 snapshot은 저장소에 포함하지 않는다.
+
+- 최신 main 반영 후 재검증: 실제 PostgreSQL snapshot 재생 1건과 선택적 자동 반영 통합 4건, 총 5 passed / 0 skipped / 0 failed (34s). 독립 검토에서 새 재현 테스트의 병합 차단 문제는 발견되지 않았다.
