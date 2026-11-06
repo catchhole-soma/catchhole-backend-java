@@ -182,7 +182,7 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
                         CharacterFactType.STATUS
                 );
         // known/provisional identities와 semantic 값은 같은 frozen input object에서 파생한다.
-        var input = analysisJob.isOrderedProvisional() ? analysisRunStateService.getInputState(analysisJob) : null;
+        var input = analysisJob.isOrderedProvisional() ? analysisRunStateService.getInputCurrentSubjects(analysisJob) : null;
         org.monitoring.catchholebackend.domain.analysis.dto.response.WorkerSemanticCurrentContextPayload semantic = null;
         if (analysisJob.isOrderedProvisional() && Boolean.TRUE.equals(request.supportsSemanticCurrentContext())) {
             try {

@@ -17,6 +17,7 @@ import org.monitoring.catchholebackend.domain.analysis.event.AnalysisRunInvalida
 import org.monitoring.catchholebackend.domain.analysis.exception.AnalysisJobErrorCode;
 import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateChange;
 import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal;
+import org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateSlices;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceRepository;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobSourceView;
@@ -152,15 +153,64 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
 
     @Override
     public JsonNode getProjectedState(AnalysisJob job) {
+        JsonNode input = projectableInput(job);
+        // 수동 입력은 이미 재생한 독립 값이다. 빌린 자동 입력만 반환 경계에서 복사한다.
+        if (job.getStateJournal() == null) return job.isAutomaticReview() ? input.deepCopy() : input;
+        return apply(input, readChanges(requireEnvelope(job)));
+    }
+
+    @Override
+    public JsonNode getInputTarget(AnalysisJob job, String domain, String ref) {
+        return AnalysisStateSlices.target(inputStateForValidation(job), domain, ref).deepCopy();
+    }
+
+    @Override
+    public JsonNode getProjectedTarget(AnalysisJob job, String domain, String ref) {
+        return AnalysisStateSlices.target(projectedForRead(job), domain, ref).deepCopy();
+    }
+
+    @Override
+    public JsonNode getProjectedReferences(AnalysisJob job) {
+        return AnalysisStateSlices.references(projectedForRead(job)).deepCopy();
+    }
+
+    @Override
+    public ObjectNode getProjectedSubset(AnalysisJob job, String domain, java.util.Collection<String> refs) {
+        return AnalysisStateSlices.subset(projectedForRead(job), domain, refs).deepCopy();
+    }
+
+    @Override
+    public List<JsonNode> getProjectedWorldSubjects(AnalysisJob job, String category) {
+        return AnalysisStateSlices.worldSubjects(projectedForRead(job), category).stream()
+                .<JsonNode>map(JsonNode::deepCopy).toList();
+    }
+
+    @Override
+    public ObjectNode getInputCharacterIdentities(AnalysisJob job) {
+        return AnalysisStateSlices.characterIdentities(inputStateForValidation(job)).deepCopy();
+    }
+
+    @Override
+    public JsonNode getInputCurrentSubjects(AnalysisJob job) {
+        return getInputState(job);
+    }
+
+    /** getProjectedState와 같은 입력 hash·journal 상태 검증을 통과한 입력. 자동 입력은 빌린 노드다. */
+    private JsonNode projectableInput(AnalysisJob job) {
         JsonNode input = inputStateForValidation(job);
         if (job.getInputStateHash() == null || !journal.hash(input).equals(job.getInputStateHash())
                 || job.getJournalStatus() == AnalysisJournalStatus.INVALIDATED
                 || job.getJournalStatus() == AnalysisJournalStatus.INCOMPLETE) {
             throw conflict();
         }
-        // 수동 입력은 이미 재생한 독립 값이다. 빌린 자동 입력만 반환 경계에서 복사한다.
-        if (job.getStateJournal() == null) return job.isAutomaticReview() ? input.deepCopy() : input;
-        return apply(input, readChanges(requireEnvelope(job)));
+        return input;
+    }
+
+    /** getProjectedState와 같은 값이지만 변경 기록이 없으면 빌린 입력을 그대로 준다. 대상별 읽기가 반환 경계에서 복사한다. */
+    private JsonNode projectedForRead(AnalysisJob job) {
+        JsonNode input = projectableInput(job);
+        JsonNode record = job.getStateJournal();
+        return record == null ? input : apply(input, readChanges(requireEnvelope(job, record)));
     }
 
     @Override

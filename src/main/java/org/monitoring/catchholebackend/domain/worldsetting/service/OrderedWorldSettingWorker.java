@@ -47,6 +47,7 @@ import org.springframework.stereotype.Component;
 @Component
 @RequiredArgsConstructor
 public class OrderedWorldSettingWorker implements org.monitoring.catchholebackend.domain.analysis.service.AnalysisJournalContributor {
+    private static final String WORLD_SETTINGS = org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateSlices.WORLD_SETTINGS;
 
     private final AnalysisFailureDiagnosticsSanitizer failureDiagnosticsSanitizer;
     private final AnalysisRunStateService stateService;
@@ -111,12 +112,7 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
 
     public WorkerWorldSettingSubjectPageResponse getSubjects(AnalysisJob job, WorldSettingCategory category,
             int page, int size) {
-        List<JsonNode> targets = new ArrayList<>();
-        stateService.getProjectedState(job).path("worldSettings").forEach(target -> {
-            if (category.name().equals(target.path("category").asText())) {
-                targets.add(target);
-            }
-        });
+        List<JsonNode> targets = new ArrayList<>(stateService.getProjectedWorldSubjects(job, category.name()));
         targets.sort(Comparator.comparing(target -> target.path("subjectName").asText()));
         int from = Math.min(Math.multiplyExact(page, size), targets.size());
         int to = Math.min(from + size, targets.size());
@@ -179,23 +175,23 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
             if (refs.isEmpty() && !input.ambiguous()) {
                 refs.add(WorldSettingAnalysisStateMapper.provisionalRef(candidate.getId()));
             }
-            JsonNode projected = prepared.projectedState().path("worldSettings");
             for (String ref : refs) {
-                if (!projected.has(ref)) {
+                if (prepared.projectedTarget(WORLD_SETTINGS, ref).isMissingNode()) {
                     registerIdentity(prepared, candidate.getCategory(), ref, pending);
-                    projected = prepared.projectedState().path("worldSettings");
                 }
-                requireCategory(projected.path(ref), candidate.getCategory());
+                requireCategory(prepared.projectedTarget(WORLD_SETTINGS, ref), candidate.getCategory());
             }
             boolean ambiguous = input.ambiguous() || refs.size() != 1;
             String canonicalKey = ambiguous ? "ambiguous:" + candidate.getId() : refs.iterator().next();
+            JsonNode canonical = ambiguous ? com.fasterxml.jackson.databind.node.MissingNode.getInstance()
+                    : prepared.projectedTarget(WORLD_SETTINGS, canonicalKey);
             String canonicalName = ambiguous ? candidate.getSubjectName()
-                    : projected.path(canonicalKey).path("subjectName").asText();
+                    : canonical.path("subjectName").asText();
             List<String> provisionalRefs = refs.stream().filter(ref -> ref.startsWith("provisional-world:")).toList();
             List<UUID> actualIds = refs.stream().filter(ref -> ref.startsWith("world:"))
                     .map(ref -> UUID.fromString(ref.substring("world:".length()))).toList();
             WorldSettingSubjectResolutionType type = ambiguous ? WorldSettingSubjectResolutionType.AMBIGUOUS
-                    : projected.path(canonicalKey).path("propertiesJson").isEmpty()
+                    : canonical.path("propertiesJson").isEmpty()
                     ? WorldSettingSubjectResolutionType.NEW : WorldSettingSubjectResolutionType.EXISTING;
             candidate.resolveOrderedSubject(type, canonicalKey, canonicalName,
                     mapper.toJsonNode(actualIds), mapper.toJsonNode(provisionalRefs));
@@ -222,7 +218,8 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
         var matching = rejectionPolicy.beginMatching();
         for (WorldSettingCandidate candidate : pendingCandidates(job)) {
             if (candidate.hasSubjectResolution()) {
-                matching.match(candidate, prepared.projectedState()).ifPresent(reference -> {
+                // 반려 대조는 references만 읽는다.
+                matching.match(candidate, prepared.projectedSubset(WORLD_SETTINGS, List.of())).ifPresent(reference -> {
                     candidate.preservePriorHumanRejection(reference);
                     prepared.append(
                             List.of(rejectionPolicy.referenceChange(candidate.getId(), reference)));
@@ -379,7 +376,8 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
         Set<String> consumed = new HashSet<>();
         Set<String> decisionRefs = new HashSet<>();
         Set<String> writtenPaths = new HashSet<>();
-        ObjectNode projected = stateService.getProjectedState(job).deepCopy();
+        // 결정의 대상은 모두 묶음 대상(stored targets)이다. 그 대상과 references만 읽고 갱신해 본다.
+        ObjectNode projected = stateService.getProjectedSubset(job, WORLD_SETTINGS, batchTargetRefs(batch));
         List<AnalysisStateChange> changes = new ArrayList<>();
         List<WorldSettingComparisonDecisionSource> sourceRows = new ArrayList<>();
         for (var input : request.decisions()) {
@@ -661,7 +659,7 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
                             }
                         }
                     }
-                    JsonNode baseline = stateService.getInputState(job).path("worldSettings").path(targetRef);
+                    JsonNode baseline = stateService.getInputTarget(job, WORLD_SETTINGS, targetRef);
                     ObjectNode restored = target.deepCopy();
                     ObjectNode properties = restored.path("propertiesJson").deepCopy();
                     var original = new WorldSettingPropertyView(baseline.has("propertiesJson") ? baseline.path("propertiesJson") : JsonNodeFactory.instance.objectNode());
@@ -950,7 +948,7 @@ public class OrderedWorldSettingWorker implements org.monitoring.catchholebacken
         context.put("generation", job.getRunGeneration());
         context.put("batchId", batchId.toString());
         ObjectNode selected = context.putObject("targets");
-        JsonNode state = stateService.getProjectedState(job).path("worldSettings");
+        JsonNode state = stateService.getProjectedSubset(job, WORLD_SETTINGS, refs).path(WORLD_SETTINGS);
         refs.stream().sorted().forEach(ref -> {
             JsonNode target = state.path(ref);
             requireCategory(target, category);

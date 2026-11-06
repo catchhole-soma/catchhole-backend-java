@@ -1084,6 +1084,55 @@ class AutomaticAnalysisIntegrationTest {
                 .isEqualTo(AnalysisJobStatus.FAILED);
     }
 
+    @ParameterizedTest
+    @EnumSource(AnalysisReviewMode.class)
+    @DisplayName("대상별 읽기는 실제 claim·비교·완료를 거친 두 회차에서 전체 입력·투영 상태의 같은 경로를 읽은 값과 같다")
+    void perSubjectReadsMatchWholeStateAcrossEpisodes(AnalysisReviewMode mode) {
+        run(2, mode);
+        WorkerAnalysisJobPayload first = claim();
+        String provisional = tx.execute(status -> {
+            AnalysisJob job = jobs.findById(first.analysisJobId()).orElseThrow();
+            SettingCandidate anchor = discovery(job, "에르웬", null, true);
+            SettingCandidate alias = SettingCandidate.createCharacterDiscovery(job.getWork(), job.getEpisode(), null, job,
+                    "에르웬 미샤", "에르웬", null, SettingCandidateMatchStatus.MATCHED,
+                    evidence("에르웬의 본명은 에르웬 미샤다."), BigDecimal.ONE, null);
+            ReflectionTestUtils.setField(alias, "provisionalSubjectKey", anchor.getProvisionalSubjectKey());
+            entities.persist(alias);
+            addStat(job, anchor.getProvisionalSubjectKey(), null, 35, CharacterFactOperation.ADD);
+            addWorld(job);
+            addUnresolvedReference(job);
+            return anchor.getProvisionalSubjectKey();
+        });
+        // 첫 회차: claim 입력은 비어 있고 이 Job의 변경(임시 인물·세계관·참고)이 투영에 있다.
+        tx.executeWithoutResult(status -> assertThat(org.monitoring.catchholebackend.support.AnalysisRunStateEquivalence
+                .assertMatchesWholeState(states, jobs.findById(first.analysisJobId()).orElseThrow())).isEqualTo(2));
+        complete(first);
+
+        WorkerAnalysisJobPayload second = claim();
+        tx.executeWithoutResult(status -> {
+            AnalysisJob job = jobs.findById(second.analysisJobId()).orElseThrow();
+            JsonNode input = states.getInputState(job);
+            if (mode == AnalysisReviewMode.AUTOMATIC) {
+                // 자동: claim 때 읽은 실제 인물(별칭 포함)·세계관과 앞 회차의 미확정 참고
+                assertThat(input.path("characters").toString()).contains("actualCharacterId", "에르웬 미샤");
+                assertThat(input.path("references").isEmpty()).isFalse();
+            } else {
+                // 수동: S0와 앞 회차 변경을 replay한 임시 인물
+                assertThat(input.path("characters").has(provisional)).isTrue();
+            }
+            assertThat(input.path("worldSettings").isEmpty()).isFalse();
+            assertThat(org.monitoring.catchholebackend.support.AnalysisRunStateEquivalence.assertMatchesWholeState(states, job))
+                    .isEqualTo(2);
+            String ref = input.path("characters").fieldNames().next();
+            UUID actualId = mode == AnalysisReviewMode.AUTOMATIC ? UUID.fromString(input.path("characters").path(ref).path("actualCharacterId").asText()) : null;
+            addStat(job, actualId == null ? ref : null, actualId, 36, CharacterFactOperation.UPDATE);
+            assertThat(org.monitoring.catchholebackend.support.AnalysisRunStateEquivalence.assertMatchesWholeState(states, job))
+                    .isEqualTo(2);
+            assertThat(states.getProjectedTarget(job, "characters", ref).at("/slots/STAT:stats.mental/factValue").asText()).isEqualTo("36");
+            assertThat(states.getInputTarget(job, "characters", ref).at("/slots/STAT:stats.mental/factValue").asText()).isEqualTo("35");
+        });
+    }
+
     private static void assertRunStateConflict(org.assertj.core.api.ThrowableAssert.ThrowingCallable call) {
         assertThatThrownBy(call).isInstanceOfSatisfying(AppException.class, error ->
                 assertThat(error.getResultCode().getCode()).isEqualTo("ANALYSIS_RUN_STATE_CONFLICT"));

@@ -392,7 +392,7 @@ class EpisodeRelationshipGraphIntegrationTest {
                     .put("name", "아라 린")
                     .put("actualCharacterId", characterId.toString());
             character.putArray("aliases").add("늑대");
-            doReturn(input).when(runState).getInputState(any());
+            stubOrderedIdentities(input);
         }
 
         String text = "늑대와 보라는 다시 만났다.";
@@ -1152,7 +1152,7 @@ class EpisodeRelationshipGraphIntegrationTest {
             var characters = input.putArray("characters");
             characters.addObject().put("name", "비요른 얀델").put("actualCharacterId", bjorn.toString());
             characters.addObject().put("name", "다라").put("actualCharacterId", dara.toString());
-            doReturn(input).when(runState).getInputState(any());
+            stubOrderedIdentities(input);
         } else {
             confirmedAliasAt(1, early, bjorn, "비요른 얀델");
             confirmedAliasAt(1, early, dara, "다라");
@@ -1228,7 +1228,7 @@ class EpisodeRelationshipGraphIntegrationTest {
             characters.addObject().put("name", "한스").put("actualCharacterId", hans.toString());
             characters.addObject().put("name", "한스 호지").put("actualCharacterId", hansHodge.toString());
             characters.addObject().put("name", "비요른 얀델").put("actualCharacterId", bjorn.toString());
-            doReturn(input).when(runState).getInputState(any());
+            stubOrderedIdentities(input);
         }
 
         String text = "한스 호지와 호지와 한스와 비요른은 보라를 만났다.";
@@ -2045,7 +2045,7 @@ class EpisodeRelationshipGraphIntegrationTest {
                 .addObject()
                 .put("name", "아라")
                 .put("actualCharacterId", UUID.randomUUID().toString());
-        doReturn(input).when(runState).getInputState(any());
+        stubOrderedIdentities(input);
         Context past = prepare(job(1, true));
         assertThat(past.observations().getFirst().sourceNodeRefs()).isEmpty();
         assertThat(past.nodes()).extracting(n -> n.name()).containsExactly("보라");
@@ -2293,13 +2293,21 @@ class EpisodeRelationshipGraphIntegrationTest {
                 });
     }
 
+    /** #387 관계 문맥은 claim 입력 전체 대신 인물 식별 색인(getInputCharacterIdentities)만 읽는다. */
+    private void stubOrderedIdentities(ObjectNode input) {
+        ObjectNode identities = new ObjectMapper().createObjectNode();
+        input.path("characters").forEach(character ->
+                identities.set("character:" + character.path("actualCharacterId").asText(), character));
+        doReturn(identities).when(runState).getInputCharacterIdentities(any());
+    }
+
     private void frozenCharacter(String name, UUID characterId) {
         var input = new ObjectMapper().createObjectNode();
         input.putArray("characters")
                 .addObject()
                 .put("name", name)
                 .put("actualCharacterId", characterId.toString());
-        doReturn(input).when(runState).getInputState(any());
+        stubOrderedIdentities(input);
     }
 
     private void assertProfileLink(
@@ -2416,7 +2424,7 @@ class EpisodeRelationshipGraphIntegrationTest {
                 .addObject()
                 .put("name", "아라")
                 .put("actualCharacterId", UUID.randomUUID().toString());
-        doReturn(input).when(runState).getInputState(any());
+        stubOrderedIdentities(input);
         Context context = prepare(second);
         assertThat(context.observations().getFirst().sourceNodeRefs()).isEmpty();
         assertThat(context.relationships()).isEmpty();

@@ -665,12 +665,12 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         for (var node : allNodes)
             if (node.getFirstEpisodeNo() <= cutoff)
                 addDistinct(byName, node.getName(), index.canonicalNode(node));
-        JsonNode input =
-                job.isOrderedProvisional() ? runState.getInputState(job) : mapper.toJson(Map.of());
+        JsonNode orderedIdentities =
+                job.isOrderedProvisional() ? runState.getInputCharacterIdentities(job) : mapper.toJson(Map.of());
         // Ordered input contributes only representative names. Its alias strings carry no
         // per-alias episode, so aliases always come from the cutoff-bounded database query.
         Map<String, List<UUID>> confirmed = new HashMap<>();
-        for (JsonNode character : input.path("characters")) {
+        for (JsonNode character : orderedIdentities) {
             if (character.path("actualCharacterId").isTextual())
                 confirmed.computeIfAbsent(character.path("name").asText(), x -> new ArrayList<>())
                         .add(UUID.fromString(character.path("actualCharacterId").asText()));

@@ -559,6 +559,121 @@ class PreparedAnalysisStateTest {
         assertThat(first.getRunBaseState()).isEqualTo(base);
     }
 
+    @Test
+    @DisplayName("대상별 읽기는 자동 claim 입력과 이 Job의 변경에서 전체 상태의 같은 경로를 읽은 값과 같다")
+    void automaticPerSubjectReadsMatchWholeState() {
+        ObjectNode input = richState();
+        AnalysisJob automatic = AnalysisJob.create(job.getWork(), null, episode, AnalysisJobType.SETTING_EXTRACTION);
+        ReflectionTestUtils.setField(automatic, "id", UUID.randomUUID());
+        automatic.configureReviewMode(AnalysisReviewMode.AUTOMATIC);
+        automatic.initializeOrderedRun(UUID.randomUUID(), 1, 0, null,
+                com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode().put("automaticInputCapturedAtClaim", true));
+        automatic.captureAutomaticInput(input);
+        automatic.prepareOrderedInput(journal.hash(input));
+        automatic.claim("test", "comparison", LocalDateTime.now().plusMinutes(10));
+        automatic.replacePendingJournal(envelope(automatic));
+        when(jobSources.findRunMembers(any(), any())).thenAnswer(ignored -> List.of(sourceView(automatic)));
+
+        assertThat(org.monitoring.catchholebackend.support.AnalysisRunStateEquivalence.assertMatchesWholeState(service, automatic)).isEqualTo(4);
+        service.appendValidatedChanges(automatic, automatic.getInputStateHash(), journalChanges());
+        assertThat(org.monitoring.catchholebackend.support.AnalysisRunStateEquivalence.assertMatchesWholeState(service, automatic)).isEqualTo(5);
+        assertThat(service.getProjectedTarget(automatic, "characters", "character:" + ACTUAL_CHARACTER)
+                .at("/slots/STAT:stats.mental/factValue").asText()).isEqualTo("36");
+        assertThat(service.getInputTarget(automatic, "characters", "character:" + ACTUAL_CHARACTER)
+                .at("/slots/STAT:stats.mental/factValue").asText()).isEqualTo("35");
+        assertThat(automatic.getAutomaticInputState()).isEqualTo(input);
+    }
+
+    @Test
+    @DisplayName("대상별 읽기는 수동 누적의 S0 replay 입력과 이 Job의 변경에서도 전체 상태의 같은 경로를 읽은 값과 같다")
+    void manualPerSubjectReadsMatchReplayedWholeState() {
+        ObjectNode base = richState();
+        AnalysisJob first = AnalysisJob.create(job.getWork(), null, episode, AnalysisJobType.SETTING_EXTRACTION);
+        ReflectionTestUtils.setField(first, "id", UUID.randomUUID());
+        first.initializeOrderedRun(UUID.randomUUID(), 1, 0, null, base);
+        first.prepareOrderedInput(journal.hash(base));
+        first.claim("test", "comparison", LocalDateTime.now().plusMinutes(10));
+        first.replacePendingJournal(envelope(first));
+        Episode nextEpisode = Episode.create(job.getWork(), null, 26, "26화", "next", "v1", "c".repeat(64), 100);
+        ReflectionTestUtils.setField(nextEpisode, "id", UUID.randomUUID());
+        AnalysisJob next = AnalysisJob.create(job.getWork(), null, nextEpisode, AnalysisJobType.SETTING_EXTRACTION);
+        ReflectionTestUtils.setField(next, "id", UUID.randomUUID());
+        next.initializeOrderedRun(first.getAnalysisRunId(), 1, 1, first.getId(), null);
+        when(jobs.findAllByAnalysisRunIdAndRunGenerationOrderByRunSequenceAsc(first.getAnalysisRunId(), 1L))
+                .thenReturn(List.of(first, next));
+        service.appendValidatedChanges(first, first.getInputStateHash(), journalChanges());
+        service.seal(first);
+        first.succeed("{}", null, null);
+        next.prepareOrderedInput(journal.hash(service.getInputState(next)));
+        next.claim("test", "comparison", LocalDateTime.now().plusMinutes(10));
+        next.replacePendingJournal(envelope(next));
+        var reference = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode().put("domain", "characters")
+                .put("reason", "다음 회차 참고");
+        service.appendValidatedChanges(next, next.getInputStateHash(),
+                List.of(new AnalysisStateChange("next-reference", List.of("references", "next-reference"), reference, false, "REVIEW_REQUIRED", List.of())));
+
+        // 앞 회차의 임시 세계관 대상이 replay 입력에 들어 있다.
+        assertThat(org.monitoring.catchholebackend.support.AnalysisRunStateEquivalence.assertMatchesWholeState(service, next)).isEqualTo(5);
+        assertThat(service.getInputTarget(next, "worldSettings", "provisional-world:" + PROVISIONAL_WORLD).path("subjectName").asText())
+                .isEqualTo("설인");
+        assertThat(service.getProjectedReferences(next).path("next-reference").path("reason").asText()).isEqualTo("다음 회차 참고");
+    }
+
+    private static final UUID PROVISIONAL_WORLD = UUID.fromString("00000000-0000-0000-0000-00000000a387");
+    private static final UUID ACTUAL_CHARACTER = UUID.fromString("00000000-0000-0000-0000-00000000c387");
+
+    /** 실제·임시 인물, 두 분류의 세계관, 참고를 가진 입력. */
+    private ObjectNode richState() {
+        var nodes = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance;
+        ObjectNode state = journal.emptyState();
+        UUID actualId = ACTUAL_CHARACTER;
+        ObjectNode actual = ((ObjectNode) state.path("characters")).putObject("character:" + actualId);
+        actual.put("actualCharacterId", actualId.toString()).putNull("provisionalSubjectKey").put("name", "에르웬").put("snapshotVersion", 1);
+        actual.putArray("aliases").add("에르웬 미샤");
+        actual.putArray("identityEvidence").addObject().put("quote", "에르웬이 등장했다.");
+        ObjectNode stat = actual.putObject("slots").putObject("STAT:stats.mental");
+        stat.put("factType", "STAT").put("factKey", "stats.mental").put("factValue", "35").putObject("valueJson").put("value", 35);
+        actual.putArray("historyFacts").addObject().put("factValue", "검술 2단");
+        String provisionalKey = "provisional-character:" + UUID.randomUUID();
+        ObjectNode provisional = ((ObjectNode) state.path("characters")).putObject(provisionalKey);
+        provisional.putNull("actualCharacterId").put("provisionalSubjectKey", provisionalKey).put("name", "비요른");
+        provisional.putObject("slots");
+        UUID raceId = UUID.randomUUID(), locationId = UUID.randomUUID();
+        ((ObjectNode) state.path("worldSettings")).putObject("world:" + raceId).put("actualWorldSettingId", raceId.toString())
+                .put("category", "RACE").put("subjectName", "엘프").put("version", 1).putObject("propertiesJson").put("서식지", "북부");
+        ((ObjectNode) state.path("worldSettings")).putObject("world:" + locationId).put("actualWorldSettingId", locationId.toString())
+                .put("category", "LOCATION").put("subjectName", "미궁").put("version", 2).putObject("propertiesJson")
+                .putObject("1층").put("출몰", "고블린");
+        ((ObjectNode) state.path("references")).putObject("pending-reference").put("domain", "worldSettings")
+                .put("subjectName", "설인").set("evidenceSpans", nodes.arrayNode().add(nodes.objectNode().put("quote", "설인을 보았다.")));
+        return state;
+    }
+
+    /** 실제 인물 slot 갱신, 임시 세계관 대상 등록, 참고 추가. 출처 후보가 없어 봉인 coverage에 걸리지 않는다. */
+    private List<AnalysisStateChange> journalChanges() {
+        var nodes = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance;
+        ObjectNode slot = nodes.objectNode().put("factType", "STAT").put("factKey", "stats.mental").put("factValue", "36");
+        slot.putObject("valueJson").put("value", 36);
+        ObjectNode world = nodes.objectNode().putNull("actualWorldSettingId").put("provisionalSubjectKey", "provisional-world:" + PROVISIONAL_WORLD)
+                .put("category", "RACE").put("subjectName", "설인").put("version", 0);
+        world.putObject("propertiesJson");
+        ObjectNode reference = nodes.objectNode().put("domain", "characters").put("reason", "검토 대기");
+        return List.of(
+                new AnalysisStateChange("slot-update", List.of("characters", "character:" + ACTUAL_CHARACTER, "slots", "STAT:stats.mental"), slot, false, "UPDATE", List.of()),
+                new AnalysisStateChange("world-identity", List.of("worldSettings", "provisional-world:" + PROVISIONAL_WORLD), world, false, "IDENTITY", List.of()),
+                new AnalysisStateChange("reference", List.of("references", "reference"), reference, false, "REVIEW_REQUIRED", List.of()));
+    }
+
+    private ObjectNode envelope(AnalysisJob target) {
+        ObjectNode envelope = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
+        envelope.put("formatVersion", 1).put("runId", target.getAnalysisRunId().toString())
+                .put("workId", target.getWork().getId().toString()).put("generation", 1).put("sequence", target.getRunSequence())
+                .put("episodeNo", target.getSourceEpisodeNo()).put("jobId", target.getId().toString())
+                .put("inputStateHash", target.getInputStateHash());
+        envelope.putArray("changes");
+        return envelope;
+    }
+
     private AnalysisStateChange change(String id, List<String> path, JsonNode value) {
         return new AnalysisStateChange(id, path, value, false, "IDENTITY", List.of(UUID.randomUUID()));
     }

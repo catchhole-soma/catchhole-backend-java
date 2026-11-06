@@ -1404,6 +1404,8 @@ class SettingBookAnalysisIntegrationTest {
         worldTarget.put("subjectName","엘프");worldTarget.put("normalizedSubjectName","엘프");worldTarget.put("version",1);worldTarget.putObject("propertiesJson").put("서식지","북부");worldTarget.putObject("provenanceByPath");
         states.appendValidatedChanges(job,job.getInputStateHash(),java.util.List.of(new org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateChange("world-decision:"+decision.getId(),
                 java.util.List.of("worldSettings",worldKey),worldTarget,false,"ADD",java.util.List.of(candidate.getId()))));
+        // #387 설정집 Job의 대상별 읽기(임시 인물·세계관과 setting-book-input references)가 전체 상태의 같은 경로와 같다.
+        assertThat(org.monitoring.catchholebackend.support.AnalysisRunStateEquivalence.assertMatchesWholeState(states,job)).isEqualTo(2);
         job.updateCheckpointStage(org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobCheckpointStage.WORLD_COMPARISONS_FINISHED);
         worker.completeAnalysisJob(job.getId(),payload.leaseToken(),new org.monitoring.catchholebackend.domain.analysis.dto.request.WorkerAnalysisJobCompleteRequest(null,null,null));
         em.flush();
@@ -1425,6 +1427,8 @@ class SettingBookAnalysisIntegrationTest {
         assertThat(states.prepareInput(next)).isTrue();
         JsonNode input=states.getInputState(next);
         assertThat(input.path("characters").elements().next().path("slots").elements().next().path("provenance").path("sourceKind").asText()).isEqualTo("SETTING_BOOK");
+        // 설정집이 반영한 실제 인물·세계관을 읽는 다음 회차 입력도 같다.
+        assertThat(org.monitoring.catchholebackend.support.AnalysisRunStateEquivalence.assertMatchesWholeState(states,next)).isEqualTo(2);
     }
 
     @Autowired org.monitoring.catchholebackend.domain.analysis.service.AnalysisJobLeaseService leases;
