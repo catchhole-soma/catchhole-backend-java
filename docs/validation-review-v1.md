@@ -84,7 +84,10 @@ JPA `@Version`은 사용하지 않는다. 검사 순서와 오류는 다음과 �
 - `canCompleteReview` = `EXPLICIT_REQUIRED` 또는 receipt 없는 `AUTOMATIC_ELIGIBLE`(아래 자동 종료 보류). `allowedActions`의 `COMPLETE_REVIEW`도 같다.
 - `judgmentLocked`/`lockReason` ∈ `REPORT_INVALIDATED, BASELINE_NOT_READY, EXECUTION_NOT_STARTED, EXECUTION_IN_PROGRESS, EXECUTION_CANCELED, REVIEW_COMPLETED`.
 - `allowedActions`는 화면 안내용이다. `SAVE_JUDGMENT`(잠금 없음+현재 항목 존재), `COMPLETE_REVIEW`, `RETRY`(실행 활성화+유효 report+PARTIAL/FAILED 또는 Job 없는 READY 기준),
-  `RECHECK`(현재 포인터가 무효 report, 또는 #314 B2: 회차 전체 확정 APPLIED인 현재 report이고 회차가 재검수 요청과 같은 `ValidationRecheckAdmission` 조건을 만족), `APPLY_SETTINGS`(S3: 검토 종료 receipt가 있고 무효 report가 아니며 회차 전체 확정이 APPLIED가 아님).
+  `RECHECK`(현재 포인터가 무효 report, 또는 #314 B2: 회차 전체 확정 APPLIED인 현재 report이고 회차가 재검수 요청과 같은 `ValidationRecheckAdmission` 조건을 만족), `APPLY_SETTINGS`(S3: 검토 종료 receipt가 있고 무효 report가 아니며 회차 전체 확정이 APPLIED가 아님. D2 #387: 같은 작품에 이 report의 release Job 말고
+  진행·대기·재개 대기인 순차 분석이 있으면 넣지 않는다. 명시 반영 READY가 그 동안 409 `ANALYSIS_REVIEW_WAIT_REQUIRED`라 Front 버튼이 `allowedActions`만 보고 꺼지게 하기 위함이며,
+  검토 요약 조회마다 이 조건을 scalar exists 한 번으로 묻고 receipt가 있고 APPLIED 전인 유효 report에서만 묻는다. 안내는 READY와 HELD를 구분하지 않으므로 그동안 HELD 평가가 될
+  요청도 버튼이 꺼진다. 서버는 HELD 요청을 지금처럼 받는다).
   최신 회차·기준·예산·추출 진행 같은 실제 조건은 각 요청에서 서버가 다시 검증한다.
 - DIAGNOSTIC_ONLY report는 판단 저장은 가능하지만 항상 `BLOCKED(DIAGNOSTIC_ONLY)`다. 이미 반영된 회차의 진단은 새 추출을 만들지 않는다.
 
@@ -261,7 +264,11 @@ contributor는 검증 실패를 보류 표시로 흡수하므로, 실행 뒤 그
 
 Work 잠금·소유권(`WORK_NOT_FOUND`) → 같은 `(work, key)` receipt면 hash가 같을 때 저장 응답 200, 다르면 `VALIDATION_IDEMPOTENCY_CONFLICT` →
 report 없음 `VALIDATION_NOT_FOUND` → 현재 report의 검토 종료 receipt 없음 `VALIDATION_APPLICATION_UNAVAILABLE` → 이미 APPLIED면 키·version과 무관하게 같은 APPLIED receipt(시도 증가 없음) →
-`expectedReportVersion` 불일치 `VALIDATION_REPORT_VERSION_CONFLICT` → 평가: `NOT_READY` 409 `VALIDATION_APPLICATION_NOT_READY`(receipt 없음), HELD 200(보류 receipt), READY 반영 200.
+`expectedReportVersion` 불일치 `VALIDATION_REPORT_VERSION_CONFLICT` → 평가: `NOT_READY` 409 `VALIDATION_APPLICATION_NOT_READY`(receipt 없음), HELD 200(보류 receipt),
+READY는 쓰기 전에 두 검사를 차례로 한다. 다른 회차 검수가 확정 설정을 잠갔으면 409 `VALIDATION_SETTINGS_LOCKED`(#381), 같은 작품에 진행·대기 중이거나 같은 입력으로 재개할
+순차 분석이 있으면 409 `ANALYSIS_REVIEW_WAIT_REQUIRED`(GH201 `assertSettingMutationAllowed`, D2 #387)다. 두 409 모두 receipt·시도 수·report version·release Job 보류 표지를 바꾸지 않는다.
+이 report의 release Job은 READY일 때 SUCCEEDED+SEALED라 조건에 들지 않으므로, 예를 들어 설정집 자동 분석 Job이 PENDING/RUNNING일 때만 거절되고 그 분석이 끝나면 같은 요청이 반영된다.
+두 검사를 통과하면 반영 200. HELD와 NOT_READY는 확정 설정을 쓰지 않아 두 검사를 하지 않는다.
 반영이 되돌려지면 새 트랜잭션에서 같은 검사를 거쳐 그 사유로 HELD_REVIEW를 기록하고 200으로 반환한다. 키 열은 마지막 명시 요청 하나만 보관하므로
 이전 시도의 키는 재전송해도 새 평가로 처리된다(APPLIED 뒤에는 같은 APPLIED receipt). 동시 요청은 Work 잠금으로 직렬화되어 APPLIED는 하나다.
 
@@ -369,6 +376,7 @@ Job이 재개를 기다리는 순차 실패(journal PENDING/INCOMPLETE이면서 
 | 확정 뒤 진단 재검수 | APPLIED 회차를 `POST /rechecks` | 이전 report INVALIDATED(이력의 application APPLIED) → 새 report(mode DIAGNOSTIC_ONLY) VALIDATING → AWAITING_REVIEW에서 멈춤. 검토 종료·추출·반영 없음 |
 | (참고) 추출 실패 | release Job 실패 | EXTRACTION_FAILED → 공개 재시도(같은 Job) → REVIEW_COMPLETED → APPLIED/APPLICATION_HELD |
 | 검수 중 설정 화면 수정(#381) | 접수 뒤 검토 종료 전에 설정 화면에서 캐릭터·세계관을 저장 | 409 `VALIDATION_SETTINGS_LOCKED`(`lockReason` EXECUTION 또는 REVIEW), 단계 그대로. REVIEW 단계의 리포트 안 정정은 허용되고 report는 INVALIDATED → 재검수 |
+| 설정집 분석 중 명시 반영(D2 #387) | APPLICATION_HELD에서 결정을 정리했는데 같은 작품의 설정집 자동 분석이 대기·실행 중 | 버튼 꺼짐(`allowedActions`에 `APPLY_SETTINGS` 없음). 요청하면 409 `ANALYSIS_REVIEW_WAIT_REQUIRED`이고 APPLICATION_HELD·attempt 그대로. 분석이 끝나면 버튼이 켜지고 같은 요청으로 APPLIED |
 | 미완료 중 다음 회차 업로드(#314 B1) | APPLIED 전에 102화를 어떤 방식으로든 업로드 | 409 `VALIDATION_NEXT_EPISODE_BLOCKED`, context의 report로 이동. 원고 교체로 INVALIDATED여도 막히며 재검수 → 새 report가 APPLIED가 된 뒤(또는 확정 뒤 진단 재검수 중)에만 업로드 성공 |
 
 ### 알려진 한계 (#314 또는 후속)
