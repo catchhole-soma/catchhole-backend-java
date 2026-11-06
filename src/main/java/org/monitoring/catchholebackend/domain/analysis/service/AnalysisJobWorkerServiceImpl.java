@@ -385,10 +385,12 @@ public class AnalysisJobWorkerServiceImpl implements AnalysisJobWorkerService {
             return;
         }
         AnalysisJob analysisJob = analysisJobRepository.findById(event.analysisJobId()).orElse(null);
-        // 끝난 실행(SEALED)은 이후의 정상 설정 수정으로 지문이 달라지므로 무효화하지 않는다. 진행·재개 대기 실행만 닫는다.
-        if (analysisJob == null
-                || analysisJob.getJournalStatus() != org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.PENDING
-                || !analysisRunStateService.isLiveInputStale(analysisJob)) return;
+        // 끝난 실행(SEALED)은 이후의 정상 설정 수정으로 지문이 달라지므로 무효화하지 않는다. 진행(PENDING)·재개 대기(INCOMPLETE)
+        // 실행만 닫는다. 재개 대기를 빼면 재시도가 매번 409로 끝나고 GH201 잠금과 새 분석 거절이 풀리지 않는다.
+        var journalStatus = analysisJob == null ? null : analysisJob.getJournalStatus();
+        if (journalStatus != org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.PENDING
+                && journalStatus != org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.INCOMPLETE) return;
+        if (!analysisRunStateService.isLiveInputStale(analysisJob)) return;
         log.warn("자동 누적 실행 중 확정 설정이 바뀌어 같은 입력으로 계속할 수 없으므로 실행을 무효화합니다. analysisJobId={}", analysisJob.getId());
         analysisRunStateService.invalidateFrom(analysisJob, "실행 중 확정 설정이 바뀌어 같은 입력으로 계속할 수 없습니다.");
     }

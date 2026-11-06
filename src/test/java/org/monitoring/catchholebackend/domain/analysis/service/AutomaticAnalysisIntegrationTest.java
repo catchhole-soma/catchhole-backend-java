@@ -2266,6 +2266,28 @@ class AutomaticAnalysisIntegrationTest {
         assertThat(claim().analysisJobId()).isEqualTo(run.jobs().getLast());
     }
 
+    @Test
+    @DisplayName("#387 format 2 재개 대기(INCOMPLETE) 실행도 지문이 바뀌면 재시도 409 뒤 무효화되어 확정 설정 수정을 계속 막지 않는다")
+    void liveInputFingerprintMismatchInvalidatesIncompleteRunOnRetry() {
+        org.junit.jupiter.api.Assumptions.assumeTrue(liveInput, "format 2 실행에서만 지문으로 재개 입력을 확인한다");
+        Run run = run(2);
+        UUID erwen = failSecondClaimOnBrokenNarrativeTime(run);
+        tx.executeWithoutResult(status -> ReflectionTestUtils.setField(entities.find(WorkCharacter.class, erwen), "currentNarrativeTime", null));
+        assertThatThrownBy(() -> states.assertSettingMutationAllowed(run.workId()))
+                .isInstanceOfSatisfying(AppException.class, error -> assertThat(error.getResultCode().getCode()).isEqualTo("ANALYSIS_REVIEW_WAIT_REQUIRED"));
+        // 재개 대기 중 GH201을 거치지 않은 쓰기(legacy 단건 비교 EXCLUDE 등)로 지문이 바뀐다.
+        jdbc.update("update characters set snapshot_version = snapshot_version + 1 where id=?", erwen);
+        Long owner = tx.execute(status -> entities.find(Work.class, run.workId()).getMember().getId());
+        assertThatThrownBy(() -> publicJobs.retryFailedAnalysisJob(owner, run.workId(), run.jobs().getLast()))
+                .isInstanceOfSatisfying(AppException.class, error -> assertThat(error.getResultCode().getCode()).isEqualTo("ANALYSIS_RUN_STATE_CONFLICT"));
+        tx.executeWithoutResult(status -> {
+            AnalysisJob job = jobs.findById(run.jobs().getLast()).orElseThrow();
+            assertThat(job.getJournalStatus()).isEqualTo(AnalysisJournalStatus.INVALIDATED);
+            assertThat(job.getStatus()).isEqualTo(AnalysisJobStatus.FAILED);
+        });
+        states.assertSettingMutationAllowed(run.workId());
+    }
+
     /** 1화에서 에르웬을 만든 뒤 대표 서사 시점이 없는 후보를 가리키게 깨고, 2화 claim을 claim 입력 실패(FAILED·INCOMPLETE)로 끝낸다. */
     private UUID failSecondClaimOnBrokenNarrativeTime(Run run) {
         WorkerAnalysisJobPayload first = claim();
