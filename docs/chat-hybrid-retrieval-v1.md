@@ -6,6 +6,13 @@ Java/Python 저장소에 같은 내용으로 보관하며, [공통 JSON fixture]
 
 이 문서는 구현된 공통 조회·인용 계약과 질문 조율을 설명한다. 최종 통합 검증 결과는 아래 기록에서 구분하며, 구현이나 합성 테스트 통과가 운영 활성화 또는 실제 모델 품질 측정을 뜻하지 않는다.
 
+## 2026-11-06 검색 인용 개수 상한 확대 (#319)
+
+- 인용 등록 요청(`retrieval-sources`) 한 번과 완료 결과의 `retrievalSources`가 담을 수 있는 인용을 12개에서 60개로 넓혔다. 모델이 원문을 직접 찾아 읽고 사실을 추출해 답하는 탐색형 방식(기능 스위치 기본 꺼짐)이 근거 조각을 더 많이 등록·인용하기 때문이다. 인용당 4,000 code point, receipt, 등록·완료 두 번의 현재 원문 재검증은 그대로다.
+- Java는 `ChatContract.MAX_RETRIEVAL_SOURCES` 한 곳의 값을 요청·결과 DTO와 서비스 검증이 함께 쓴다. Python schema(`RetrievalReceipt.sources`, `Result.retrieval_sources`)의 상한도 같은 값으로 맞춘다. 공통 JSON fixture는 개수 상한을 담지 않으므로 바꾸지 않았다.
+- 본문 크기: 참조 한 건은 인용 외에 약 0.3KB를 차지한다. 인용이 평균 약 1.9KB(한글 약 630~780자)를 넘으면 60개 등록 요청이 Spring 채팅 경로의 기본 본문 상한 131,072바이트를 넘어 413이 된다. 60개가 모두 한글 4,000자여도 등록 약 0.74MB·완료 약 0.81MB라서 새로 허용한 최대 1,048,576바이트 안에 들어간다. 이 계산은 비ASCII 문자를 UTF-8 그대로 보내는 직렬화 기준이며, `\uXXXX`로 이스케이프하면 한글 본문이 약 2배가 된다. 탐색형 방식을 켤 때 올릴 Spring 설정은 [실행 계약](chat-execution-v1.md)의 "탐색형 원문 답변을 켤 때 함께 올리는 설정" 표를 따른다.
+- 검증 비용: 검증 한 번은 서로 다른 청크마다 DB를 두 번(관측·읽은 뒤 재확인) 조회하고 서로 다른 회차마다 원문 전체를 한 번 읽는다. 인용 60개가 60개 회차에 흩어지면 등록 한 번에 원문 60건, 완료에서 다시 최대 60건을 실행의 Work 잠금 안에서 차례로 읽는다. 아래 "현재 저장소 검증의 제한"의 저장소 지연·잠금 점유 주의가 인용한 회차 수만큼 커지므로 운영 적용 전에 실제 저장소 지연으로 확인한다.
+
 ## 2026-10-30 입력 추정·도구 예약·장면 확장·정렬 검색 보완 (#319)
 
 - 입력 추정: `gpt-6`·`gpt-5.6` 계열 모델명은 tiktoken이 모르는 별칭이라 `o200k_base`로 센다. 이전에는 UTF-8 byte 상한으로 돌아가 한글 입력이 실제의 3~4배로 잡혔고, 그 결과 선택한 근거 8개 중 1~2개가 `INPUT_LIMIT`로 모델 입력에서 빠지고 대화 문맥도 불필요하게 잘렸다. 알려지지 않은 모델명은 기존 byte 상한을 유지한다. 32,000 입력 상한과 6,000 근거 토큰·8개 한도는 바꾸지 않았다.
@@ -124,9 +131,9 @@ Python의 `RetrievalSearchService`는 `readiness`, `keyword`, `direct`, `neighbo
 
 | 자료 | 형태 |
 |---|---|
-| 요청 | `{sources: [RetrievalReference]}` — 1~12개 |
+| 요청 | `{sources: [RetrievalReference]}` — 1~60개(2026-11-06 전 1~12개) |
 | 응답 payload | `{schemaVersion: 1, sources: [검증한 같은 참조]}` — `CommonResponse`로 감쌈 |
-| 최종 결과 | 기존 `outcome/text/sources/limitations` + 선택적 `retrievalSources` |
+| 최종 결과 | 기존 `outcome/text/sources/limitations` + 선택적 `retrievalSources`(최대 60개) |
 
 `RetrievalReference`는 `chunkId`, `episodeId`, `sourceEpisodeNo`, `sourceHash`, nullable `sourceVersion`, `quote`, `startOffset`, `endOffset`를 가진다. sourceHash는 소문자 64자리 SHA-256이다. 위치는 회차 원문 전체 기준 **0-based Unicode code point, 끝 제외** 구간이며 Python 문자열 인덱스와 같은 단위다. Java UTF-16 char 길이나 UTF-8 바이트 위치를 사용하지 않는다. 인용은 공백이 아닌 텍스트이며 최대 4,000 code point, sourceVersion은 최대 100자다.
 
