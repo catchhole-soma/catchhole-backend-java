@@ -685,14 +685,16 @@ class RelationshipBackfillIntegrationTest {
         confirmedName(two, "아라", characterId);
         coordinator.bootstrapRelationshipBackfill();
 
-        // 1화: "아라"는 아직 별칭이 아니라 독립 노드, "린 벨"은 프로필 노드다.
-        var first = coordinator.claimRelationshipJob(partialRequest()).orElseThrow();
-        var c1 = graph.prepareRelationshipAnalysis(first.analysisJobId(), first.leaseToken(),
-                new Prepare(1, storage.contentHash(source), List.of(
+        var bothPairs = new Prepare(1, storage.contentHash(source), List.of(
                         new Observation("O1", new Endpoint("아라", "아라"), new Endpoint("보라", "보라"),
                                 "함께 이동한다", List.of(new Evidence(0, source.length(), source))),
                         new Observation("O2", new Endpoint("린 벨", "린 벨"), new Endpoint("보라", "보라"),
-                                "함께 이동한다", List.of(new Evidence(0, source.length(), source)))), 0));
+                                "함께 이동한다", List.of(new Evidence(0, source.length(), source)))), 0);
+
+        // 1화: "아라"는 아직 별칭이 아니라 독립 노드, "린 벨"은 프로필 노드다.
+        var first = coordinator.claimRelationshipJob(partialRequest()).orElseThrow();
+        var c1 = graph.prepareRelationshipAnalysis(first.analysisJobId(), first.leaseToken(),
+                bothPairs);
         UUID alias = boundNodeId(first.analysisJobId(), c1.observations().get(0).sourceNodeRefs().getFirst());
         UUID profile = boundNodeId(first.analysisJobId(), c1.observations().get(1).sourceNodeRefs().getFirst());
         assertThat(alias).isNotEqualTo(profile);
@@ -700,21 +702,25 @@ class RelationshipBackfillIntegrationTest {
                 c1.contextToken(), List.of(pairDecision(c1, "O1"), pairDecision(c1, "O2"))));
         coordinator.completeRelationshipJob(first.analysisJobId(), first.leaseToken(), null);
 
-        // 2화: 확정 별칭 "아라"의 고정 인물 정보로 독립 노드가 프로필 노드에 합쳐진다.
+        // 2화: 별칭을 연결하되 프로필 노드의 관계만 갱신한다.
         var second = coordinator.claimRelationshipJob(partialRequest()).orElseThrow();
-        var c2 = prepare(second);
+        var c2 = graph.prepareRelationshipAnalysis(second.analysisJobId(), second.leaseToken(),
+                bothPairs);
+        var excluded = new Decision(List.of("O1"), Operation.EXCLUDE, null, null, null,
+                null, null, null, null, null, TemporalScope.PRESENT, "별칭 관측 중복");
         graph.completeRelationshipAnalysis(second.analysisJobId(), second.leaseToken(),
-                new Complete(1, c2.contextToken(), List.of(pairDecision(c2, "O1"))));
+                new Complete(1, c2.contextToken(), List.of(excluded, pairDecision(c2, "O2"))));
         coordinator.completeRelationshipJob(second.analysisJobId(), second.leaseToken(), null);
         UUID mergedInto = tx.execute(t -> em.find(RelationshipGraphNode.class, alias).getMergedIntoNodeId());
         assertThat(mergedInto).isEqualTo(profile);
 
-        // 3화: 새 부분 문맥은 별칭 노드 edge를 프로필 노드 쌍으로 투영한다.
+        // 3화: 비교에는 최신 관계만 들어가며, 제외된 별칭 관계의 정정도 감지한다.
         var third = coordinator.claimRelationshipJob(partialRequest()).orElseThrow();
         var c3 = prepare(third);
         assertThat(boundNodeId(third.analysisJobId(), c3.observations().getFirst().sourceNodeRefs().getFirst()))
                 .isEqualTo(profile);
-        assertThat(c3.relationships()).hasSize(2);
+        assertThat(c3.relationships()).singleElement()
+                .satisfies(r -> assertThat(r.lastChangedEpisodeNo()).isEqualTo(2));
         UUID aliasEdge = jdbc.queryForObject(
                 "select id from relationship_graph_edges where work_id=? and (source_node_id=? or target_node_id=?)",
                 UUID.class, workId, alias, alias);

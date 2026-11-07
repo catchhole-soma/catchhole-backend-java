@@ -156,7 +156,8 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                             requireCurrent(a, job);
                             if (a.getStatus() == AnalysisStatus.PENDING) return Optional.empty();
                             assertResumableDependency(a);
-                            return Optional.of(mapper.toContext(a, job.isRelationshipPartialResultsEnabled()));
+                            Context saved = mapper.toContext(a, job.isRelationshipPartialResultsEnabled());
+                            return Optional.of(repairPreparedRelationships(a, job, saved));
                         });
     }
 
@@ -173,7 +174,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                                             job.getSourceContentHash(), request.sourceHash()))
                                 conflict();
                             RelationshipGraphAnalysis analysis = requiredAnalysis(job);
-                            Context saved = preparedRetry(analysis, request);
+                            Context saved = preparedRetry(analysis, job, request);
                             return new SourceSnapshot(
                                     job.getSourceContentS3Key(), job.getSourceContentHash(), saved);
                         });
@@ -188,7 +189,7 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                             || !Objects.equals(snapshot.key(), job.getSourceContentS3Key()))
                         conflict();
                     RelationshipGraphAnalysis analysis = requiredAnalysis(job);
-                    Context saved = preparedRetry(analysis, request);
+                    Context saved = preparedRetry(analysis, job, request);
                     if (saved != null) return saved;
                     assertLeasedOrderedInput(job);
                     BuiltContext built = buildContext(job, request);
@@ -249,11 +250,38 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                 || context.relationships().size() > 1536;
     }
 
-    private Context preparedRetry(RelationshipGraphAnalysis analysis, Prepare request) {
+    private Context preparedRetry(RelationshipGraphAnalysis analysis, AnalysisJob job, Prepare request) {
         assertResumableDependency(analysis);
         if (analysis.getStatus() == AnalysisStatus.PENDING) return null;
         if (!Objects.equals(hash(mapper.toJson(request)), analysis.getRequestHash())) conflict();
-        return mapper.toContext(analysis);
+        return repairPreparedRelationships(analysis, job, mapper.toContext(analysis));
+    }
+
+    private Context repairPreparedRelationships(RelationshipGraphAnalysis analysis, AnalysisJob job, Context saved) {
+        if (job.getJobType() != AnalysisJobType.SETTING_EXTRACTION
+                || analysis.getStatus() != AnalysisStatus.PREPARED || saved.relationships() == null) return saved;
+        List<ContextRelationship> relationships = collapseProjectedRelationships(saved.relationships());
+        if (relationships.size() == saved.relationships().size()) return saved;
+
+        assertOrdinaryResumeSource(analysis, job);
+        checkedCachedContext(analysis, job);
+        if (savedPhase(analysis) != AnalysisStatus.PREPARED || events.existsByAnalysisId(analysis.getId())) conflict();
+
+        // Keep the original observations and frozen dependency checks. Only the comparison rows
+        // and their bindings change. A completion based on the old rows must use a new input.
+        String token = storage.contentHash(saved.contextToken() + "|" + UUID.randomUUID());
+        ObjectNode context = analysis.getContext().deepCopy();
+        context.put("contextToken", token);
+        context.set("relationships", mapper.toJson(relationships));
+        ObjectNode bindings = analysis.getBindings().deepCopy();
+        if (!(bindings.get("relationships") instanceof ObjectNode relationBindings))
+            throw new AppException(RELATIONSHIP_GRAPH_CONFLICT);
+        for (var relationship : saved.relationships()) {
+            if (!relationBindings.path(relationship.ref()).isTextual()) conflict();
+        }
+        retainRelationshipBindings(relationBindings, relationships);
+        analysis.prepareContext(analysis.getRequestHash(), token, context, bindings, analysis.getRejectedObservationCount());
+        return mapper.toContext(analysis, job.isRelationshipPartialResultsEnabled());
     }
 
     /** Only a worker's initial load may replace a legacy token; an in-flight complete must not. */
@@ -876,6 +904,8 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                             firstKnown.get(edge.getId()),
                             event.getEpisodeNo()));
         }
+        relationships = collapseProjectedRelationships(relationships);
+        retainRelationshipBindings(relationBindings, relationships);
         Set<String> consumedHolds = consumedHolds(allAnalyses, cutoff - 1);
         List<ContextObservation> held = new ArrayList<>();
         ObjectNode heldBindings = bindings.putObject("heldSources");
@@ -991,6 +1021,26 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         }
         captureAliasDependencies(workId, bindings, dependencyPairs, allEdges.values(), index);
         return new BuiltContext(context, bindings);
+    }
+
+    private static List<ContextRelationship> collapseProjectedRelationships(List<ContextRelationship> relationships) {
+        Map<String, ContextRelationship> slots = new LinkedHashMap<>();
+        for (var relationship : relationships) {
+            String slot = RelationshipGraphRules.canonical(relationship.sourceNodeRef(), relationship.targetNodeRef(),
+                    relationship.axis(), relationship.kind(), relationship.direction());
+            slots.merge(slot, relationship, (first, next) -> {
+                // Prefer the latest state (including END); retain input order for same-episode ties.
+                var latest = next.lastChangedEpisodeNo() > first.lastChangedEpisodeNo() ? next : first;
+                return new ContextRelationship(latest.ref(), latest.sourceNodeRef(), latest.targetNodeRef(),
+                        latest.axis(), latest.kind(), latest.label(), latest.summary(), latest.direction(), latest.status(),
+                        Math.min(first.knownFromEpisodeNo(), next.knownFromEpisodeNo()), latest.lastChangedEpisodeNo());
+            });
+        }
+        return List.copyOf(slots.values());
+    }
+
+    private static void retainRelationshipBindings(ObjectNode bindings, List<ContextRelationship> relationships) {
+        bindings.retain(relationships.stream().map(ContextRelationship::ref).collect(Collectors.toSet()));
     }
 
     /**
