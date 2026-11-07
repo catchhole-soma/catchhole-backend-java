@@ -3011,6 +3011,103 @@ class EpisodeRelationshipGraphIntegrationTest {
         assertThat(graphRows()).isEqualTo(before);
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("별칭과 프로필의 같은 관계는 최신 상태로 비교하고 두 출처를 유지한다")
+    void preparationCollapsesAliasSlotsAndKeepsBothSources(boolean reversedProfileEdge) {
+        AliasSplit split = aliasSplit(reversedProfileEdge);
+        tx.executeWithoutResult(t -> em.find(RelationshipGraphNode.class, split.alias()).mergeInto(split.profile(), 2));
+        List<String> before = graphRows();
+        String text = "비요른과 보라는 다시 걸었다.";
+        UUID third = jobWithSource(3, text, false);
+        Context context = prepareWith(third, text, reversedProfileEdge
+                ? observation("O1", text, "보라", "비요른")
+                : observation("O1", text, "비요른", "보라"));
+
+        var stored = analyses.findById(third).orElseThrow();
+        assertThat(context.relationships()).hasSize(2).filteredOn(r -> r.kind() == Kind.COMPANIONSHIP)
+                .singleElement().satisfies(r -> {
+                    assertThat(r.summary()).isEqualTo("다시 함께 여행한다");
+                    assertThat(r.knownFromEpisodeNo()).isEqualTo(1);
+                    assertThat(r.lastChangedEpisodeNo()).isEqualTo(2);
+                    assertThat(stored.getBindings().path("relationships").path(r.ref()).asText())
+                            .isEqualTo(split.profileEdge().toString());
+                });
+        assertThat(stored.getBindings().path("relationships").size()).isEqualTo(2);
+        assertThat(stored.getBindings().path("sourceDependencies").size()).isEqualTo(2);
+        assertThat(graphRows()).isEqualTo(before);
+        apply(third, context, action(context, Operation.UPDATE, Kind.COMPANIONSHIP, "3화 동행"));
+        assertThat(relationshipEvents()).filteredOn(e -> e.getEdgeId().equals(split.aliasEdge()))
+                .extracting(RelationshipGraphEvent::getEpisodeNo).containsExactly(1);
+        assertThat(relationshipEvents()).filteredOn(e -> e.getEdgeId().equals(split.profileEdge()))
+                .extracting(RelationshipGraphEvent::getEpisodeNo).containsExactly(2, 3);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("동결 입력을 재개할 때 원문 재조회 없이 중복 관계와 토큰을 갱신한다")
+    void retryRepairsFrozenAliasSlotsWithoutReadingTheManuscript(boolean retryThroughPrepare) {
+        AliasSplit split = aliasSplit(false);
+        tx.executeWithoutResult(t -> em.find(RelationshipGraphNode.class, split.alias()).mergeInto(split.profile(), 2));
+        String text = "비요른과 보라는 다시 걸었다.";
+        UUID third = jobWithSource(3, text, false);
+        tx.executeWithoutResult(t -> jobs.findById(third).orElseThrow().enableRelationshipPartialResults());
+        Observation observed = observation("O1", text, "비요른", "보라");
+        Context original = prepareWith(third, text, observed);
+        tx.executeWithoutResult(t -> {
+            var stored = analyses.findById(third).orElseThrow();
+            ObjectNode bindings = stored.getBindings().deepCopy();
+            ObjectNode context = stored.getContext().deepCopy();
+            var relationships = context.withArray("relationships");
+            var bound = (ObjectNode) bindings.path("relationships");
+            for (int i = relationships.size() - 1; i >= 0; i--) {
+                String ref = relationships.get(i).path("ref").asText();
+                if (bound.path(ref).asText().equals(split.aliasEdge().toString())) {
+                    bound.remove(ref);
+                    relationships.remove(i);
+                }
+            }
+            ObjectNode legacyProfile = relationships.valueStream()
+                    .filter(r -> bound.path(r.path("ref").asText()).asText().equals(split.profileEdge().toString()))
+                    .map(r -> (ObjectNode) r).findFirst().orElseThrow();
+            legacyProfile.put("knownFromEpisodeNo", 2);
+            relationships.add(legacyProfile.deepCopy().put("ref", "R99").put("summary", "함께 여행한다")
+                    .put("knownFromEpisodeNo", 1).put("lastChangedEpisodeNo", 1));
+            bound.put("R99", split.aliasEdge().toString());
+            stored.prepareContext(stored.getRequestHash(), stored.getContextToken(), context, bindings,
+                    stored.getRejectedObservationCount());
+        });
+        var saved = analyses.findById(third).orElseThrow();
+        List<String> before = graphRows();
+        clearInvocations(storage);
+
+        Context resumed = retryThroughPrepare ? prepareWith(third, text, observed)
+                : service.getRelationshipAnalysis(third, lease).orElseThrow();
+
+        assertThat(resumed.contextToken()).isNotEqualTo(original.contextToken());
+        assertThat(resumed.observations()).isEqualTo(original.observations());
+        assertThat(resumed.nodes()).isEqualTo(original.nodes());
+        assertThat(resumed.supportsPartialResults()).isTrue();
+        assertThat(resumed.relationships()).hasSize(2).filteredOn(r -> r.kind() == Kind.COMPANIONSHIP)
+                .singleElement().satisfies(r -> {
+                    assertThat(r.knownFromEpisodeNo()).isEqualTo(1);
+                    assertThat(r.lastChangedEpisodeNo()).isEqualTo(2);
+                });
+        var repaired = analyses.findById(third).orElseThrow();
+        assertThat(repaired.getRequestHash()).isEqualTo(saved.getRequestHash());
+        assertThat(repaired.getBindings().path("relationships").has("R99")).isFalse();
+        assertThat(repaired.getBindings().path("sourceDependencies"))
+                .isEqualTo(saved.getBindings().path("sourceDependencies"));
+        assertThat(graphRows()).isEqualTo(before);
+        assertThat(service.getRelationshipAnalysis(third, lease)).contains(resumed);
+        assertThat(prepareWith(third, text, observed)).isEqualTo(resumed);
+        assertThatThrownBy(() -> service.completeRelationshipAnalysis(third, lease,
+                new Complete(1, original.contextToken(), List.of(action(resumed, Operation.UPDATE,
+                        Kind.COMPANIONSHIP, "3화 동행"))))).isInstanceOf(AppException.class);
+        verify(storage, never()).getText(anyString());
+        apply(third, resumed, action(resumed, Operation.UPDATE, Kind.COMPANIONSHIP, "3화 동행"));
+    }
+
     @Test
     @DisplayName("GH391 정리 뒤 새 분석은 합친 선을 문맥 관계로 받아 갱신하고 별칭 의존성 필드를 만들지 않는다")
     void finalizeAfterCleanupUsesConsolidatedEdges() {
