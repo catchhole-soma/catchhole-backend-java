@@ -33,8 +33,8 @@ public final class PrivateImageContent {
                 int longestEdge = Math.max(width, height);
                 int sampling = Math.max(1, longestEdge / maxEdge);
                 var parameters = reader.getDefaultReadParam();
-                // 큰 PNG도 축소용 디코딩 버퍼의 크기를 제한한다.
-                parameters.setSourceSubsampling(sampling, sampling, 0, 0);
+                // 열을 모두 읽어 Adam7 패스의 필터 검증을 유지하면서 디코딩 버퍼를 줄인다.
+                parameters.setSourceSubsampling(1, sampling, 0, 0);
                 var decoded = reader.read(0, parameters);
                 if (longestEdge > maxEdge) {
                     int targetWidth = Math.max(1, (int) Math.round((double) width * maxEdge / longestEdge));

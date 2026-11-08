@@ -212,6 +212,20 @@ class PrivateWorldImageIntegrationTest {
     }
 
     @Test
+    @DisplayName("축소 과정에서도 인터레이스 PNG의 잘못된 필터를 거절한다")
+    void accountImageRejectsInvalidAdam7FilterWhenResizing() throws Exception {
+        // 1536×16 Adam7 PNG. 홀수 열 패스에 유효하지 않은 필터 번호 5를 넣었다.
+        byte[] malformed = Base64.getDecoder().decode(
+                "iVBORw0KGgoAAAANSUhEUgAABgAAAAAQCAYAAAGn74RcAAAAj0lEQVR4nO3XMREAIAzAwC74t4wJjg75V5A1Mw"
+                        + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwFtnOwAAAPjHAAAAQIgBAACAEAMAAAAhBgAAAEIMAAAAhBgAAAAIMQ"
+                        + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKy49FsAKZTpTv8AAAAASUVORK5CYII=");
+
+        uploadAccountImage(token, malformed).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("PRIVATE_IMAGE_INVALID"));
+        verifyNoInteractions(storage);
+    }
+
+    @Test
     @DisplayName("별도 보관함이나 코드 없이 이미지를 저장하고 로그인 소유권으로 조회·선택한다")
     void accountImageRoundtripWithoutVault() throws Exception {
         byte[] png = png();
