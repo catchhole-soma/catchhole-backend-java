@@ -25,24 +25,25 @@ class AnalysisSemanticCurrentContextMapperTest {
     private final AnalysisSemanticCurrentContextMapper mapper = new AnalysisSemanticCurrentContextMapper(wire, journal, null);
     private static final UUID CHARACTER = UUID.fromString("3a54feaa-070d-49e7-a5b0-0bb4cde8b8ce");
 
-    @Test @DisplayName("모든 character 슬롯과 world 속성을 합산한 정확한 4096 상한은 허용한다")
-    void acceptsExactly4096AggregateItems() {
-        ObjectNode state = state(2048, 2048);
+    @Test @DisplayName("모든 character 슬롯과 world 속성을 합산한 정확한 8192 상한은 허용한다")
+    void acceptsExactly8192AggregateItems() {
+        ObjectNode state = state(4096, 4096);
         var payload = mapper.toResponse(job(state), state);
-        assertThat(payload.characters().getFirst().currentSlots()).hasSize(2048);
-        assertThat(payload.worldSubjects().getFirst().properties()).hasSize(2048);
+        assertThat(payload.characters().getFirst().currentSlots()).hasSize(4096);
+        assertThat(payload.worldSubjects().getFirst().properties()).hasSize(4096);
         state.withObject("worldSettings").elements().next().withObject("propertiesJson").put("overflow", "one more");
         assertThatThrownBy(() -> mapper.toResponse(job(state), state)).isInstanceOf(AnalysisSemanticCurrentContextMapper.InvalidCarrierException.class);
     }
 
-    @Test @DisplayName("전체 실제 직렬화의 정확한 1MiB는 허용하며 한 바이트 더 큰 문맥은 거절한다")
+    @Test @DisplayName("전체 실제 직렬화의 정확한 2MiB는 허용하며 한 바이트 더 큰 문맥은 거절한다")
     void acceptsExactSerializedByteLimitAndRejectsOneMore() {
         ObjectNode state = state(1, 0);
         ObjectNode slot = (ObjectNode) state.path("characters").elements().next().path("slots").elements().next();
         slot.put("factValue", "");
         int baseBytes = wire.writeValueAsBytes(mapper.toResponse(job(state), state)).length;
-        slot.put("factValue", "x".repeat(AnalysisSemanticCurrentContextMapper.MAX_UTF8_BYTES - baseBytes));
-        assertThat(wire.writeValueAsBytes(mapper.toResponse(job(state), state))).hasSize(AnalysisSemanticCurrentContextMapper.MAX_UTF8_BYTES);
+        int expectedByteLimit = 2 * 1024 * 1024;
+        slot.put("factValue", "x".repeat(expectedByteLimit - baseBytes));
+        assertThat(wire.writeValueAsBytes(mapper.toResponse(job(state), state))).hasSize(expectedByteLimit);
         slot.put("factValue", slot.path("factValue").asText() + "x");
         assertThatThrownBy(() -> mapper.toResponse(job(state), state)).isInstanceOf(AnalysisSemanticCurrentContextMapper.InvalidCarrierException.class);
     }

@@ -21,8 +21,8 @@ import org.springframework.stereotype.Component;
 @Component
 @RequiredArgsConstructor
 public class AnalysisSemanticCurrentContextMapper {
-    public static final int MAX_ITEMS = 4096;
-    public static final int MAX_UTF8_BYTES = 1_048_576;
+    public static final int MAX_ITEMS = 8_192;
+    public static final int MAX_UTF8_BYTES = 2_097_152;
     private final tools.jackson.databind.ObjectMapper wireMapper;
     private final AnalysisStateJournal journal;
     private final org.monitoring.catchholebackend.domain.analysis.processor.AnalysisLiveStateReader liveState;
