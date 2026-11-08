@@ -42,7 +42,7 @@
           "max-reserved-tokens": 640000,
           "output-tokens": 12000,
           "model": "gpt-6.1-terra",
-          "reasoning-effort": "low"
+          "reasoning-effort": "medium"
         },
         "QUERY_EMBEDDING": {
           "max-calls": 250,

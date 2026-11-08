@@ -193,8 +193,8 @@ DB↔원문 불일치는 두 참조를 유지하고 명시 정정의 정확한 �
 
 ## 모델·예산·오탈자 공통 계약
 
-모델과 추론 강도는 코드에 고정하지 않고 Job configuration v2의 역할별 설정이 정한다(`claim_roles`). 운영값은 31화 Terra/Luna 비교 실험으로 정했다:
-PLANNER `gpt-6.1-terra` medium, JUDGE `gpt-6-luna` high, TYPO `gpt-6.1-terra` low. 출력 상한도 역할별이다(계획 5만, 판정 2만, 오탈자 1.2만).
+모델과 추론 강도는 코드에 고정하지 않고 Job configuration v2의 역할별 설정이 정한다(`claim_roles`). 계획·판정은 31화 Terra/Luna 비교 실험 값을 유지하며, 오탈자는 2026-11-08 사용자 결정(#404)으로 medium으로 정정했다:
+PLANNER `gpt-6.1-terra` medium, JUDGE `gpt-6-luna` high, TYPO `gpt-6.1-terra` medium. 출력 상한도 역할별이다(계획 5만, 판정 2만, 오탈자 1.2만).
 frozen `LlmCallOptions`를 count/생성 양쪽에 동일하게 전달하고 공유 client 기본 속성을 바꾸지 않는다. 기존 추출/챗봇의 모델·추론 기본값은 유지한다.
 
 `InvocationBudget`의 model_calls/lookups/seconds/input_tokens/segment_chars/context_chars/search_limit는 모두 호출자가 정한다(claim 시도 단위).
