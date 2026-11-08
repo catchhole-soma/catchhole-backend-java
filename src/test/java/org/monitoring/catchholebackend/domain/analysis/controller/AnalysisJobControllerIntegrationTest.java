@@ -4,6 +4,7 @@ import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -1399,6 +1400,124 @@ class AnalysisJobControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.content[0].jobGroups[0].pendingJobCount").value(1))
                 .andExpect(jsonPath("$.data.content[0].jobGroups[0].failedJobCount").value(1))
                 .andExpect(jsonPath("$.data.content[0].jobGroups[0].succeededJobCount").value(1));
+    }
+
+    @Test
+    @DisplayName("삭제한 회차의 실패 기록을 지우면 분석 목록과 원고 배너용 전체 목록에서 빠지고 분석 결과는 남는다")
+    void deleteAnalysisBatchHistoryHidesFailedBatchOfArchivedEpisode() throws Exception {
+        AnalysisJob failedJob = AnalysisJob.create(work, uploadBatch, firstEpisode, AnalysisJobType.SETTING_EXTRACTION);
+        failedJob.fail("분석 실패");
+        analysisJobRepository.save(failedJob);
+        firstEpisode.archive();
+        episodeRepository.save(firstEpisode);
+
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("kind", "ANALYSIS"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].status").value("FAILED"))
+                .andExpect(jsonPath("$.data.content[0].historyDeletable").value(true));
+
+        mockMvc.perform(delete("/api/v1/works/{workId}/analysis-jobs/batches/{batchId}", work.getId(), uploadBatch.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("분석 기록이 삭제되었습니다."));
+
+        for (String kind : List.of("ALL", "ANALYSIS")) {
+            mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                            .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                            .queryParam("kind", kind))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.content", hasSize(0)))
+                    .andExpect(jsonPath("$.data.totalElements").value(0));
+        }
+        assertThat(analysisJobRepository.findById(failedJob.getId())).isPresent();
+        assertThat(uploadBatchRepository.findById(uploadBatch.getId()).orElseThrow().getAnalysisHistoryDeletedAt())
+                .isNotNull();
+    }
+
+    @Test
+    @DisplayName("지운 분석 기록도 같은 묶음에 새 분석을 요청하면 다시 목록에 나온다")
+    void deletedAnalysisBatchHistoryReappearsAfterNewRequest() throws Exception {
+        AnalysisJob failedJob = AnalysisJob.create(work, uploadBatch, firstEpisode, AnalysisJobType.SETTING_EXTRACTION);
+        failedJob.fail("분석 실패");
+        analysisJobRepository.save(failedJob);
+        mockMvc.perform(delete("/api/v1/works/{workId}/analysis-jobs/batches/{batchId}", work.getId(), uploadBatch.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk());
+        Thread.sleep(10);
+        analysisJobRepository.save(AnalysisJob.create(work, uploadBatch, secondEpisode, AnalysisJobType.SETTING_EXTRACTION));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("kind", "ANALYSIS"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content", hasSize(1)))
+                .andExpect(jsonPath("$.data.totalElements").value(1))
+                .andExpect(jsonPath("$.data.content[0].batchId").value(uploadBatch.getId().toString()))
+                .andExpect(jsonPath("$.data.content[0].historyDeletable").value(false));
+    }
+
+    @Test
+    @DisplayName("진행 중인 분석 기록은 지우지 않는다")
+    void deleteAnalysisBatchHistoryRejectsInProgressBatch() throws Exception {
+        analysisJobRepository.save(AnalysisJob.create(work, uploadBatch, firstEpisode, AnalysisJobType.SETTING_EXTRACTION));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].historyDeletable").value(false));
+        mockMvc.perform(delete("/api/v1/works/{workId}/analysis-jobs/batches/{batchId}", work.getId(), uploadBatch.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("ANALYSIS_HISTORY_DELETE_NOT_ALLOWED"));
+        assertThat(uploadBatchRepository.findById(uploadBatch.getId()).orElseThrow().getAnalysisHistoryDeletedAt())
+                .isNull();
+    }
+
+    @Test
+    @DisplayName("검토할 설정 후보가 남은 분석 기록은 지우지 않는다")
+    void deleteAnalysisBatchHistoryRejectsPendingReview() throws Exception {
+        AnalysisJob succeeded = succeededJob(firstEpisode, AnalysisJobType.SETTING_EXTRACTION);
+        worldSettingCandidateRepository.save(worldSettingCandidate(succeeded, firstEpisode, "미궁 1층"));
+
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].status").value("REVIEW_REQUIRED"))
+                .andExpect(jsonPath("$.data.content[0].historyDeletable").value(false));
+        mockMvc.perform(delete("/api/v1/works/{workId}/analysis-jobs/batches/{batchId}", work.getId(), uploadBatch.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("ANALYSIS_HISTORY_DELETE_NOT_ALLOWED"));
+    }
+
+    @Test
+    @DisplayName("재개할 순차 분석이 남은 기록은 지우지 않고, 회차를 삭제해 재개 대상이 없어지면 지울 수 있다")
+    void deleteAnalysisBatchHistoryRejectsResumableOrderedAnalysis() throws Exception {
+        AnalysisJob first = orderedListJob(firstEpisode, UUID.randomUUID(), 0, null);
+        first.fail("분석 연결 중 오류");
+        analysisJobRepository.saveAndFlush(first);
+
+        mockMvc.perform(delete("/api/v1/works/{workId}/analysis-jobs/batches/{batchId}", work.getId(), uploadBatch.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("ANALYSIS_HISTORY_DELETE_NOT_ALLOWED"));
+
+        firstEpisode.archive();
+        episodeRepository.saveAndFlush(firstEpisode);
+        mockMvc.perform(delete("/api/v1/works/{workId}/analysis-jobs/batches/{batchId}", work.getId(), uploadBatch.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("다른 작품의 업로드 묶음 기록은 지울 수 없다")
+    void deleteAnalysisBatchHistoryRejectsBatchOfOtherWork() throws Exception {
+        mockMvc.perform(delete("/api/v1/works/{workId}/analysis-jobs/batches/{batchId}", work.getId(), otherUploadBatch.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("ANALYSIS_JOB_TARGET_NOT_FOUND"));
     }
 
     private AnalysisJob orderedListJob(Episode episode, UUID runId, int sequence, UUID predecessorId) {

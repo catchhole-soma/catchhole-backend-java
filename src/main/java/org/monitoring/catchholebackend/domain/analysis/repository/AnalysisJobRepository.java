@@ -251,12 +251,21 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             """)
     List<AnalysisJob> findAllWithTargetsByWorkIdOrderByCreatedAtDesc(@Param("workId") UUID workId);
 
+    /** 분석 기록을 지운 batch는 지운 시각 뒤의 새 분석 요청·검수 접수가 있을 때만 목록에 다시 나온다(alias b = upload_batches). */
+    String VISIBLE_ANALYSIS_HISTORY = """
+            (b.analysis_history_deleted_at is null
+               or exists (select 1 from analysis_jobs dj where dj.batch_id = b.id
+                   and dj.job_type in ('SETTING_EXTRACTION','EPISODE_VALIDATION') and dj.created_at > b.analysis_history_deleted_at)
+               or exists (select 1 from validation_reports dv where dv.batch_id = b.id and dv.created_at > b.analysis_history_deleted_at))
+            """;
+
     /**
      * GH312: 파일 교체 뒤 재검수 report는 회차의 새 업로드 batch에 묶이므로 퇴역 report만 남은 옛 batch는 목록에 올리지 않는다.
      * 표시되는 batch의 최초·최근 요청 시각은 계속 모든 접수 이력을 집계한다.
      * kind는 {@link org.monitoring.catchholebackend.domain.analysis.type.AnalysisBatchKind} 이름이며,
      * ANALYSIS는 분석 Job이 있는 batch, VALIDATION은 현재 검수 report가 있는 batch라서 검토를 마쳐 설정 추출이
      * 시작된 검수 batch는 두 목록에 모두 나온다.
+     * 작가가 분석 기록을 지운 batch는 지운 시각 뒤에 새 분석 요청이나 검수 접수가 생길 때까지 모든 kind에서 뺀다.
      */
     @Query(value = """
             with requests as (
@@ -270,6 +279,7 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
                   and (:kind = 'ALL'
                    or (:kind = 'VALIDATION' and exists (select 1 from validation_reports v where v.batch_id = b.id and v.is_current = true))
                    or (:kind = 'ANALYSIS' and exists (select 1 from analysis_jobs j where j.batch_id = b.id and j.job_type in ('SETTING_EXTRACTION','EPISODE_VALIDATION'))))
+                  and """ + VISIBLE_ANALYSIS_HISTORY + """
                 group by b.id, b.upload_type order by max(r.created_at) desc, b.id desc
             """, countQuery = """
             select count(*) from upload_batches b where b.work_id = :workId and (
@@ -278,6 +288,7 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
               and (:kind = 'ALL'
                 or (:kind = 'VALIDATION' and exists (select 1 from validation_reports r where r.batch_id = b.id and r.is_current = true))
                 or (:kind = 'ANALYSIS' and exists (select 1 from analysis_jobs j where j.batch_id = b.id and j.job_type in ('SETTING_EXTRACTION','EPISODE_VALIDATION'))))
+              and """ + VISIBLE_ANALYSIS_HISTORY + """
             """, nativeQuery = true)
     Page<AnalysisBatchPageRow> findBatchPage(
             @Param("workId") UUID workId,
@@ -390,8 +401,8 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             Collection<AnalysisJobStatus> statuses
     );
     /** GH201 진행·대기·같은 입력으로 재개할 순차 분석. 확정 설정 변경 거절과 회차 전체 확정 안내(D2, #387)가 같은 조건을 쓴다. */
-    String UNFINISHED_ORDERED_ANALYSIS = """
-            select count(job) > 0 from AnalysisJob job
+    String UNFINISHED_ORDERED_ANALYSIS_FROM = """
+            from AnalysisJob job
             left join job.episode episode
             where job.work.id = :workId
               and job.analysisMode = org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode.ORDERED_PROVISIONAL
@@ -418,9 +429,30 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
                                   or (newer.createdAt = job.createdAt and newer.id > job.id))
                        )))
             """;
+    String UNFINISHED_ORDERED_ANALYSIS = "select count(job) > 0 " + UNFINISHED_ORDERED_ANALYSIS_FROM;
 
     @Query(UNFINISHED_ORDERED_ANALYSIS)
     boolean existsUnfinishedOrderedAnalysis(@Param("workId") UUID workId);
+
+    /** 분석 기록 삭제 가능 여부용. 재개해야 할 순차 분석을 가진 batch를 숨기면 재개 안내(분석 목록)로 돌아갈 길이 없어진다. */
+    @Query("select distinct job.batch.id " + UNFINISHED_ORDERED_ANALYSIS_FROM + "  and job.batch.id in :batchIds")
+    List<UUID> findBatchIdsWithUnfinishedOrderedAnalysis(
+            @Param("workId") UUID workId,
+            @Param("batchIds") Collection<UUID> batchIds
+    );
+
+    /** 분석 기록 삭제 가능 여부용. 내부 비교 Job까지 모든 Job type의 대기·실행을 본다. */
+    @Query("""
+            select distinct job.batch.id from AnalysisJob job
+            where job.work.id = :workId
+              and job.batch.id in :batchIds
+              and job.status in (org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.PENDING,
+                                 org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.RUNNING)
+            """)
+    List<UUID> findBatchIdsWithActiveJobs(
+            @Param("workId") UUID workId,
+            @Param("batchIds") Collection<UUID> batchIds
+    );
 
     /**
      * D2(#387) 검수 회차의 APPLY_SETTINGS 안내용. 그 report의 release Job 자신은 빼고 묻는다. release Job이 추출 중이거나 실패했을 때의

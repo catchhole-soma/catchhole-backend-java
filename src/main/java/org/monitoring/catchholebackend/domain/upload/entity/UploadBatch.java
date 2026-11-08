@@ -84,6 +84,10 @@ public class UploadBatch extends BaseEntity {
     @Column(name = "completed_at")
     private LocalDateTime completedAt;
 
+    // 분석 목록에서 작가가 이 묶음의 기록을 지운 시각. 이 시각 뒤의 새 분석 요청·검수 접수가 생기면 다시 목록에 나온다.
+    @Column(name = "analysis_history_deleted_at")
+    private LocalDateTime analysisHistoryDeletedAt;
+
     private UploadBatch(Work work, Member member, UploadType uploadType, UploadSourceType sourceType) {
         this.work = work;
         this.member = member;
@@ -118,5 +122,9 @@ public class UploadBatch extends BaseEntity {
     public void fail() {
         this.status = UploadStatus.FAILED;
         this.completedAt = LocalDateTime.now();
+    }
+
+    public void deleteAnalysisHistory() {
+        this.analysisHistoryDeletedAt = LocalDateTime.now();
     }
 }

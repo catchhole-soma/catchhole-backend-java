@@ -19,6 +19,7 @@ public enum AnalysisJobErrorCode implements ResultCode {
     ANALYSIS_CURRENT_EVIDENCE_SOURCE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "현재 설정의 원문 저장소에 일시적으로 접근할 수 없습니다."),
     ANALYSIS_REVIEW_WAIT_REQUIRED(HttpStatus.CONFLICT, "진행 중이거나 재개를 기다리는 순차 분석이 있습니다. 분석 목록에서 상태를 확인하고, 분석이 모두 끝난 뒤 설정을 변경해 주세요."),
     ANALYSIS_JOB_NOT_FOUND(HttpStatus.NOT_FOUND, "분석 작업을 찾을 수 없습니다."),
+    ANALYSIS_HISTORY_DELETE_NOT_ALLOWED(HttpStatus.CONFLICT, "진행 중이거나 검토·재개가 남은 분석 기록은 삭제할 수 없습니다. 분석을 마치거나 남은 검토를 끝낸 뒤 다시 시도해 주세요."),
     ANALYSIS_JOB_TARGET_NOT_FOUND(HttpStatus.NOT_FOUND, "분석 대상 리소스를 찾을 수 없습니다."),
     ANALYSIS_JOB_ALREADY_IN_PROGRESS(HttpStatus.CONFLICT, "같은 대상의 분석 작업이 이미 진행 중입니다."),
     ANALYSIS_JOB_TYPE_INVALID(HttpStatus.BAD_REQUEST, "외부에서 생성하거나 조회할 수 없는 분석 작업 유형입니다."),
