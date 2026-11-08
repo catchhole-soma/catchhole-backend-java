@@ -29,7 +29,18 @@ public final class PrivateImageContent {
                 int dimensionLimit = thumbnail ? 480 : 16384;
                 if (width < 1 || height < 1 || width > dimensionLimit || height > dimensionLimit
                         || (long) width * height > 32_000_000) throw invalid();
-                var decoded = resize(reader.read(0), thumbnail ? 350 : 768);
+                int maxEdge = thumbnail ? 350 : 768;
+                int longestEdge = Math.max(width, height);
+                int sampling = Math.max(1, longestEdge / maxEdge);
+                var parameters = reader.getDefaultReadParam();
+                // 큰 PNG도 축소용 디코딩 버퍼의 크기를 제한한다.
+                parameters.setSourceSubsampling(sampling, sampling, 0, 0);
+                var decoded = reader.read(0, parameters);
+                if (longestEdge > maxEdge) {
+                    int targetWidth = Math.max(1, (int) Math.round((double) width * maxEdge / longestEdge));
+                    int targetHeight = Math.max(1, (int) Math.round((double) height * maxEdge / longestEdge));
+                    decoded = resize(decoded, targetWidth, targetHeight);
+                }
                 var output = new ByteArrayOutputStream();
                 if (!ImageIO.write(decoded, "png", output) || output.size() > limit) throw invalid();
                 return output.toByteArray();
@@ -39,12 +50,7 @@ public final class PrivateImageContent {
         }
     }
 
-    private static BufferedImage resize(BufferedImage image, int maxEdge) {
-        int longestEdge = Math.max(image.getWidth(), image.getHeight());
-        if (longestEdge <= maxEdge) return image;
-
-        int width = Math.max(1, (int) Math.round((double) image.getWidth() * maxEdge / longestEdge));
-        int height = Math.max(1, (int) Math.round((double) image.getHeight() * maxEdge / longestEdge));
+    private static BufferedImage resize(BufferedImage image, int width, int height) {
         int type = image.getColorModel().hasAlpha() ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB;
         var resized = new BufferedImage(width, height, type);
         var graphics = resized.createGraphics();
