@@ -157,7 +157,9 @@ DATABASE_POOL_MINIMUM_IDLE=2
 
 ## 검수 실행 켜기 (#344)
 
-검수 실행은 `api.env`의 `VALIDATION_EXECUTION_ENABLED`와 `SPRING_APPLICATION_JSON` 두 값으로 켜고 끈다. Compose는 두 값을 backend 컨테이너에 그대로 넘기며 기본값은 `false`와 빈 문자열이다. 꺼진 동안에는 검수 리포트가 접수돼도 Job이 생기지 않는다. 예산 수치는 애플리케이션 YAML·Java 코드에 기본값으로 두지 않고 [`validation-execution.prod.example.json`](validation-execution.prod.example.json)을 한 줄 JSON으로 넣는다. 이 수치는 #349 개편 결정(2026-11-02, 호출 200·조회 300·60분·호출당 입력 8만·1만 자 구간)과 31화 비교 실험으로 정한 역할별 모델(계획 Terra medium, 판정 Luna high, 오탈자 Terra low)이며 계약은 [검수 실행 문서](../docs/validation-execution-v1.md)의 "실행 설정과 사용량"을 따른다.
+검수 실행은 `api.env`의 `VALIDATION_EXECUTION_ENABLED`와 `SPRING_APPLICATION_JSON` 두 값으로 켜고 끈다. Compose는 두 값을 backend 컨테이너에 그대로 넘기며 기본값은 `false`와 빈 문자열이다. 꺼진 동안에는 검수 리포트가 접수돼도 Job이 생기지 않는다. 예산 수치는 애플리케이션 YAML·Java 코드에 기본값으로 두지 않고 [`validation-execution.prod.example.json`](validation-execution.prod.example.json)을 한 줄 JSON으로 넣는다. 이 수치는 #349 개편 결정(2026-11-02, 호출 200·조회 300·60분·호출당 입력 8만·1만 자 구간)과 역할별 모델(계획 Terra medium, 판정 Luna high, 오탈자 Terra medium)이며 계약은 [검수 실행 문서](../docs/validation-execution-v1.md)의 "실행 설정과 사용량"을 따른다.
+
+2026-11-08 사용자 결정(#404)으로 TYPO 추론 강도만 low에서 medium으로 정정했다. 기존 운영 환경은 예시 파일 수정만으로 바뀌지 않으므로 아래 배포 lock 안에서 `SPRING_APPLICATION_JSON.validation.execution.roles.TYPO.reasoning-effort`만 바꾸고 backend를 재생성한다. 다른 설정은 보존한다. 새 검수에 적용되며 저장된 기존 Job 설정은 바꾸지 않는다.
 
 전제 조건:
 
