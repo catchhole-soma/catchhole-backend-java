@@ -6,6 +6,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -13,7 +14,10 @@ import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.analysis.dto.request.AnalysisJobCreateRequest;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisBatchJobGroupResponse;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisBatchSummaryResponse;
+import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisBatchCandidateCountsResponse;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisBatchSettingBookResponse;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisBatchSettingBookStatus;
+import org.monitoring.catchholebackend.domain.validation.type.ValidationReviewStage;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobCandidateReviewCounts;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisJobResponse;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisJobProgressResponse;
@@ -230,11 +234,37 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
         Work work = workRepository.getOwnedWork(workId, memberId);
         Page<AnalysisBatchPageRow> batchPage =
                 analysisJobRepository.findBatchPage(work.getId(), kind.name(), PageRequest.of(page, size));
-        List<UUID> batchIds = batchPage.getContent().stream()
+        return PageResponse.from(batchPage, summarizeBatches(work, batchPage.getContent()));
+    }
+
+    @Override
+    @Transactional
+    public void deleteAnalysisBatchHistory(Long memberId, UUID workId, UUID batchId) {
+        // 분석 생성·검수 접수와 같은 Work 잠금 아래에서 판정해 판정과 숨김 사이에 새 요청이 끼지 않게 한다.
+        Work work = workRepository.getOwnedWorkForUpdate(workId, memberId);
+        UploadBatch batch = getBatchInWork(batchId, work);
+        AnalysisBatchSummaryResponse summary =
+                summarizeBatches(work, List.of(new HistoryDeletionTarget(batch.getId(), batch.getUploadType()))).getFirst();
+        if (!summary.historyDeletable()) {
+            throw new AppException(AnalysisJobErrorCode.ANALYSIS_HISTORY_DELETE_NOT_ALLOWED);
+        }
+        batch.deleteAnalysisHistory();
+    }
+
+    /** 삭제 판정은 목록 카드와 같은 요약 계산을 쓴다. 요청 시각은 판정에 쓰지 않는다. */
+    private record HistoryDeletionTarget(UUID batchId, UploadType uploadType) implements AnalysisBatchPageRow {
+        @Override public UUID getBatchId() { return batchId; }
+        @Override public UploadType getUploadType() { return uploadType; }
+        @Override public LocalDateTime getFirstRequestedAt() { return null; }
+        @Override public LocalDateTime getLastRequestedAt() { return null; }
+    }
+
+    private List<AnalysisBatchSummaryResponse> summarizeBatches(Work work, List<AnalysisBatchPageRow> rows) {
+        List<UUID> batchIds = rows.stream()
                 .map(AnalysisBatchPageRow::getBatchId)
                 .toList();
         if (batchIds.isEmpty()) {
-            return PageResponse.from(batchPage, List.of());
+            return List.of();
         }
 
         Map<UUID, List<GroupSummary>> summariesByBatchId = analysisBatchSummaryRepository
@@ -294,7 +324,9 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
 
         var validations = analysisBatchSummaryRepository.readValidations(work.getId(), batchIds).stream()
                 .collect(Collectors.groupingBy(org.monitoring.catchholebackend.domain.analysis.repository.AnalysisBatchSummaryRepository.ValidationRow::batchId));
-        List<AnalysisBatchSummaryResponse> responses = batchPage.getContent().stream()
+        Set<UUID> historyLockedBatchIds = new HashSet<>(analysisJobRepository.findBatchIdsWithActiveJobs(work.getId(), batchIds));
+        historyLockedBatchIds.addAll(analysisJobRepository.findBatchIdsWithUnfinishedOrderedAnalysis(work.getId(), batchIds));
+        return rows.stream()
                 .map(row -> toBatchSummary(
                         row,
                         summariesByBatchId.getOrDefault(row.getBatchId(), List.of()),
@@ -302,10 +334,10 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                         worldSettingCandidateCountsByBatchId.get(row.getBatchId()),
                         activeWorldComparisonCountsByBatchId.getOrDefault(row.getBatchId(), 0L),
                         booksByPageBatch.getOrDefault(row.getBatchId(), List.of()),
-                        validations.getOrDefault(row.getBatchId(), List.of())
+                        validations.getOrDefault(row.getBatchId(), List.of()),
+                        historyLockedBatchIds.contains(row.getBatchId())
                 ))
                 .toList();
-        return PageResponse.from(batchPage, responses);
     }
 
     @Override
@@ -773,7 +805,8 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
             WorldSettingCandidateBatchReviewCounts worldSettingCandidateCounts,
             long activeWorldSettingComparisonCount,
             List<AnalysisBatchSettingBookResponse> books,
-            List<org.monitoring.catchholebackend.domain.analysis.repository.AnalysisBatchSummaryRepository.ValidationRow> validations
+            List<org.monitoring.catchholebackend.domain.analysis.repository.AnalysisBatchSummaryRepository.ValidationRow> validations,
+            boolean historyLocked
     ) {
         List<AnalysisBatchJobGroupResponse> jobGroups = summaries.stream()
                 .filter(group -> !group.episodeOnly())
@@ -803,7 +836,47 @@ public class AnalysisJobServiceImpl implements AnalysisJobService {
                 summaries.isEmpty() ? null : summaries.getFirst(), characterCandidateCounts, worldSettingCandidateCounts, jobGroups, lastActivityAt,
                 episodeGroups, validationStatus != null ? validationStatus : episodeGroups.isEmpty() ? null
                         : resolveBatchStatus(episodeGroups, pendingCandidateCount, activeWorldSettingComparisonCount, tokenInterruptedCount),
-                books, validations.stream().map(v -> v.response()).toList());
+                books, validations.stream().map(v -> v.response()).toList(),
+                isHistoryDeletable(historyLocked, jobGroups, episodeGroups, pendingCandidateCount, tokenInterruptedCount,
+                        activeWorldSettingComparisonCount, books, validations));
+    }
+
+    /**
+     * 분석 기록 삭제는 목록에서만 숨기므로, 숨긴 뒤 작가가 돌아가야 할 일이 남은 묶음은 막는다.
+     * 진행·대기 Job, 검토 대기 후보, 사용량 중단 비교, 재개할 순차 분석·설정집, 검토 종료·회차 확정이 끝나지 않은 검수가 그 대상이다.
+     */
+    private static boolean isHistoryDeletable(
+            boolean historyLocked,
+            List<AnalysisBatchJobGroupResponse> jobGroups,
+            List<AnalysisBatchJobGroupResponse> episodeGroups,
+            long pendingCandidateCount,
+            long tokenInterruptedCount,
+            long activeWorldSettingComparisonCount,
+            List<AnalysisBatchSettingBookResponse> books,
+            List<org.monitoring.catchholebackend.domain.analysis.repository.AnalysisBatchSummaryRepository.ValidationRow> validations
+    ) {
+        if (historyLocked || pendingCandidateCount > 0 || tokenInterruptedCount > 0 || activeWorldSettingComparisonCount > 0) {
+            return false;
+        }
+        if (java.util.stream.Stream.concat(jobGroups.stream(), episodeGroups.stream())
+                .anyMatch(group -> group.status() == AnalysisBatchStatus.IN_PROGRESS
+                        || group.status() == AnalysisBatchStatus.REVIEW_REQUIRED)) {
+            return false;
+        }
+        boolean bookOpen = books.stream().anyMatch(book -> book.status() == AnalysisBatchSettingBookStatus.PENDING
+                || book.status() == AnalysisBatchSettingBookStatus.IN_PROGRESS
+                || book.status() == AnalysisBatchSettingBookStatus.INTERRUPTED
+                || hasOpenCandidates(book.characterCandidates())
+                || hasOpenCandidates(book.worldCandidates()));
+        if (bookOpen) {
+            return false;
+        }
+        return validations.stream().allMatch(validation -> validation.response().reviewStage() == ValidationReviewStage.APPLIED
+                || validation.response().reviewStage() == ValidationReviewStage.INVALIDATED);
+    }
+
+    private static boolean hasOpenCandidates(AnalysisBatchCandidateCountsResponse counts) {
+        return counts != null && (counts.pendingCandidateCount() > 0 || counts.processingCandidateCount() > 0);
     }
 
     private AnalysisBatchStatus resolveBatchStatus(

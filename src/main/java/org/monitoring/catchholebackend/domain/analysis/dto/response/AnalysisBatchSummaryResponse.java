@@ -69,6 +69,9 @@ public record AnalysisBatchSummaryResponse(
         AnalysisBatchStatus episodeStatus,
         @Schema(description = "현재 페이지 설정집 카드 요약")
         List<AnalysisBatchSettingBookResponse> settingBooks,
-        @Schema(description = "설정 추출 전 오류 검수 요청. Job 수에 포함하지 않습니다.") List<org.monitoring.catchholebackend.domain.validation.dto.response.ValidationRequestSummaryResponse> validationReports
+        @Schema(description = "설정 추출 전 오류 검수 요청. Job 수에 포함하지 않습니다.") List<org.monitoring.catchholebackend.domain.validation.dto.response.ValidationRequestSummaryResponse> validationReports,
+        @Schema(description = "분석 기록 삭제 가능 여부. 진행·대기 중인 작업, 검토 대기 후보, 재개할 순차 분석·설정집, "
+                + "끝나지 않은 검수가 있으면 false입니다. 삭제는 목록에서만 숨기며 분석 결과와 확정 설정은 유지합니다.")
+        boolean historyDeletable
 ) {
 }

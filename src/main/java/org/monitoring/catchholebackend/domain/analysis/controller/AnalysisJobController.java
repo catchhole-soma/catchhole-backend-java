@@ -30,6 +30,7 @@ import org.monitoring.catchholebackend.global.common.response.PageResponse;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -161,6 +162,32 @@ public class AnalysisJobController {
         return CommonResponse.success(
                 analysisJobService.getAnalysisBatches(member.memberId(), workId, page, size, kind)
         );
+    }
+
+    @DeleteMapping("/batches/{batchId}")
+    @Operation(
+            operationId = "deleteAnalysisBatchHistory",
+            summary = "분석 목록 기록 삭제",
+            description = "본인 작품의 업로드 배치를 분석 목록과 오류 리포트 목록에서 지웁니다. 분석 결과, 설정 후보, 확정 설정, "
+                    + "검수 report는 삭제하지 않습니다. 진행·대기 중인 작업, 검토 대기 후보, 재개할 순차 분석·설정집, "
+                    + "끝나지 않은 검수가 있으면 409로 거절합니다. 지운 뒤 같은 배치에 새 분석 요청이나 검수 접수가 생기면 다시 목록에 나옵니다."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "분석 기록 삭제 성공"),
+            @ApiResponse(responseCode = "401", description = "액세스 토큰 없음, 만료 또는 검증 실패",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "작품 또는 업로드 배치를 찾을 수 없음",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class))),
+            @ApiResponse(responseCode = "409", description = "진행 중이거나 검토·재개가 남은 기록(ANALYSIS_HISTORY_DELETE_NOT_ALLOWED)",
+                    content = @Content(schema = @Schema(implementation = CommonErrorResponse.class)))
+    })
+    public CommonResponse<Void> deleteAnalysisBatchHistory(
+            @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
+            @PathVariable UUID workId,
+            @PathVariable UUID batchId
+    ) {
+        analysisJobService.deleteAnalysisBatchHistory(member.memberId(), workId, batchId);
+        return CommonResponse.success("분석 기록이 삭제되었습니다.", null);
     }
 
     @GetMapping("/progress")

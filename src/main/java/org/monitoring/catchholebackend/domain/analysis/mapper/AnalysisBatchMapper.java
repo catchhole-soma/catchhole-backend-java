@@ -43,7 +43,8 @@ public class AnalysisBatchMapper {
             List<AnalysisBatchJobGroupResponse> groups, LocalDateTime lastActivityAt,
             List<AnalysisBatchJobGroupResponse> episodeGroups, AnalysisBatchStatus episodeStatus,
             List<AnalysisBatchSettingBookResponse> books,
-            List<org.monitoring.catchholebackend.domain.validation.dto.response.ValidationRequestSummaryResponse> validations) {
+            List<org.monitoring.catchholebackend.domain.validation.dto.response.ValidationRequestSummaryResponse> validations,
+            boolean historyDeletable) {
         return new AnalysisBatchSummaryResponse(
                 pageRow.getBatchId(), pageRow.getUploadType(), status,
                 metadata == null ? validations.stream().map(v -> v.sourceEpisodeNo()).min(Integer::compareTo).orElse(null) : metadata.episodeStartNo(),
@@ -58,6 +59,6 @@ public class AnalysisBatchMapper {
                 worlds == null ? 0 : worlds.getTokenInterruptedComparisonCount(),
                 worlds != null && worlds.canResumeTokenInterruptedComparisons(), groups,
                 pageRow.getFirstRequestedAt(), pageRow.getLastRequestedAt(), lastActivityAt,
-                episodeGroups, episodeStatus, books, validations);
+                episodeGroups, episodeStatus, books, validations, historyDeletable);
     }
 }

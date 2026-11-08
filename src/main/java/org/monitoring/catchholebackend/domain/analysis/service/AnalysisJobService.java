@@ -45,6 +45,12 @@ public interface AnalysisJobService {
             AnalysisBatchKind kind
     );
 
+    /**
+     * 작가가 고른 업로드 batch의 분석 기록을 분석 목록에서 지운다. 분석 Job·후보·확정 설정·검수 report는 그대로 두고 목록에서만 숨긴다.
+     * 진행·대기, 검토 대기, 재개, 끝나지 않은 검수가 남으면 409로 거절한다. 지운 뒤 새 분석 요청·검수 접수가 생기면 다시 목록에 나온다.
+     */
+    void deleteAnalysisBatchHistory(Long memberId, UUID workId, UUID batchId);
+
     /** 모든 배치를 조회한다. */
     default PageResponse<AnalysisBatchSummaryResponse> getAnalysisBatches(
             Long memberId,
