@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob;
+import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisSemanticCurrentContextMapper;
 import org.monitoring.catchholebackend.domain.character.entity.SettingCandidate;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFactComparisonBatch;
@@ -185,9 +186,14 @@ class SettingBookAnalysisIntegrationTest {
         owner.put("actualCharacterId",ownerId.toString()).putNull("provisionalSubjectKey").put("name","하린");
         var slots = owner.putObject("slots");
         if (bound.equals("COUNT")) {
-            for (int i=0;i<4097;i++) slots.putObject("PROFILE:key"+i).put("factType","PROFILE").put("factKey","key"+i).put("factValue","value").putNull("valueJson");
+            for (int i = 0; i <= AnalysisSemanticCurrentContextMapper.MAX_ITEMS; i++) {
+                slots.putObject("PROFILE:key" + i).put("factType", "PROFILE")
+                        .put("factKey", "key" + i).put("factValue", "value").putNull("valueJson");
+            }
         } else {
-            slots.putObject("PROFILE:key").put("factType","PROFILE").put("factKey","key").put("factValue","한".repeat(350000)).putNull("valueJson");
+            int repetitions = AnalysisSemanticCurrentContextMapper.MAX_UTF8_BYTES / "한".getBytes(StandardCharsets.UTF_8).length + 1;
+            slots.putObject("PROFILE:key").put("factType", "PROFILE").put("factKey", "key")
+                    .put("factValue", "한".repeat(repetitions)).putNull("valueJson");
         }
         origin.captureAutomaticInput(input); em.flush();
         JsonNode oldClaim = claimBook();
@@ -302,7 +308,11 @@ class SettingBookAnalysisIntegrationTest {
         var input=new org.monitoring.catchholebackend.domain.analysis.processor.AnalysisStateJournal().emptyState();
         UUID id=UUID.randomUUID();var owner=input.withObject("characters").putObject("character:"+id);
         owner.put("actualCharacterId",id.toString()).putNull("provisionalSubjectKey").put("name","하린");
-        var slots=owner.putObject("slots"); for(int i=0;i<4097;i++) slots.putObject("PROFILE:k"+i).put("factType","PROFILE").put("factKey","k"+i).putNull("factValue").putNull("valueJson");
+        var slots = owner.putObject("slots");
+        for (int i = 0; i <= AnalysisSemanticCurrentContextMapper.MAX_ITEMS; i++) {
+            slots.putObject("PROFILE:k" + i).put("factType", "PROFILE")
+                    .put("factKey", "k" + i).putNull("factValue").putNull("valueJson");
+        }
         chain.getFirst().captureAutomaticInput(input);em.flush();
         semanticClaim("EPISODE",204);
         assertThat(chain.getFirst().getStatus().name()).isEqualTo("FAILED");
