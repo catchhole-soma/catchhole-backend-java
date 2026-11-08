@@ -66,12 +66,12 @@ class ValidationExecutionProdExampleTest {
         assertThat(properties.setting()).isEqualTo(SETTING);
         assertThat(properties.typo()).isEqualTo(TYPO);
         // configuration v2: 퇴역 역할(RELATED_SELECTION·COVERAGE)은 없고 생성 역할마다 출력 상한·모델·추론 강도를 둔다.
-        // 모델은 31화 비교 실험 결과(계획 Terra medium, 판정 Luna high, 오탈자 Terra low).
+        // 계획·판정은 31화 비교 실험 값 유지, 오탈자만 2026-11-08 사용자 결정으로 medium(#404).
         assertThat(properties.roles()).containsOnlyKeys(ValidationRole.PLANNER, ValidationRole.JUDGE, ValidationRole.TYPO,
                 ValidationRole.QUERY_EMBEDDING, ValidationRole.INDEX_EMBEDDING);
         assertThat(properties.roles().get(ValidationRole.PLANNER)).isEqualTo(new RoleBudget(10, 800_000, 50_000, "gpt-6.1-terra", "medium"));
         assertThat(properties.roles().get(ValidationRole.JUDGE)).isEqualTo(new RoleBudget(200, 10_000_000, 20_000, "gpt-6-luna", "high"));
-        assertThat(properties.roles().get(ValidationRole.TYPO)).isEqualTo(new RoleBudget(20, 640_000, 12_000, "gpt-6.1-terra", "low"));
+        assertThat(properties.roles().get(ValidationRole.TYPO)).isEqualTo(new RoleBudget(20, 640_000, 12_000, "gpt-6.1-terra", "medium"));
         assertThat(properties.roles().get(ValidationRole.QUERY_EMBEDDING)).isEqualTo(new RoleBudget(250, 400_000, null, null, null));
         // 접수 때 색인 채우기(2026-11-02): 서비스 부담 임베딩. 32조각 묶음 예약(UTF-8 byte 상한)으로 약 1,000회차 작품까지 채운다.
         assertThat(properties.roles().get(ValidationRole.INDEX_EMBEDDING)).isEqualTo(new RoleBudget(400, 40_000_000, null, null, null));

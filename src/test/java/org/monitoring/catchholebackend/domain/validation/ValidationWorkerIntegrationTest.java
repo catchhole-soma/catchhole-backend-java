@@ -31,7 +31,7 @@ class ValidationWorkerIntegrationTest extends ValidationWorkerFixture {
         // #349 configuration v2: per-role model/effort/output cap from the explicit configuration; no retired roles; projection 2 without clues.
         assertThat(job.path("configurationVersion").asInt()).isEqualTo(2);assertThat(job.path("projectionVersion").asInt()).isEqualTo(2);assertThat(job.has("clueVersion")).isFalse();
         assertThat(job.path("models").path("JUDGE").path("model").asText()).isEqualTo("gpt-6-luna");assertThat(job.path("models").path("JUDGE").path("reasoningEffort").asText()).isEqualTo("high");
-        assertThat(job.path("models").path("PLANNER").path("reasoningEffort").asText()).isEqualTo("medium");assertThat(job.path("models").path("TYPO").path("reasoningEffort").asText()).isEqualTo("low");
+        assertThat(job.path("models").path("PLANNER").path("reasoningEffort").asText()).isEqualTo("medium");assertThat(job.path("models").path("TYPO").path("reasoningEffort").asText()).isEqualTo("medium");
         assertThat(job.path("models").has("RELATED_SELECTION")).isFalse();assertThat(job.path("models").has("COVERAGE")).isFalse();
         assertThat(job.path("budgets").path("roles").path("JUDGE").path("outputTokens").asInt()).isEqualTo(100);assertThat(job.path("budgets").path("setting").has("outputTokens")).isFalse();
         assertThat(job.path("budgets").path("setting").has("cataloguePageSize")).isFalse();
