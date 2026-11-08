@@ -2,6 +2,7 @@ package org.monitoring.catchholebackend.domain.worldimage.exception;
 
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import org.monitoring.catchholebackend.domain.worldimage.entity.PrivateWorldImage;
 import org.monitoring.catchholebackend.global.exception.ResultCode;
 import org.springframework.http.HttpStatus;
 
@@ -12,7 +13,8 @@ public enum WorldImageErrorCode implements ResultCode {
     PRIVATE_IMAGE_VAULT_REQUIRED(HttpStatus.BAD_REQUEST, "내 이미지 보관함을 먼저 만들어 주세요."),
     WORLD_IMAGE_SELECTION_CONFLICT(HttpStatus.BAD_REQUEST, "이미지 선택 방식은 하나만 선택해 주세요."),
     PRIVATE_IMAGE_INVALID(HttpStatus.BAD_REQUEST, "이미지 파일의 형식과 크기를 확인해 주세요."),
-    PRIVATE_IMAGE_LIMIT(HttpStatus.BAD_REQUEST, "한 작품에는 개인 이미지를 50개까지 보관할 수 있어요."),
+    PRIVATE_IMAGE_LIMIT(HttpStatus.BAD_REQUEST, "한 작품에는 개인 이미지를 %d개까지 보관할 수 있어요."
+            .formatted(PrivateWorldImage.MAX_PER_WORK)),
     PRIVATE_IMAGE_CONFLICT(HttpStatus.CONFLICT, "이미지 저장 상태를 다시 확인해 주세요."),
     PRIVATE_IMAGE_IN_USE(HttpStatus.CONFLICT, "사용 중인 이미지예요. 대상의 대표 이미지를 바꾼 뒤 삭제해 주세요."),
     WORLD_IMAGE_WORK_REQUIRED(HttpStatus.BAD_REQUEST, "추천 이미지를 볼 작품을 선택해 주세요."),

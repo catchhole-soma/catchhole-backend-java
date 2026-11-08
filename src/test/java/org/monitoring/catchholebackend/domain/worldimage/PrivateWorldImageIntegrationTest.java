@@ -8,19 +8,26 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.IntStream;
+import javax.imageio.ImageIO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider;
 import org.monitoring.catchholebackend.domain.member.entity.Member;
 import org.monitoring.catchholebackend.domain.member.repository.MemberRepository;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
+import org.monitoring.catchholebackend.domain.worldimage.entity.PrivateWorldImage;
 import org.monitoring.catchholebackend.domain.worldimage.repository.PrivateWorldImageRepository;
 import org.monitoring.catchholebackend.domain.worldsetting.entity.WorldSetting;
 import org.monitoring.catchholebackend.domain.worldsetting.repository.WorldSettingRepository;
@@ -135,17 +142,87 @@ class PrivateWorldImageIntegrationTest {
     }
 
     private byte[] png() throws Exception {
-        var output = new java.io.ByteArrayOutputStream();
-        javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(2, 2, java.awt.image.BufferedImage.TYPE_INT_ARGB), "png", output);
+        return png(2, 2);
+    }
+
+    private byte[] png(int width, int height) throws Exception {
+        var output = new ByteArrayOutputStream();
+        ImageIO.write(new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB), "png", output);
         return output.toByteArray();
     }
 
     private ResultActions uploadAccountImage(String auth, byte[] bytes) throws Exception {
+        return uploadAccountImage(auth, imageId, bytes, png());
+    }
+
+    private ResultActions uploadAccountImage(String auth, UUID id, byte[] bytes, byte[] thumbnail) throws Exception {
         return mvc.perform(multipart(base).file(new MockMultipartFile("metadata", "metadata.json", "application/json",
-                        ("{\"id\":\"" + imageId + "\",\"name\":\"내 그림.png\"}").getBytes(StandardCharsets.UTF_8)))
+                        ("{\"id\":\"" + id + "\",\"name\":\"내 그림.png\"}").getBytes(StandardCharsets.UTF_8)))
                 .file(new MockMultipartFile("image", "image.png", "image/png", bytes))
-                .file(new MockMultipartFile("thumbnail", "thumbnail.png", "image/png", png()))
+                .file(new MockMultipartFile("thumbnail", "thumbnail.png", "image/png", thumbnail))
                 .header("Authorization", auth));
+    }
+
+    @Test
+    @DisplayName("업로드 중인 예약을 포함해 작품당 200번째는 저장하고 201번째는 거절한다")
+    void accountImageWorkCapacityIncludesReservations() throws Exception {
+        transaction.executeWithoutResult(status -> {
+            var work = works.getReferenceById(workId);
+            var ready = IntStream.range(0, 198)
+                    .mapToObj(i -> PrivateWorldImage.createAccountImage(UUID.randomUUID(), work, "그림 " + i, 1, 1))
+                    .toList();
+            images.saveAll(ready);
+            var reserved = PrivateWorldImage.createAccountImage(UUID.randomUUID(), work, "업로드 중", 1, 1);
+            reserved.reserveUpload(UUID.randomUUID());
+            images.saveAndFlush(reserved);
+        });
+
+        byte[] png = png();
+        uploadAccountImage(token, png).andExpect(status().isOk());
+        assertThat(images.countByWorkId(workId)).isEqualTo(200);
+        org.mockito.Mockito.clearInvocations(storage);
+
+        UUID overLimit = UUID.randomUUID();
+        uploadAccountImage(token, overLimit, png, png).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("PRIVATE_IMAGE_LIMIT"))
+                .andExpect(jsonPath("$.message").value("한 작품에는 개인 이미지를 200개까지 보관할 수 있어요."));
+        assertThat(images.existsById(overLimit)).isFalse();
+        verifyNoInteractions(storage);
+    }
+
+    @Test
+    @DisplayName("이전 클라이언트가 보낸 큰 PNG도 저장 전에 축소하고 투명도를 유지한다")
+    void accountImageResizesBothStoredPngs() throws Exception {
+        uploadAccountImage(token, imageId, png(1600, 1200), png(480, 360)).andExpect(status().isOk());
+
+        var image = ArgumentCaptor.forClass(byte[].class);
+        var thumbnail = ArgumentCaptor.forClass(byte[].class);
+        verify(storage).putBytes(org.mockito.ArgumentMatchers.eq(PrivateWorldImagePaths.key(workId, imageId, attemptId(), false)),
+                image.capture(), org.mockito.ArgumentMatchers.eq("image/png"));
+        verify(storage).putBytes(org.mockito.ArgumentMatchers.eq(PrivateWorldImagePaths.key(workId, imageId, attemptId(), true)),
+                thumbnail.capture(), org.mockito.ArgumentMatchers.eq("image/png"));
+        var storedImage = ImageIO.read(new ByteArrayInputStream(image.getValue()));
+        var storedThumbnail = ImageIO.read(new ByteArrayInputStream(thumbnail.getValue()));
+        assertThat(storedImage.getWidth()).isEqualTo(768);
+        assertThat(storedImage.getHeight()).isEqualTo(576);
+        assertThat(storedThumbnail.getWidth()).isEqualTo(350);
+        assertThat(storedThumbnail.getHeight()).isEqualTo(263);
+        assertThat(storedImage.getRGB(0, 0)).isZero();
+        assertThat(storedThumbnail.getRGB(0, 0)).isZero();
+    }
+
+    @Test
+    @DisplayName("축소 과정에서도 인터레이스 PNG의 잘못된 필터를 거절한다")
+    void accountImageRejectsInvalidAdam7FilterWhenResizing() throws Exception {
+        // 1536×16 Adam7 PNG. 홀수 열 패스에 유효하지 않은 필터 번호 5를 넣었다.
+        byte[] malformed = Base64.getDecoder().decode(
+                "iVBORw0KGgoAAAANSUhEUgAABgAAAAAQCAYAAAGn74RcAAAAj0lEQVR4nO3XMREAIAzAwC74t4wJjg75V5A1Mw"
+                        + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwFtnOwAAAPjHAAAAQIgBAACAEAMAAAAhBgAAAEIMAAAAhBgAAAAIMQ"
+                        + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKy49FsAKZTpTv8AAAAASUVORK5CYII=");
+
+        uploadAccountImage(token, malformed).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("PRIVATE_IMAGE_INVALID"));
+        verifyNoInteractions(storage);
     }
 
     @Test
