@@ -1,5 +1,7 @@
 package org.monitoring.catchholebackend.domain.worldimage.processor;
 
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -9,7 +11,7 @@ import org.monitoring.catchholebackend.domain.worldimage.exception.WorldImageErr
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.web.multipart.MultipartFile;
 
-/** 새 업로드는 브라우저에서 PNG로 정규화하고 서버에서 크기·디코딩을 검증해 다시 인코딩한다. */
+/** 일반 업로드의 PNG를 검증하고 저장 크기로 축소해 다시 인코딩한다. */
 public final class PrivateImageContent {
     private PrivateImageContent() {}
 
@@ -27,7 +29,7 @@ public final class PrivateImageContent {
                 int dimensionLimit = thumbnail ? 480 : 16384;
                 if (width < 1 || height < 1 || width > dimensionLimit || height > dimensionLimit
                         || (long) width * height > 32_000_000) throw invalid();
-                var decoded = reader.read(0);
+                var decoded = resize(reader.read(0), thumbnail ? 350 : 768);
                 var output = new ByteArrayOutputStream();
                 if (!ImageIO.write(decoded, "png", output) || output.size() > limit) throw invalid();
                 return output.toByteArray();
@@ -35,6 +37,24 @@ public final class PrivateImageContent {
         } catch (IOException | IllegalArgumentException exception) {
             throw invalid();
         }
+    }
+
+    private static BufferedImage resize(BufferedImage image, int maxEdge) {
+        int longestEdge = Math.max(image.getWidth(), image.getHeight());
+        if (longestEdge <= maxEdge) return image;
+
+        int width = Math.max(1, (int) Math.round((double) image.getWidth() * maxEdge / longestEdge));
+        int height = Math.max(1, (int) Math.round((double) image.getHeight() * maxEdge / longestEdge));
+        int type = image.getColorModel().hasAlpha() ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB;
+        var resized = new BufferedImage(width, height, type);
+        var graphics = resized.createGraphics();
+        try {
+            graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            graphics.drawImage(image, 0, 0, width, height, null);
+        } finally {
+            graphics.dispose();
+        }
+        return resized;
     }
 
     private static AppException invalid() { return new AppException(WorldImageErrorCode.PRIVATE_IMAGE_INVALID); }

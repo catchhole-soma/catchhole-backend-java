@@ -103,7 +103,9 @@ public class PrivateWorldImageServiceImpl implements PrivateWorldImageService {
                     .filter(value -> value.getId().equals(request.vaultId()))
                     .orElseThrow(() -> new AppException(WorldImageErrorCode.PRIVATE_IMAGE_VAULT_REQUIRED)) : null;
             if (images.existsById(request.id())) throw new AppException(WorldImageErrorCode.PRIVATE_IMAGE_CONFLICT);
-            if (images.countByWorkId(workId) >= 50) throw new AppException(WorldImageErrorCode.PRIVATE_IMAGE_LIMIT);
+            if (images.countByWorkId(workId) >= PrivateWorldImage.MAX_PER_WORK) {
+                throw new AppException(WorldImageErrorCode.PRIVATE_IMAGE_LIMIT);
+            }
             var reserved = legacy ? PrivateWorldImage.create(request.id(), work, vault, request.encryptedMetadata(),
                     encryptedImage.length, encryptedThumbnail.length)
                     : PrivateWorldImage.createAccountImage(request.id(), work, request.name().trim(),

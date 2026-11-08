@@ -26,6 +26,8 @@ import org.monitoring.catchholebackend.global.common.entity.BaseEntity;
 @Table(name = "private_world_images")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class PrivateWorldImage extends BaseEntity {
+    public static final int MAX_PER_WORK = 200;
+
     @Id private UUID id;
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "work_id", nullable = false)
