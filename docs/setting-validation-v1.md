@@ -98,8 +98,8 @@ max_output_tokens)`이다. `model_client`는 create_text_response와 exact count
 
 판정 입력은 `{question_ref, check_revision, question, target_context, additional_target_context, settings, evidence, receipts, source_catalogue,
 input_digest, form}`이다. `form`은 OPEN/FINAL이고, settings는 질문 주체의 압축 현재값 행(아래)이다. 게시 bundle은 같은 키에서 `form`이 없고
-settings가 `{entry_ref, subject_ref}` ref 행이다. 판정 schema는 보고서당 OPEN·FINAL 두 개(`validation_judge_open_v3`, `validation_judge_final_v3`)라
-provider prompt cache가 유지된다. 계획 schema는 `validation_planner_v3` 하나다. 참조는 종류별 pattern(B/E/L/S/TSEG)으로만 제한하고 정확한 소속은 검증기가 판단한다.
+settings가 `{entry_ref, subject_ref}` ref 행이다. 판정 schema는 보고서당 OPEN·FINAL 두 개(`validation_judge_open_v4`, `validation_judge_final_v4`)라
+provider prompt cache가 유지된다. 계획 schema는 `validation_planner_v4` 하나다. 참조는 종류별 pattern(B/E/L/S/TSEG)으로만 제한하고 정확한 소속은 검증기가 판단한다.
 검색을 쓸 수 없으면 OPEN schema에서 `search_queries`가 빠진다. 검색 문장이 3개를 넘으면 `INVALID_FOLLOW_UP`(원인 `INVALID_FOLLOW_UP_TOO_MANY_SEARCHES`),
 빈 FOLLOW_UP은 `INVALID_FOLLOW_UP_EMPTY`, 빈·1000자 초과 문장은 `INVALID_SEARCH_REQUEST`, T1 밖 범위는 `INVALID_TARGET_CONTEXT_REQUEST` 원인이다.
 FINAL 답이 FOLLOW_UP이면 `MODEL_CONTRACT_INVALID`다.
@@ -124,7 +124,7 @@ GH331 모델 출력 정규화(실제 Terra 관측 반영, grid v4에서도 유�
 
 결과는 CONFLICT / SUSPECTED_CONFLICT / NEEDS_CONTEXT / NO_CONFLICT이며 실패는 INCOMPLETE로 별도다.
 SUSPECTED_CONFLICT/CHANGE_NOT_FOUND는 실제 성공한 변화/예외 VECTOR 검색 receipt가 있어야 한다.
-DB 현재값과 확보한 근거가 충분하면 검색을 생략할 수 있으나 대상·시점·조건·변화/예외 설명과 실제 자료 참조가 필요하다.
+DB가 질문의 정확한 속성·시점·조건을 직접 뒷받침하고 검증된 B 인용이 있을 때만 검색을 생략한다. 일반적인 설명과의 양립이나 반대 근거 부재는 충분성이 아니다. 아래 AI #139의 Worker 검사가 최종 종료를 통제한다.
 검색 0건 자체로 직접 모순이나 예외 부재를 증명하지 않는다. 같은 신규 회차만의 모순은 판정하지 않는다.
 
 GH341(grid v4): DECIDED SUSPECTED_CONFLICT가 호출 한도 전에 왔는데 그 질문에 성공한 `CHANGES_EXCEPTIONS` VECTOR receipt가 없으면, Worker가 ref
@@ -135,16 +135,25 @@ SUSPECTED_CONFLICT에는 항상 그 receipt가 있다. query를 만들 수 없�
 다시 받은 판정이 그 receipt를 인용하지 않으면 Worker가 receipt와 알려진 근거(없으면 `T1`)를 덧붙인다(`CHANGE_SEARCH_RECEIPT_FILLED`).
 모든 판정은 대상 원고 T1 문맥을 받으므로, `completion.comparison_context.evidence_refs`에 `T1`이 빠지면 Worker가 앞에 덧붙인다(`COMPARISON_CONTEXT_TARGET_FILLED`). 판정·사유·등급은 바꾸지 않는다.
 
+### 질문 속성의 판정 범위 (2026-11-06, v0046)
+
+JUDGE는 `question.property_or_rule`·`check_intent`가 묻는 속성·규칙만 판정한다. 대상 문장 전체나 주변 문맥의 다른 오류를 다시 보고하지 않는다.
+검색·근거 인용·제목·사유도 그 질문 범위에 맞춘다. 같은 문장에 서로 다른 실제 오류가 둘이면 각 질문에서 유지하며, 문장·대상 이름만으로 합치지 않는다.
+합성 원고의 실제 모델 검증은 `VALIDATION_SCOPE_LIVE=1 .venv/bin/pytest -q tests/test_validation_question_scope_live.py`로 별도 실행한다(유료 opt-in).
+제한된 실제 사례 비교와 운영 미검증 범위는 [v0046 상세](https://github.com/catchhole-soma/catchhole-backend-ai/blob/main/docs/ai-logic-versions/details/v0046.md)에 기록한다.
+
 ### 판정 규칙·검색 보완 (2026-11-03)
 
 31화 로컬 실행의 오탐은 모두 "이전 기록에 없다·못 찾았다"를 충돌로 올린 경우였다(새로 나온 규칙, 회상한 앞 장면, 처음 하는 희귀도 비교, 앞 회차의 약속).
 판정 규칙과 Worker 검사를 다음처럼 바꾼다(schema·wire는 그대로 v3).
 
-- 판정 지시(`JUDGE_SYSTEM` "판정 규칙"): CONFLICT는 특정한 이전 문장(저장된 값 또는 evidence 문장)이 같은 대상·서사 시점·조건에서 대상 문장과 함께 참일 수
-  없다고 직접 말할 때, SUSPECTED_CONFLICT는 그런 문장이 있고 변화·예외 검색에서 설명을 찾지 못했을 때만이다. 기록 없음·검색 미발견·처음 나온 설정/규칙/수치·
-  처음 하는 비교·평가·일반 서술과 양립하는 구체 서술·반대 문장 없는 추측/전해 들은 말/회상/계획은 NO_CONFLICT다. NEEDS_CONTEXT는 대상 원고 자체의 뜻이
-  모호할 때만이다. 결론 전에 받은 settings·evidence를 처음부터 끝까지(조각 끝의 대사·합의까지) 다시 읽고, 대상 문장을 뒷받침하는 이전 문장이 있으면 NO_CONFLICT다.
-  CONFLICT·SUSPECTED_CONFLICT의 `basis_quotes` 첫 항목은 그 어긋나는 이전 문장이다.
+- 판정 지시(`JUDGE_SYSTEM`, 2026-11-08 AI #142 정정): 같은 대상·속성·서사 시점·조건에서 확인된 기존 값과 이번 값의 불일치를 비교한다. 기존 값 A가 확인되면 이번 값 B를 명시적으로 부정한 별도 문장을 요구하지 않는다. 적용 시점·조건까지 확인된 불일치는 CONFLICT, 값은 다르지만 그 사이 변화나 적용 맥락이 미확인이고 검색해도 설명을 찾지 못하면 SUSPECTED_CONFLICT다. 검색 미발견은 기존 값의 불일치를 해소하지 않는다.
+  필요한 검색 뒤에도 그 속성의 기존 값 자체가 없으면 새 정보라는 이유만으로 오류를 만들지 않으며, 기준 미발견이라고 설명한다. 일치하거나 실제 문맥이 변화·추가 정보·다른 속성/시점/조건을 설명하면 NO_CONFLICT다. 대상 원고 자체의 뜻이 모호하면 NEEDS_CONTEXT다. 직업만의 예외 문구 대신 이 속성값 비교를 최상위 정의와 최종 확인에 함께 사용한다.
+  CONFLICT·SUSPECTED_CONFLICT의 `basis_quotes` 첫 항목은 기존 값을 확인해 주는 이전 문장이다. 원문에 없는 부정문이나 예외를 만들어 내지 않는다.
+- 판정 절차와 출력 규칙(`JUDGE_SYSTEM`, 2026-11-09 AI #144, v0052): 지시문은 `_COMMON`을 잇지 않는 판정 전용 문자열이다. schema v4·Worker 흐름·wire는 그대로다.
+  확정/의심 기준은 판정 절차 4단계 한 곳에서 정한다. 저장된 현재값은 지금의 값이므로 대상 문장이 지금 상태나 이미 확정된 과거 사실을 말하면 같은 시점이고 값이 다르면 CONFLICT다. 대상 문장이 `그때는 …였다`처럼 지금과 다른 과거 시점의 상태를 말하거나 기존 값이 이전 회차 원문·설정집에만 있으면 변화·예외를 확인하고, 그 차이를 설명하는 근거를 못 찾으면 SUSPECTED_CONFLICT다. 종족·출생지·이미 일어난 사건의 사실관계·규칙의 수치처럼 시간이 지나도 바뀌지 않는 속성은 확인 없이 같은 시점으로 본다.
+  `disagreements`는 저장된 settings 값(`fact_ref`=B)과 이전 회차·설정집 evidence(`evidence_ref`=E)가 같은 시점·조건에서 양립할 수 없고 그 때문에 이 질문의 기준을 정할 수 없을 때만 쓴다. 이야기 진행에 따른 값의 변화와 T1·이전 기록의 차이는 포함하지 않는다. 지시문은 명시 정정이 적용되지 않는 `disagreements`가 작가 확인 필요로 게시된다는 결과를 모델에 알린다.
+  DECIDED 출력 규칙은 지시문의 `출력 필드(DECIDED)` 블록 한 곳에 둔다. `target_spans`는 질문 span 그대로(`source_ref`=T1), `evidence_refs`는 판단에 실제로 쓴 참조 전부(충돌·의심은 B 또는 E 하나 이상), `basis_quotes`는 0~3개의 비교 쪽 문장이다. `completion` 네 항목은 `evidence_refs`(T1·B·E)와 `receipt_refs`(L)를 각각 하나 이상 쓰고 `comparison_context`에 T1을 포함하며 `required_reads.receipt_refs`는 receipts 전체다. 검색을 하지 않아도 저장 설정 조회와 대상 문맥 조회 receipt가 있어 인용할 수 있다. `search_queries`·`context_requests`는 빈 배열이다.
 - 규칙 검사(`judging.clear_unquoted_finding`): Worker가 받아들이는 DECIDED(변화 검색 뒤의 FINAL 포함) 중 CONFLICT·SUSPECTED_CONFLICT인데 확인된
   `basis_quotes`(`normalize_basis_quotes`를 통과한 E·B 인용)가 하나도 없고 `disagreements`도 없으면 NO_CONFLICT/COMPATIBLE, impact·impact_reason null,
   사유 고정 문장으로 바꾼다. 원래 결과별로 `CONFLICT_QUOTE_MISSING_CLEARED`/`SUSPECTED_CONFLICT_QUOTE_MISSING_CLEARED`를 세고 trace에 `cleared`·`cleared_impact`·`cleared_reason`(판정 원래 결과·등급·사유, 메모리 진단이며 실험 harness만 파일로 쓴다. 로그·게시 없음)을 남긴다.
@@ -164,7 +173,7 @@ SUSPECTED_CONFLICT에는 항상 그 receipt가 있다. query를 만들 수 없�
 오류 리포트 제목과 설명은 판정이 쓴다(schema·이름 v3 그대로). DECIDED 판정은 필수(nullable) `headline`에 제목 한 줄을 쓴다: CONFLICT
 `{대상}의 {항목}이 기존 설정과 달라요`(이전 회차면 `…N화와 달라요`, 설정집이면 `…설정집과 달라요`), SUSPECTED_CONFLICT `…다를 수 있어요`,
 NEEDS_CONTEXT는 무엇이 분명하지 않은지. {대상}은 저장 값·이전 문장이 실제로 어긋나는 대상이며 서술자나 이름만 나온 인물이 아니다. FOLLOW_UP·NO_CONFLICT는 null.
-CONFLICT·SUSPECTED의 `reason`은 원인→결과 두 문장(`기존 설정은 … (이)라고 해요. 그런데 31화에서는 … (이)라고 해요.`)이고 판정 입력에 `target_episode_no`가 있다.
+CONFLICT·SUSPECTED의 `reason`은 원인→결과 두 문장(`기존 설정은 … (이)라고 해요. 그런데 31화에서는 … (이)라고 해요.`)이고 판정 입력에 `target_episode_no`가 있다. SUSPECTED는 그 두 문장 뒤에 `그 사이에 바뀐 기록은 찾지 못했어요.`를 붙인다(2026-11-09, v0052).
 Worker는 headline을 `reason`과 같은 작가용 정제로 다루되 고정 대체 문장 없이 None으로 둘 수 있다(80 code point 초과·빈 값·NO_CONFLICT). 상세는
 `docs/validation-execution-v1.md` "판정 작성 제목(headline)과 원인→결과 사유", 공통 fixture `judgeFlow.headline`.
 
@@ -258,3 +267,20 @@ T1 전문 READ_SOURCE는 더 이상 `clueVersion`/`modelClues`(서버 기계 단
 별도 Job/lease·저장·재시도/예산/완료 증명과 SETTING grid v4는 `docs/validation-execution-v1.md`와 공통 fixture.execution을 따른다.
 결과의 T1 출처 E-ref는 현재 문맥이며 외부 충돌 근거가 아니다. canonical 설정 state의 정상 text/quote 속성은 그대로
 전달하고, 원문 인용은 공통 fixture.execution.payloadCitationPaths의 계약 경로와 실제 citation으로 보낸다.
+
+
+## DB 근거 부족 검색과 사실 전제 — AI #139 (2026-11-08, v0049)
+
+모델 응답 OPEN/FINAL에 필수 strict boolean `db_evidence_sufficient`를 추가했다. 레거시 대역 응답의 생략은 false로 처리한다. 이는 모델 전용 값으로 `ValidationDecision`·Java 저장 wire에는 포함하지 않는다. DB 충분성은 정확한 질문 속성·값·사건 및 서사 시점·조건의 비교 근거를 뜻하며 일반 문장과 양립한다는 설명만으로 true가 아니다. true는 실제 설정 값의 B 인용을 동반해야 한다. 검색 evidence가 충분해져도 DB 충분성 자체를 true로 바꾸지 않는다.
+
+Worker는 DECIDED의 인용과 기존 결정 계약을 검증한 뒤, 성공한 VECTOR 영수증이 없고 DB 충분성 또는 검증된 B 인용이 없으면 `check_intent + target_spans` 검색을 한 번 실행한다. kind는 COMPARISON_CONTEXT, purpose는 `Worker가 DB 비교 근거 부족 시 요구하는 이전 원문 검색`, ref는 `{Q}-DB_GAP_VECTOR`, counter는 `DB_GAP_SEARCH_INSERTED`다. 검색 결과를 넣은 FINAL에서 다시 판정한다. 문맥만 읽은 FOLLOW_UP과 근거 없는 충돌 해제도 이 검사를 거친다. 기존 성공 VECTOR 조회(같은 실행 내 재사용 포함)가 있으면 반복하지 않는다. 빈 범위는 NOT_APPLICABLE이며 조회/임베딩을 만들지 않는다.
+
+검색 미준비·실패·부분 색인은 기존 질문별 INCOMPLETE로 남긴다. 예산 종료나 자료 변경은 기존 실행 중단 경계를 유지한다. 최대 3회 판정과 SUSPECTED_CONFLICT 변화 검색 조건을 늘리지 않는다. 문맥 조회→필수 검색 후 3번째 답이 추가 변화 검색을 요구하면 상한을 넘기는 대신 미완료다. 원문/DB 직접 모순 인용이 없는 사실을 오류로 단정하지 않는 원칙은 유지하되, 미발견을 일치 확인이나 새 설정 확인이라고 설명하지 않는다.
+
+PLANNER는 직업과 희망, 과거 인원과 감정 원인처럼 사실 전제와 추측/희망 대상을 별도 질문으로 만든다. JUDGE는 추측 표현의 범위를 문맥으로 확인한다. 순수 희망·불확실한 인물의 믿음을 세계의 확정 사실로 바꾸지 않고, 회상 속 직업·관계·과거 사건은 비교한다. 대상 원고의 회상은 이전 회차에서 확인한 근거가 아니다. 착각·거짓말·기억 오류·전직·겸직을 설명하려면 실제 문맥/변화 근거가 필요하며 가능성만으로 면제하지 않는다.
+
+2026-11-09(AI #144, v0052): JUDGE의 판정 절차는 이 규칙을 순서로 둔다. 2단계에서 이번 값(대상 문장이 서술하거나 전제하는 값)을 확인하면서 추측·희망의 내용과 전제한 사실을 가르고, 3단계에서 settings를 먼저 보고 없으면 evidence에서 기존 값을 찾는다. 4단계의 시점 판단은 위 "판정 규칙·검색 보완"의 확정/의심 기준을 따른다. `db_evidence_sufficient`는 3·4단계가 settings만으로 끝날 때 true이고 변화·예외 확인이 필요하면 false다. 기존 값이 settings에 있고 변화 여부만 남은 OPEN은 FOLLOW_UP 대신 SUSPECTED_CONFLICT를 바로 낼 수 있으며, Worker가 변화 검색 뒤 FINAL로 다시 묻는다.
+
+검증은 검색 강제/실패/재사용/상한의 합성 회귀와 유료 opt-in `tests/test_validation_presuppositions_live.py`로 구분한다. 현재 운영 모델 설정은 변경하지 않는다. 실제 평가 조건과 남은 한계는 [v0049](https://github.com/catchhole-soma/catchhole-backend-ai/blob/main/docs/ai-logic-versions/v0049.md)에 기록한다.
+
+- 같은 맥락의 직업을 다른 값으로 부르는 회상은 명시적 부정문이 없어도 대조한다. 근거 있는 겸직/전직과 서로 다른 축의 역할은 구분하며, 대부분/보통/대개 같은 빈도 표현을 절대 규칙으로 강화하지 않는다.

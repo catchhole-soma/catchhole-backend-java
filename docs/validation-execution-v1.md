@@ -340,10 +340,16 @@ bundle `settings[]` 행은 `{"entry_ref": "B12", "subject_ref": "S3"}`다(#349 �
    receipt를 만든다. 답은 DECIDED, 또는 `search_queries`(자연어 1~1000자 최대 3개, 검색을 쓸 수 없으면 schema에서 빠짐)와/또는
    `context_requests`(T1 `{start,end}`)를 담은 FOLLOW_UP이다.
 2. FOLLOW_UP 뒤: 검색 문장마다 VECTOR 한 번(top-k `searchLimit`, intent `{kind:COMPARISON_CONTEXT, operation:VECTOR, purpose:"판정이 요청한 의미 검색", query}`),
-   문맥 요청은 TARGET_CONTEXT receipt(조회 0회). 다음 호출은 FINAL(DECIDED만).
+   문맥 요청은 TARGET_CONTEXT receipt(조회 0회). 검색 문장이 하나 이상이면 그 뒤에 Worker가 대상 문장 검색 하나를 더 한다(2026-11-03,
+   `{ref:"Qn-TARGET_VECTOR", kind:COMPARISON_CONTEXT, operation:VECTOR, purpose:"Worker가 대상 문장과 앞뒤 원고로 만든 이전 장면 의미 검색",
+   query: span과 앞뒤 100 code point를 줄 단위로 맞춘 대상 원고 글}`, 판정의 3개와 별도, 조회·embedding 1회 또는 같은 문장 재사용).
+   다음 호출은 FINAL(DECIDED만).
 3. 호출 한도 전의 DECIDED SUSPECTED_CONFLICT에 변화 검색 receipt가 없으면 Worker가 `{kind:CHANGES_EXCEPTIONS, operation:VECTOR,
-   purpose:"Worker가 충돌 의심 판정 전에 요구하는 변화·예외 검색", query: 중복 없는 subject_mentions + property_or_rule}` 검색 하나를 실행하고
-   다음 호출을 FINAL로 한다. 세 번째 호출은 이 경로로만 가므로 최종 SUSPECTED_CONFLICT에는 항상 그 receipt가 있다.
+   purpose:"Worker가 충돌 의심 판정 전에 요구하는 변화·예외 검색", query: check_intent + 대상 span quote(2026-11-03, 이전에는 subject_mentions +
+   property_or_rule)}` 검색 하나를 실행하고 다음 호출을 FINAL로 한다. 세 번째 호출은 이 경로로만 가므로 최종 SUSPECTED_CONFLICT에는 항상 그 receipt가 있다.
+3-1. 판정 규칙 검사(2026-11-03, `judging.clear_unquoted_finding`): Worker가 받아들이는 CONFLICT·SUSPECTED_CONFLICT에 확인된 `basis_quotes`가 하나도 없고
+   `disagreements`도 없으면 NO_CONFLICT/COMPATIBLE(impact·impact_reason null, 고정 사유)로 게시한다. 질문 실패가 아니고
+   `CONFLICT_QUOTE_MISSING_CLEARED`/`SUSPECTED_CONFLICT_QUOTE_MISSING_CLEARED`로 센다. 게시 형식은 기존 NO_CONFLICT와 같아 서버 변경이 없다.
 4. 한 실행 안의 같은 검색(공백을 뗀 문장)은 재사용한다. 새 L-ref에 `reused_from`을 달고 조회·embedding을 쓰지 않는다.
 5. 과거 회차 출처가 없으면 VECTOR는 근거 없이 성공하고 `readiness.vector_status=NOT_APPLICABLE`이며 embedding을 만들지 않는다.
    회차가 있는데 RAG 색인이 완전하지 않으면 검색을 제안하지 않고, 필요한 검색은 그 질문을 `VECTOR_NOT_READY`로 끝낸다(아래 INCOMPLETE).
@@ -389,7 +395,8 @@ schema 이름(`validation_judge_open_v3`·`validation_judge_final_v3`)은 그대
 
 - 판정 답(OPEN·FINAL 모두 필수, nullable): `headline`. CONFLICT는 `{실제로 어긋난 대상들}의 {항목}이 기존 설정과 달라요`(어긋나는 근거가 이전 회차면 `…N화와 달라요`, 설정집이면 `…설정집과 달라요`),
   SUSPECTED_CONFLICT는 `…다를 수 있어요`, NEEDS_CONTEXT는 무엇이 분명하지 않은지(`‘그’가 누구인지 확인이 필요해요`). 40자 안팎, 참조·내부 용어 금지. NO_CONFLICT·FOLLOW_UP은 null.
-- CONFLICT·SUSPECTED_CONFLICT의 `reason`은 원인 → 결과 두 문장(120자 안팎): `기존 설정은 {대상}의 {항목}을 {기준 값}이라고 해요. 그런데 31화에서는 {이번 값}이라고 해요.`
+- CONFLICT의 `reason`은 원인 → 결과 두 문장(120자 안팎): `기존 설정은 {대상}의 {항목}을 {기준 값}이라고 해요. 그런데 31화에서는 {이번 값}이라고 해요.`
+  SUSPECTED_CONFLICT는 같은 두 문장 뒤에 `그 사이에 바뀐 기록은 찾지 못했어요.`를 붙인다(150자 안팎, 2026-11-09 AI v0052).
   모델 입력(evidence bundle이 아닌 호출 payload)에 `target_episode_no`가 더해져 `31화`처럼 쓴다(없으면 `이번 원고`). bundle 키·`input_digest`는 바뀌지 않는다.
 - Worker: FOLLOW_UP의 제목은 무시, NO_CONFLICT의 제목은 null로(`NO_CONFLICT_HEADLINE_CLEARED`), 앞뒤 공백 제거·빈 값 null, 작가용 문장 정제(위 절)를 `reason`처럼 적용하고
   남는 글이 없거나 80 code point를 넘으면 null(`HEADLINE_DROPPED`). 제목 없는 지적은 `HEADLINE_MISSING`으로 센다. 판정 규칙 검사(근거 문장 없는 충돌 → 문제없음)와 DB·원문 불일치의
