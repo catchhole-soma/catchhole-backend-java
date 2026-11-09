@@ -9,5 +9,6 @@ import org.monitoring.catchholebackend.domain.worldimage.dto.response.WorldSetti
 
 public interface CharacterImageService {
     Map<UUID, WorldSettingImageResponse> getCharacterImages(Collection<WorkCharacter> characters);
+    Map<UUID, WorldSettingImageResponse> getCharacterImagesByIds(Collection<UUID> characterIds);
     WorldSettingImageResponse updateCharacterImage(Long memberId, UUID workId, UUID characterId, CharacterImageUpdateRequest request);
 }

@@ -274,6 +274,7 @@ class CharacterControllerIntegrationTest {
         WorkCharacter first = workCharacterRepository.saveAndFlush(character(work, "첫 번째", 20, 1));
         WorkCharacter second = workCharacterRepository.saveAndFlush(character(work, "두 번째", 21, 2));
         WorkCharacter third = workCharacterRepository.saveAndFlush(character(work, "세 번째", 22, 3));
+        updateRecordCount(first.getId(), 1); updateRecordCount(second.getId(), 2); updateRecordCount(third.getId(), 3);
 
         mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
                         .queryParam("page", "0")
@@ -301,10 +302,10 @@ class CharacterControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("캐릭터 목록은 최근 수정순이며 같은 수정 시각에는 ID 역순으로 조회한다")
-    void getCharactersReturnsRecentlyUpdatedCharactersFirst() throws Exception {
-        WorkCharacter recentlyUpdated = workCharacterRepository.saveAndFlush(
-                character(work, "최근 수정", 20, 1)
+    @DisplayName("캐릭터 목록은 누적 기록순이며 같은 개수에는 ID 역순으로 조회한다")
+    void getCharactersReturnsRecordCountFirst() throws Exception {
+        WorkCharacter mostRecords = workCharacterRepository.saveAndFlush(
+                character(work, "이력이 많은 인물", 20, 1)
         );
         WorkCharacter sameTimeFirst = workCharacterRepository.saveAndFlush(
                 character(work, "동시 수정 1", 21, 2)
@@ -315,10 +316,13 @@ class CharacterControllerIntegrationTest {
 
         LocalDateTime latestUpdatedAt = LocalDateTime.of(2026, 8, 12, 12, 0);
         LocalDateTime sameUpdatedAt = latestUpdatedAt.minusHours(1);
-        updateCharacterUpdatedAt(recentlyUpdated.getId(), latestUpdatedAt);
+        updateCharacterUpdatedAt(mostRecords.getId(), latestUpdatedAt.minusDays(1));
         updateCharacterUpdatedAt(sameTimeFirst.getId(), sameUpdatedAt);
         updateCharacterUpdatedAt(sameTimeSecond.getId(), sameUpdatedAt);
 
+        updateRecordCount(mostRecords.getId(), 100);
+        updateRecordCount(sameTimeFirst.getId(), 50);
+        updateRecordCount(sameTimeSecond.getId(), 50);
         List<UUID> idsAtSameTime = List.of(sameTimeFirst.getId(), sameTimeSecond.getId()).stream()
                 .sorted(Comparator.comparing(UUID::toString).reversed())
                 .toList();
@@ -326,7 +330,8 @@ class CharacterControllerIntegrationTest {
         mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.content[0].id").value(recentlyUpdated.getId().toString()))
+                .andExpect(jsonPath("$.data.content[0].id").value(mostRecords.getId().toString()))
+                .andExpect(jsonPath("$.data.content[0].recordCount").value(100))
                 .andExpect(jsonPath("$.data.content[1].id").value(idsAtSameTime.get(0).toString()))
                 .andExpect(jsonPath("$.data.content[2].id").value(idsAtSameTime.get(1).toString()));
     }
@@ -348,6 +353,7 @@ class CharacterControllerIntegrationTest {
     void getCharactersFiltersByNameQueryIgnoringCase() throws Exception {
         WorkCharacter upper = workCharacterRepository.saveAndFlush(character(work, "Aria Blade", null, null));
         WorkCharacter lower = workCharacterRepository.saveAndFlush(character(work, "maria", null, null));
+        updateRecordCount(upper.getId(), 2);
         workCharacterRepository.saveAndFlush(character(work, "베른", null, null));
         WorkCharacter archived = workCharacterRepository.save(character(work, "ARIANNE", null, null));
         archived.archive();
@@ -388,11 +394,12 @@ class CharacterControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("검색어가 있으면 최근 수정순 대신 이름 오름차순으로 페이지를 나눈다")
-    void getCharactersWithQueryOrdersByName() throws Exception {
-        WorkCharacter third = workCharacterRepository.saveAndFlush(character(work, "다나", null, null));
-        WorkCharacter first = workCharacterRepository.saveAndFlush(character(work, "가나", null, null));
+    @DisplayName("검색어가 있어도 이름순 대신 누적 기록순으로 DB 페이지를 나눈다")
+    void getCharactersWithQueryOrdersByRecords() throws Exception {
+        WorkCharacter third = workCharacterRepository.saveAndFlush(character(work, "가나", null, null));
+        WorkCharacter first = workCharacterRepository.saveAndFlush(character(work, "다나", null, null));
         WorkCharacter second = workCharacterRepository.saveAndFlush(character(work, "나비", null, null));
+        updateRecordCount(first.getId(), 3); updateRecordCount(second.getId(), 2); updateRecordCount(third.getId(), 1);
         updateCharacterUpdatedAt(third.getId(), LocalDateTime.of(2026, 8, 12, 12, 0));
         updateCharacterUpdatedAt(first.getId(), LocalDateTime.of(2026, 8, 10, 12, 0));
         updateCharacterUpdatedAt(second.getId(), LocalDateTime.of(2026, 8, 11, 12, 0));
@@ -420,58 +427,8 @@ class CharacterControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("검색 결과는 DB collation과 무관하게 영문은 대소문자 구분 없이, 한글은 가나다순으로 정렬하고 페이지 메타데이터는 실제 일치 수를 따른다")
-    void getCharactersWithQuerySortsNamesInKoreanOrderIndependentOfDatabaseCollation() throws Exception {
-        // 공통 접미사는 모든 이름을 한 검색어로 찾기 위한 것이며 이름 사이의 상대 순서를 바꾸지 않는다.
-        List<String> expectedOrder = List.of(
-                "Alice 기사", "bob 기사", "Carol 기사", "가나 다 기사", "가람 기사", "가람하늘 기사", "나래 기사", "다온 기사"
-        );
-        for (String name : List.of(
-                "다온 기사", "가람하늘 기사", "bob 기사", "나래 기사", "Carol 기사", "가람 기사", "가나 다 기사", "Alice 기사"
-        )) {
-            workCharacterRepository.saveAndFlush(character(work, name, null, null));
-        }
-
-        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
-                        .queryParam("query", "기사")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.content[*].name", contains(expectedOrder.toArray())));
-        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
-                        .queryParam("query", "기사")
-                        .queryParam("page", "1")
-                        .queryParam("size", "3")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.content[*].name", contains(expectedOrder.subList(3, 6).toArray())))
-                .andExpect(jsonPath("$.data.page").value(1))
-                .andExpect(jsonPath("$.data.size").value(3))
-                .andExpect(jsonPath("$.data.totalElements").value(8))
-                .andExpect(jsonPath("$.data.totalPages").value(3))
-                .andExpect(jsonPath("$.data.hasNext").value(true));
-        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
-                        .queryParam("query", "기사")
-                        .queryParam("page", "2")
-                        .queryParam("size", "3")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.content[*].name", contains(expectedOrder.subList(6, 8).toArray())))
-                .andExpect(jsonPath("$.data.hasNext").value(false));
-        mockMvc.perform(get("/api/v1/works/{workId}/characters", work.getId())
-                        .queryParam("query", "기사")
-                        .queryParam("page", "5")
-                        .queryParam("size", "3")
-                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.content.length()").value(0))
-                .andExpect(jsonPath("$.data.totalElements").value(8))
-                .andExpect(jsonPath("$.data.totalPages").value(3))
-                .andExpect(jsonPath("$.data.hasNext").value(false));
-    }
-
-    @Test
-    @DisplayName("일치 결과가 메모리 정렬 상한 1,000명을 넘으면 DB 페이지 조회로 돌아가도 페이지 메타데이터는 실제 일치 수를 따른다")
-    void getCharactersWithBroadQueryFallsBackToDatabasePagingAboveInMemoryLimit() throws Exception {
+    @DisplayName("넓은 검색어도 요청한 페이지 크기만 반환하며 메타데이터는 전체 일치 수를 따른다")
+    void getCharactersWithBroadQueryUsesDatabasePaging() throws Exception {
         workCharacterRepository.saveAllAndFlush(java.util.stream.IntStream.rangeClosed(1, 1_001)
                 .mapToObj(number -> character(work, "인물 %04d".formatted(number), null, null))
                 .toList());
@@ -495,10 +452,11 @@ class CharacterControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("공백뿐인 검색어는 검색어 없는 목록과 같이 최근 수정순을 유지한다")
-    void getCharactersWithoutQueryKeepsUpdatedAtOrder() throws Exception {
+    @DisplayName("공백뿐인 검색어는 검색어 없는 목록과 같이 누적 기록순을 유지한다")
+    void getCharactersWithoutQueryKeepsRecordCountOrder() throws Exception {
         WorkCharacter older = workCharacterRepository.saveAndFlush(character(work, "가람", null, null));
         WorkCharacter newer = workCharacterRepository.saveAndFlush(character(work, "하늘", null, null));
+        updateRecordCount(newer.getId(), 2);
         updateCharacterUpdatedAt(older.getId(), LocalDateTime.of(2026, 8, 10, 12, 0));
         updateCharacterUpdatedAt(newer.getId(), LocalDateTime.of(2026, 8, 12, 12, 0));
 
@@ -3348,6 +3306,21 @@ class CharacterControllerIntegrationTest {
                   "statuses": []
                 }
                 """.formatted(name, firstAppearanceEpisodeNo);
+    }
+
+    @Test
+    @DisplayName("누적 기록 수와 별칭 검색 계약을 OpenAPI에 반영한다")
+    void describesCharacterCatalogContract() throws Exception {
+        mockMvc.perform(get("/v3/api-docs")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.components.schemas.CharacterSummaryResponse.properties.recordCount.type").value("integer"))
+                .andExpect(jsonPath("$.paths['/api/v1/works/{workId}/characters'].get.description")
+                        .value(org.hamcrest.Matchers.containsString("누적 설정 기록 수")));
+    }
+
+    // H2에는 PostgreSQL 트리거가 없으므로 API 정렬 fixture의 집계만 명시한다.
+    // 실제 누적/롤백/삭제는 CharacterCatalogPostgresIntegrationTest에서 검증한다.
+    private void updateRecordCount(UUID id, long count) {
+        jdbcTemplate.update("update characters set record_count = ? where id = ?", count, id);
     }
 
     private void updateCharacterUpdatedAt(UUID characterId, LocalDateTime updatedAt) {

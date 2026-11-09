@@ -41,15 +41,20 @@ public class CharacterImageServiceImpl implements CharacterImageService {
 
     @Override
     public Map<UUID, WorldSettingImageResponse> getCharacterImages(Collection<WorkCharacter> subjects) {
-        if (subjects.isEmpty()) return Map.of();
-        var selected = selections.findSelections(subjects.stream().map(WorkCharacter::getId).toList()).stream()
+        return getCharacterImagesByIds(subjects.stream().map(WorkCharacter::getId).toList());
+    }
+
+    @Override
+    public Map<UUID, WorldSettingImageResponse> getCharacterImagesByIds(Collection<UUID> characterIds) {
+        if (characterIds.isEmpty()) return Map.of();
+        var selected = selections.findSelections(characterIds).stream()
                 .collect(Collectors.toMap(CharacterImage::getCharacterId, Function.identity()));
         Map<UUID, WorldSettingImageResponse> result = new HashMap<>();
-        for (var character : subjects) {
-            var selection = selected.get(character.getId());
+        for (var characterId : characterIds) {
+            var selection = selected.get(characterId);
             long version = selection == null ? 0 : selection.getVersion();
             if (selection != null && selection.getPrivateImage() != null) {
-                result.put(character.getId(), mapper.toPrivateSelectionResponse(selection.getPrivateImage(), version));
+                result.put(characterId, mapper.toPrivateSelectionResponse(selection.getPrivateImage(), version));
                 continue;
             }
             WorldImageCatalog catalog = null;
@@ -58,7 +63,7 @@ public class CharacterImageServiceImpl implements CharacterImageService {
                 var chosen = selection.getCatalog();
                 if (chosen != null && chosen.isActive() && chosen.getCategory() == WorldSettingCategory.RACE) catalog = chosen;
             }
-            result.put(character.getId(), mapper.toSelectionResponse(catalog,
+            result.put(characterId, mapper.toSelectionResponse(catalog,
                     "MANUAL".equals(source) ? "MANUAL" : "DEFAULT".equals(source) ? "DEFAULT" : "AUTO", version));
         }
         return result;
