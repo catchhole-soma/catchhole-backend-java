@@ -18,6 +18,7 @@ import org.monitoring.catchholebackend.domain.character.dto.response.CharacterSu
 import org.monitoring.catchholebackend.domain.character.entity.CharacterFact;
 import org.monitoring.catchholebackend.domain.character.entity.CharacterSettingSchema;
 import org.monitoring.catchholebackend.domain.character.entity.WorkCharacter;
+import org.monitoring.catchholebackend.domain.character.repository.CharacterCardRow;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterFactSourceResolver;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingEditPolicyResolver;
 import org.monitoring.catchholebackend.domain.character.processor.CharacterSettingEditPolicyResolver.CharacterSettingEditPolicy;
@@ -50,8 +51,17 @@ public class CharacterMapper {
                 currentLevel == null ? null : "레벨",
                 currentLevel == null ? null : currentLevel.toString(),
                 firstAppearanceEpisodeNo, image,
-                character.getRoleLabel()
+                character.getRoleLabel(), character.getRecordCount()
         );
+    }
+
+    public CharacterSummaryResponse toSummaryResponse(
+            CharacterCardRow row,
+            WorldSettingImageResponse image) {
+        return new CharacterSummaryResponse(row.id(), row.name(), row.currentAge(),
+                row.currentLevel() == null ? null : "레벨",
+                row.currentLevel() == null ? null : row.currentLevel().toString(),
+                row.firstAppearanceEpisodeNo(), image, row.roleLabel(), row.recordCount());
     }
 
     public List<CharacterSummaryResponse> toSummaryResponseList(

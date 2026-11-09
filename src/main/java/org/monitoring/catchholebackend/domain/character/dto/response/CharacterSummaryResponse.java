@@ -28,6 +28,9 @@ public record CharacterSummaryResponse(
         WorldSettingImageResponse image,
 
         @Schema(description = "역할 표시명", example = "주인공", nullable = true)
-        String roleLabel
+        String roleLabel,
+
+        @Schema(description = "현재·과거 이력을 포함한 확정 설정 기록 수")
+        long recordCount
 ) {
 }

@@ -19,6 +19,7 @@ import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import org.monitoring.catchholebackend.domain.character.type.CharacterStatus;
@@ -79,6 +80,11 @@ public class WorkCharacter extends BaseEntity {
     private String roleLabel;
 
     // 소설 최신 회차에서의 현재 나이
+    // PostgreSQL Fact 트리거가 관리한다. 엔티티 저장으로 오래된 집계값을 덮어쓰지 않는다.
+    @ColumnDefault("0")
+    @Column(name = "record_count", nullable = false, insertable = false, updatable = false)
+    private long recordCount;
+
     @Column(name = "current_age")
     private Integer currentAge;
 

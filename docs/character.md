@@ -139,10 +139,9 @@ confirm은 `rawAiResultJson`에서 수정 전 속성을 복원하지 않습니�
 ### 캐릭터 현재 설정 수정·보관·복구 정책
 
 - 기본 캐릭터 목록과 상세는 `ACTIVE` 상태만 조회합니다. 다른 작품 캐릭터와 `ARCHIVED` 캐릭터의 상세는 `CHARACTER_NOT_FOUND / 404`로 응답합니다.
-- 보관함 목록은 `ARCHIVED` 상태만 조회하며 활성 목록과 동일한 페이지·정렬·첫 등장 회차 표시 계약을 사용합니다.
+- 보관함 목록은 `ARCHIVED` 상태만 조회하며 페이지·첫 등장 회차 표시 계약을 공유합니다. 보관함은 기존 `updatedAt DESC, id DESC` 정렬을 유지합니다.
 - 목록은 `page`(0부터 시작)와 `size`(1~24)를 받아 서버에서 페이징합니다. 활성 목록의 기본값은 `page=0`, `size=24`이고 보관함은 한 화면에 9개를 표시하기 위해 `page=0`, `size=9`를 사용합니다.
-- 최근에 현재 설정이나 기본 정보가 변경된 캐릭터를 먼저 찾을 수 있도록 `updatedAt DESC, id DESC`로 정렬하며,
-  `(work_id, status, updated_at DESC, id DESC)` 복합 인덱스를 사용합니다. 같은 수정 시각에는 `id DESC`가 페이지 순서를 고정합니다.
+- 활성 목록은 검색 여부와 무관하게 누적 설정 기록 수 `recordCount DESC, id DESC`로 정렬합니다. `(work_id, status, record_count DESC, id DESC)` 인덱스를 사용하고 동률은 ID로 고정합니다. 이미지나 이름만 수정해도 순위가 올라가지는 않습니다.
 - 응답은 `content`, `page`, `size`, `totalElements`, `totalPages`, `hasNext`를 제공합니다.
 - 목록의 `firstAppearanceEpisodeNo`는 첫 등장 회차가 없거나 현재 작품에서 유효한 회차를 찾지 못하면 `null`로 응답합니다. 해당 캐릭터만 값 없음으로 표시하며 목록 전체 조회는 실패시키지 않습니다.
 - 카드 대표 속성은 우선 현재 레벨을 `레벨`로 제공합니다. 레벨이 없으면 대표 속성 표시명과 값을 모두 `null`로 둡니다. 장르별 대표 속성은 후속 정책입니다.
@@ -537,7 +536,7 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 - `findByIdAndWorkIdAndStatus(id, workId, ACTIVE)`: 활성 캐릭터 상세 조회에 사용합니다.
 - `findByIdAndWorkIdAndStatusForUpdate(id, workId, ACTIVE)`: 수정·삭제 대상 활성 캐릭터를 pessimistic write lock으로 조회합니다.
 - `findAllByWorkIdAndStatusOrderByCreatedAtDesc(workId, ACTIVE)`: Worker claim에 전달할 활성 캐릭터만 조회합니다.
-- `findAllByWorkIdAndStatusOrderByUpdatedAtDescIdDesc(workId, status, pageable)`: 활성 목록과 보관함을 상태별 최근 수정순으로 안정적으로 페이지 조회합니다.
+- `CharacterCardQueryRepository.findPage(...)`: 카드에 필요한 scalar 컬럼과 첫 등장 회차만 DB에서 페이지 조회합니다. 활성 목록은 누적 기록순, 보관함은 최근 수정순입니다.
 - `findByWorkIdAndNameAndStatus(workId, name, ACTIVE)`: 후보 확정과 새 캐릭터 지정에서 동명 활성 캐릭터만 조회합니다.
 - `existsByWorkIdAndNameAndStatusAndIdNot(workId, name, ACTIVE, id)`: 이름 수정·복구 대상 자신을 제외한 동명 활성 캐릭터 존재 여부를 확인합니다.
 - `findAllByWorkIdOrderByCreatedAtDesc(workId)`: 상태와 무관한 작품 캐릭터 전체가 필요한 검증과 테스트에서 조회합니다.
@@ -600,14 +599,32 @@ AI Worker가 추출한 값은 먼저 `SettingCandidate`에 저장하고, 사용�
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| `GET` | `/api/v1/works/{workId}/characters` | `ACTIVE` 캐릭터 카드 목록을 최근 수정순(`updatedAt DESC, id DESC`)으로 조회합니다. 선택 `query`(최대 100자)는 앞뒤 공백을 제거한 이름 부분 일치 검색어이며, 값이 있으면 DB collation과 무관한 한국어 이름순(같은 이름은 ID 순)으로 조회합니다. 카드는 `roleLabel`(역할 표시명, nullable)을 포함합니다. |
+| `GET` | `/api/v1/works/{workId}/characters` | `ACTIVE` 캐릭터 카드 목록을 `recordCount DESC, id DESC`로 조회합니다. 선택 `query`(최대 100자)는 이름·확정 별칭 부분 일치 검색어입니다. 카드는 `recordCount`, `roleLabel`과 기존 대표 정보를 포함합니다. |
 | `GET` | `/api/v1/works/{workId}/characters/archived` | `ARCHIVED` 캐릭터 카드 목록을 최신 생성순으로 조회합니다. |
 | `GET` | `/api/v1/works/{workId}/characters/{characterId}` | `WorkCharacter` snapshot과 slot별 provenance를 조합해 현재 설정을 조회합니다. `TIME`은 화면 목록에서 제외합니다. |
 | `PATCH` | `/api/v1/works/{workId}/characters/{characterId}` | 기본 정보와 현재 설정 전체를 수정하고 변경된 설정을 수동 정정 Fact로 기록합니다. |
 | `DELETE` | `/api/v1/works/{workId}/characters/{characterId}` | 삭제 버튼 요청을 처리하되 데이터를 지우지 않고 상태를 `ARCHIVED`로 전환합니다. |
 | `PATCH` | `/api/v1/works/{workId}/characters/{characterId}/restore` | 보관된 캐릭터의 설정 이력을 유지한 채 상태를 `ACTIVE`로 복구합니다. |
 
-캐릭터 이름 검색(`query`)은 같은 작품의 `ACTIVE` 캐릭터만 대상으로 `LOWER(name) LIKE LOWER(...)` 부분 일치를 사용합니다. 설정 검색과 같은 `LikePatternEscaper`로 `%`, `_`, `\\`를 literal 문자로 처리하고, 공백뿐인 검색어는 검색어 없는 목록과 같습니다. 검토 화면에서 작가가 이름을 알고 있는 인물을 고르는 용도라 검색 결과는 이름순이며, 검색어가 없을 때의 최근 수정순은 바꾸지 않습니다. 이름순은 DB `ORDER BY`가 아니라 Java `Collator.getInstance(Locale.KOREAN)`(영문 대소문자 무시, 한글 가나다순, 같은 이름은 ID 문자열 순)로 정합니다. PostgreSQL 기본 collation(`en_US.utf8`, glibc)은 길이가 다른 한글 이름을 가나다순으로 정렬하지 않아(예: `가람 < 나래 < 가람하늘 < 가나 다`) H2 테스트와 운영 결과가 달라지기 때문입니다. 한 작품의 캐릭터는 수백 명 규모라 일치 결과를 모두 읽어 메모리에서 페이지를 나눕니다. 일치 결과가 1,000명을 넘으면 요청당 메모리를 제한하려고 DB 페이지 조회(DB collation 이름순)로 돌아갑니다. 넓은 검색어를 거절하면 검색 자체가 막히므로 정렬 품질만 낮추는 쪽을 택했고, 어느 경로든 `totalElements`·`totalPages`·`hasNext`는 실제 일치 수를 따릅니다. 유사명·보관 인물 구분은 카드의 첫 등장 회차·`roleLabel`·나이/레벨로 합니다(같은 작품의 `ACTIVE` 완전 동명은 서버가 거절합니다). 작품당 캐릭터 수가 늘어 검색 p95가 문제가 되면 `pg_trgm` 인덱스를 함께 검토합니다.
+캐릭터 검색(`query`)은 같은 작품의 `ACTIVE` 캐릭터 이름과 `CONFIRMED + CHARACTER_DISCOVERY` 후보의 `entityName`을 대상으로 합니다. 별칭은 해당 캐릭터에 `matchedCharacterId`로 확정 연결된 것만 사용하며 미확정·제외 후보나 다른 작품의 이름을 포함하지 않습니다. AI 인물 식별 색인과 같은 출처이고 프로필 본문에서 별칭을 추정하지 않습니다. `EXISTS`로 검색하여 별칭 여러 개가 일치해도 카드는 한 번만 나옵니다. 대소문자를 무시하고 `%`, `_`, `\`는 `LikePatternEscaper`로 문자 그대로 검색합니다. 공백뿐이면 전체 목록입니다. GH410부터 검색도 누적 기록순이며 기존 GH211의 한국어 Collator/1,000명 메모리 정렬은 사용하지 않습니다.
+
+### 누적 기록 집계와 목록 성능 (GH410)
+
+- `recordCount`는 캐릭터에 저장된 **모든 `character_facts` 행 수**입니다. 과거 이력·수동 정정·현재값의 근거를 포함하며 snapshot 슬롯 수를 다시 더하지 않습니다. 미확정 후보·인물 발견 후보는 제외하고, 내용이 실제로 저장되어 별도 Fact가 된 기록만 셉니다. 단순 이름·이미지 수정은 늘지 않습니다.
+- V121에서 기존 Fact를 한 번 집계하고 PostgreSQL statement trigger가 INSERT/DELETE/인물 이동 UPDATE의 증감을 같은 트랜잭션에 반영합니다. 한 SQL의 다수 행은 인물별로 묶어 갱신하며 ID 잠금 순서를 고정합니다. 실패·롤백은 집계도 되돌리고 중복 INSERT 무시는 증가시키지 않습니다. ORM은 집계 컬럼을 쓰지 않습니다.
+- 목록은 카드 projection + 전체 개수 + 해당 페이지의 이미지 일괄 조회를 사용합니다. 작품 권한 조회를 포함해 기본 4회 이하이며 캐릭터 JSON·설정 Fact·전체 검색 결과를 애플리케이션으로 가져오지 않습니다. 페이지 크기는 최대 24개입니다.
+- 별칭의 부분 인덱스는 작품·연결 캐릭터·소문자 별칭을 담습니다. `%검색어%` 자체를 B-tree가 완전히 해결하는 것은 아니며 검색은 작품 안에서 필터링합니다. 정렬 성능과 별칭 포함 검색 성능을 구분하고, 실제 규모에서 느려지면 `pg_trgm`을 별도 검토합니다.
+- PostgreSQL 통합 테스트는 합성 인물 2,000명/이력 200,000건에서 기본 목록의 집계 인덱스 사용, 별도 정렬·Fact 조회 없음, 24개 projection 및 엔티티 미로딩을 확인합니다. 이는 운영 지연 시간 측정치는 아닙니다.
+- 배포 시 최초 backfill/인덱스 생성 동안 쓰기 잠금이 발생합니다. 이후 캐릭터별 집계 갱신도 쓰기 잠금을 사용합니다. 데이터 이관에서 집계 컬럼을 수동 복제하거나 트리거를 끄지 않습니다. 운영 삭제는 Fact `DELETE` 후 인물 삭제이며, `TRUNCATE` 또는 트리거 우회 정비 후에는 아래 재집계가 필요합니다.
+
+```sql
+BEGIN;
+LOCK TABLE character_facts IN SHARE ROW EXCLUSIVE MODE;
+UPDATE characters c SET record_count = (
+    SELECT count(*) FROM character_facts f WHERE f.character_id = c.id
+);
+COMMIT;
+```
 
 상세 설정 항목은 canonical `key`, `displayName`, 편집 정책, 사용자용 `value`, `valueType`, 복합값의 `properties`, `sourceFacts[]`, `isSynthesized`를 제공합니다. `sourceFacts[]`에는 현재값을 구성한 모든 Fact의 ID·근거 여부·출처 회차가 들어갑니다. 기본 정보의 나이·레벨도 `currentAgeSourceFacts[]`, `currentLevelSourceFacts[]`를 제공합니다. 기존 `characterFactId`, `hasEvidence`, `currentAgeFact`, `currentLevelFact`는 첫 source를 가리키는 deprecated 호환 필드입니다. raw JSON snapshot과 내부 envelope는 응답하지 않습니다.
 

@@ -55,9 +55,9 @@ public class CharacterController {
             operationId = "getCharacters",
             summary = "캐릭터 목록 조회",
             description = "본인 작품의 ACTIVE 캐릭터 카드를 페이지 조회합니다. 보관된 캐릭터는 제외합니다. "
-                    + "검색어가 없으면 updatedAt DESC, id DESC 순서이고, 검색어가 있으면 이름 부분 일치"
-                    + "(대소문자 무시, %·_·\\는 literal 문자) 결과를 한국어 이름순(영문은 대소문자 무시, 한글은 가나다순, "
-                    + "같은 이름은 id 순)으로 조회합니다. 일치 결과가 1,000명을 넘으면 DB 이름순으로 조회합니다."
+                    + "누적 설정 기록 수(현재 설정과 과거 이력 포함) DESC, id DESC 순서로 조회합니다. "
+                    + "검색어는 캐릭터 이름과 확정 연결된 별칭의 부분 일치이며 대소문자를 구분하지 않습니다. "
+                    + "%·_·\\는 와일드카드가 아닌 문자 그대로 검색합니다."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "캐릭터 목록 조회 성공"),
@@ -102,7 +102,7 @@ public class CharacterController {
             @Parameter(
                     name = "query",
                     in = ParameterIn.QUERY,
-                    description = "캐릭터 이름 부분 일치 검색어. 앞뒤 공백을 제거하며 비어 있으면 전체 목록",
+                    description = "캐릭터 이름·확정 연결된 별칭 부분 일치 검색어. 앞뒤 공백을 제거하며 비어 있으면 전체 목록",
                     example = "아리"
             )
             @RequestParam(required = false)
