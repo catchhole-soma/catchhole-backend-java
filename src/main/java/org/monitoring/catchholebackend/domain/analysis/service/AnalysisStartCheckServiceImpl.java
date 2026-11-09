@@ -55,18 +55,18 @@ public class AnalysisStartCheckServiceImpl implements AnalysisStartCheckService 
         if (acknowledged && !check.response().revision().equals(request.reviewGateRevision())) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_REVIEW_GATE_CHANGED);
         }
-        if (check.candidates().ambiguous().isEmpty() && check.relationships().entries().isEmpty()) return;
+        // Relationship HOLDs are retained for later episode comparison, not closed at this gate.
+        if (check.candidates().ambiguous().isEmpty()) return;
         if (!acknowledged) {
             throw new AppException(AnalysisJobErrorCode.ANALYSIS_REVIEW_ACKNOWLEDGEMENT_REQUIRED);
         }
         // 이미 고정된 입력을 가진 미완료 실행이 있으면 그 참고 후보를 종료하지 않는다.
         runStates.assertSettingMutationAllowed(workId);
         candidates.closeAmbiguous(check.candidates(), requestId);
-        relationships.closeHolds(check.relationships(), requestId);
         var response = check.response();
         continuations.save(AnalysisReviewContinuation.record(requestId, workId, memberId,
                 response.revision(), check.episodeNumbers().getFirst(), response.ambiguousCharacterCount(),
-                response.ambiguousWorldCount(), response.ambiguousRelationshipCount()));
+                response.ambiguousWorldCount(), 0));
     }
 
     private Check capture(UUID workId, List<Integer> numbers) {

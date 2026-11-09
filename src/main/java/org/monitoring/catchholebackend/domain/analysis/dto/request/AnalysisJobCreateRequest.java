@@ -30,7 +30,7 @@ public record AnalysisJobCreateRequest(
         @Schema(description = "설정 반영 방식. 새 설정 추출·재분석은 생략 시 자동 반영하며, 단일 회차는 MANUAL로 직접 검토를 선택할 수 있습니다. 다회차는 항상 자동 반영하고 회차 검증은 생략 시 직접 검토입니다.", nullable = true)
         AnalysisReviewMode reviewMode,
 
-        @Schema(description = "시작 전 안내한 애매한 후보를 종료하고 분석할지 명시적으로 선택합니다. 기본 false입니다.", example = "true")
+        @Schema(description = "시작 전 안내한 애매한 캐릭터·세계관 후보를 종료하고 분석할지 명시적으로 선택합니다. 관계 HOLD는 유지하며 기본 false입니다.", example = "true")
         Boolean closeAmbiguousCandidates,
 
         @Size(max = 64)

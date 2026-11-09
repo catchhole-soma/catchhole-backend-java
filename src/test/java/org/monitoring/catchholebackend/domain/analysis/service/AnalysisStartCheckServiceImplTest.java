@@ -2,6 +2,8 @@ package org.monitoring.catchholebackend.domain.analysis.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDateTime;
@@ -10,7 +12,9 @@ import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.monitoring.catchholebackend.domain.analysis.dto.request.AnalysisStartCheckRequest;
+import org.monitoring.catchholebackend.domain.analysis.dto.request.AnalysisJobCreateRequest;
 import org.monitoring.catchholebackend.domain.analysis.dto.response.AnalysisStartCheckResponse;
+import org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType;
 import org.monitoring.catchholebackend.domain.analysis.type.AnalysisCandidateDomain;
 import org.monitoring.catchholebackend.domain.analysis.mapper.AnalysisStartCheckMapper;
 import org.monitoring.catchholebackend.domain.analysis.repository.AnalysisJobRepository;
@@ -21,6 +25,51 @@ import org.monitoring.catchholebackend.global.hash.Sha256Hasher;
 
 @DisplayName("분석 시작 확인 값의 리팩터링 전후 호환")
 class AnalysisStartCheckServiceImplTest {
+    @Test
+    @DisplayName("관계 HOLD만 남으면 종료 동의 없이 다음 회차를 시작하고 HOLD를 유지한다")
+    void relationshipHoldsDoNotRequireClosure() {
+        UUID workId = id(1);
+        AnalysisCandidateReviewGate candidates = mock(AnalysisCandidateReviewGate.class);
+        RelationshipHoldReviewGate relationships = mock(RelationshipHoldReviewGate.class);
+        when(candidates.snapshot(workId, 4)).thenReturn(new AnalysisCandidateReviewGate.Snapshot(
+                workId, 4, List.of(), List.of(), List.of()));
+        when(relationships.snapshot(workId, 4)).thenReturn(new RelationshipHoldReviewGate.Snapshot(
+                workId, 4, List.of(new RelationshipHoldReviewGate.Entry(id(42), "O1", 3, "relation"))));
+        var service = new AnalysisStartCheckServiceImpl(mock(WorkRepository.class), candidates, relationships,
+                mock(AnalysisRunStateService.class), mock(AnalysisReviewContinuationRepository.class),
+                mock(AnalysisJobRepository.class), new Sha256Hasher(), new AnalysisStartCheckMapper());
+
+        service.applyAnalysisStartDecision(1L, workId, List.of(4),
+                new AnalysisJobCreateRequest(AnalysisJobType.SETTING_EXTRACTION, id(5), null), id(6));
+
+        verify(relationships, never()).closeHolds(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        verify(candidates, never()).closeAmbiguous(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    @DisplayName("설정 후보 종료에 동의해도 관계 HOLD는 후속 분석에 남긴다")
+    void settingClosureDoesNotCloseRelationshipHolds() {
+        UUID workId = id(1);
+        AnalysisCandidateReviewGate candidates = mock(AnalysisCandidateReviewGate.class);
+        RelationshipHoldReviewGate relationships = mock(RelationshipHoldReviewGate.class);
+        var snapshot = new AnalysisCandidateReviewGate.Snapshot(workId, 4, List.of(),
+                List.of(entry(AnalysisCandidateDomain.CHARACTER, 21, "character-hold")), List.of());
+        when(candidates.snapshot(workId, 4)).thenReturn(snapshot);
+        when(relationships.snapshot(workId, 4)).thenReturn(new RelationshipHoldReviewGate.Snapshot(
+                workId, 4, List.of(new RelationshipHoldReviewGate.Entry(id(42), "O1", 3, "relation"))));
+        var service = new AnalysisStartCheckServiceImpl(mock(WorkRepository.class), candidates, relationships,
+                mock(AnalysisRunStateService.class), mock(AnalysisReviewContinuationRepository.class),
+                mock(AnalysisJobRepository.class), new Sha256Hasher(), new AnalysisStartCheckMapper());
+        var revision = service.checkAnalysisStart(1L, workId, new AnalysisStartCheckRequest(List.of(4))).revision();
+
+        service.applyAnalysisStartDecision(1L, workId, List.of(4),
+                new AnalysisJobCreateRequest(AnalysisJobType.SETTING_EXTRACTION, id(5), null,
+                        null, null, true, revision), id(6));
+
+        verify(candidates).closeAmbiguous(snapshot, id(6));
+        verify(relationships, never()).closeHolds(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
     @Test
     @DisplayName("기존 확인 값과 전체 응답을 보존하고 회차 입력 순서·중복에 영향을 받지 않는다")
     void preservesExistingRevisionAndResponseAcrossExtraction() {
