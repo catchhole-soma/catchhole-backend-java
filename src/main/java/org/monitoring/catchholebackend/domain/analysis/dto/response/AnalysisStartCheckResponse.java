@@ -17,7 +17,7 @@ public record AnalysisStartCheckResponse(
                 description = "요청한 회차 번호의 최솟값보다 앞선 회차의 자동 분석이 정상 종료되어 명시적으로 종료할 수 있는 애매한 세계관 후보 수. 경고에 동의하면 종료하며 기술적 실패·처리 중 후보는 포함하지 않습니다.", example = "0")
         long ambiguousWorldCount,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED,
-                description = "요청한 회차 번호의 최솟값보다 앞선 회차의 정상적인 관계 HOLD 수. 경고에 동의하면 해당 보류만 종료하며 기술적 비교 실패는 포함하지 않습니다.", example = "1")
+                description = "요청한 회차 번호의 최솟값보다 앞선 회차의 정상적인 관계 HOLD 수. 안내용이며 다음 회차의 관계 분석 참고로 유지합니다. 기술적 비교 실패는 포함하지 않습니다.", example = "1")
         long ambiguousRelationshipCount,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "작품·정렬된 전체 대상 회차·후보 상태에 결속된 확인 값. 종료에 동의할 때 생성 요청의 reviewGateRevision으로 그대로 보냅니다.",
                 example = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
