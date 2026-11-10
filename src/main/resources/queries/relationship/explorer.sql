@@ -60,7 +60,7 @@ WITH latest AS MATERIALIZED (
     UNION ALL
     SELECT target_id, source_id, target_name, episode_no, created_at, event_id FROM visible
 ), degrees AS (
-    SELECT id, count(DISTINCT neighbor) AS neighbor_count FROM endpoints GROUP BY id
+    SELECT id, count(DISTINCT neighbor) AS neighbor_count, count(*) AS edge_count FROM endpoints GROUP BY id
 ), observed AS (
     SELECT DISTINCT ON (id) id, observed_name FROM endpoints ORDER BY id, episode_no DESC, created_at DESC, event_id DESC
 ), registered_profiles AS (
@@ -68,7 +68,7 @@ WITH latest AS MATERIALIZED (
     WHERE character_id IS NOT NULL AND merged_into_node_id IS NULL AND character_linked_episode_no <= :cutoff
     GROUP BY character_id
 ), people AS MATERIALIZED (
-    SELECT n.id, n.character_id, d.neighbor_count,
+    SELECT n.id, n.character_id, d.neighbor_count, d.edge_count,
         n.character_id IS NOT NULL AND n.character_linked_episode_no <= :cutoff AS registered,
         CASE WHEN n.character_linked_episode_no <= :cutoff AND c.status = 'ACTIVE'
              AND rp.count = 1

@@ -1234,3 +1234,7 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 ### GH412 관계 탐색 읽기
 
 - `RelationshipExplorerService`/`RelationshipExplorerRepository`는 기존 관계 분석·쓰기 서비스와 분리한 PostgreSQL 읽기 경로다. 대형 분석 JSON 엔티티 적재를 피하기 위해 공통 CTE를 `src/main/resources/queries/relationship/explorer.sql`에 둔다. 이 SQL의 변경은 실제 PostgreSQL 테스트와 기존 읽기 계약 대조를 실행한다. 기준·API·성능 검증은 `docs/relationship-explorer.md`를 따른다.
+
+- GH416 신규 `/explore/selection`은 상대 최대 20명·합계 200개를 서버에서 검증한다. 한 상대만 초과할 때 200개 페이지를 허용하며 기존 `/explore` 100개 계약은 유지한다. 인물/상대 목록은 `edgeCount` 내림차순이고 모든 집계는 선택 회차의 유효한 관계를 기준으로 한다. 상세는 `docs/relationship-explorer.md`를 따른다.
+
+- GH416 가계도 `/family-tree/explore`는 200개 초과 무중심 요청에 전체 유효 가족 범위의 등록 인물 페이지를 반환한다. 기존 Reader의 유효성·시점·미등록 인물 규칙을 재사용하며 선택 단계에 호칭·이미지·관계선을 싣지 않는다. 중심 조회는 기존 거리순 200개 상한과 누락 표시를 유지한다. 상세는 `docs/family-tree-v1.md`를 따른다.

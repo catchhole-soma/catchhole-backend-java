@@ -203,3 +203,20 @@ JDK 21에서 `env -u DOCKER_HOST ./gradlew bootJar test --tests 'org.monitoring.
 ### 2026-10-20 명시 미등록 인물 묶음 검증
 
 `./gradlew test --tests '*domain.relationship.*'`에서 관계 패키지 579건 전부 통과했다. 실패·오류·skip은 0건이며 격리 PostgreSQL V87 migration/JPA validate 및 가계도 통합 55건을 포함한다. 명시 묶기 전 이름 미병합, 안정된 단일 도형과 개별 간선·근거 보존, 생성/해제 재전송, 소유권·후보/그룹 버전·중복 선택·현재 출처, 묶기에서 생기는 순환·세대 차이와 이후 관계 변경 재검증을 확인했다. 그룹이 실제 저장된 작품의 purge도 H2/PostgreSQL 별도 회귀 2건에서 통과했다.
+
+
+## GH416 큰 가계도 선택 진입
+
+`GET /api/v1/works/{workId}/family-tree/explore` (`exploreFamilyTree`)를 추가한다. 기존 `/family-tree` 계약은 유지한다. `includeHistorical`, `focusCharacterId`, `query`(이름 부분 검색·최대 100자), `page`(0~100000), `size`(1~50, 기본 24)를 받는다.
+
+선택 목록 `people`은 공통 `PageResponse<Person>`를 사용한다. `content`, `page`, `size`, `totalElements`, `totalPages`, `hasNext`의 기존 JSON 필드와 의미는 유지하며 도메인 전용 페이지 DTO를 별도로 만들지 않는다. 생성 SDK도 실제 OpenAPI의 공통 페이지 모델을 따른다.
+
+중심이 없고 유효 가족 간선이 200개를 넘으면 `selectionRequired=true`, `graph=null`과 등록 인물 `people` 페이지를 반환한다. 합계는 현재/과거 조건의 전체 유효 범위다. 미등록 명시 인물도 가족 연결 수와 전체 인물 수에 포함하지만 선택 카드의 주체는 등록 캐릭터다. 인물별 서로 다른 직접 가족 인원 내림차순, 이름·ID 순으로 정렬하며 같은 상대의 복수 관계는 한 번만 센다. 이름 검색과 페이지는 표시 상한 적용 전 전체 등록 인물에 적용한다. 페이지 밖 인물·근거·이미지는 응답하지 않는다.
+
+200개 이하거나 중심이 있으면 `selectionRequired=false`, `people=null`, 기존 `FamilyTreeResponse`를 `graph`에 반환한다. 중심은 같은 작품의 활성 캐릭터만 허용한다. 연결 가족 범위 자체가 크면 기존 거리순 200개 상한과 `truncated`를 유지한다. 권한 검사·REPEATABLE_READ·현재 근거·보관/철회·순환·시점·미등록 인물의 구분은 기존 Reader/Projector를 공유한다.
+
+선택 응답은 호칭 파싱·이미지 조회·그래프 revision 생성·원문 응답을 생략한다. 응답은 최대 50명이며 추가 왕복 없이 진입 판정과 첫 페이지를 함께 반환한다. 서버 내부의 전체 관계 유효성 검사는 기존 Reader를 유지하며 DB 자체의 페이지 조회로 바뀐 것은 아니다. 인물마다 별도 조회하거나 현재성 검증을 생략하는 최적화는 추가하지 않았다. 선택 목록의 주기 조회를 끄고 창 복귀/수동 갱신을 사용한다.
+
+검증: H2/실제 PostgreSQL에서 200/201 경계, 과거 포함 전환, 보관에 따른 선택 해제, 전체 범위 검색·끝 페이지, 중심 조회 상한, 작품 권한·입력 검증과 선택 시 이미지 조회 0회를 확인한다. Projector에서 300명 연결과 중복 상대 집계·빈 검색을 검증한다. 이는 합성 기능 검증이며 운영 부하 측정값이 아니다.
+
+최종 main 병합 후 `FamilyTreeControllerIntegrationTest`, `FamilyTreePostgresIntegrationTest`, `FamilyTreeProjectorTest` 총 128개 통과(실패·오류·제외 0), `bootJar` 성공. 실제 로컬 HTTP·브라우저에서 삼국지 복사본 175명·119관계가 선택 화면 없이 잘림 없는 그래프로 반환되는 것도 확인했다. 운영 데이터 변경과 AI 호출은 없다.

@@ -24,9 +24,61 @@ public class RelationshipExplorerServiceImpl implements RelationshipExplorerServ
     public static final int OVERVIEW_THRESHOLD = 300;
     public static final int OVERVIEW_NODE_THRESHOLD = 100;
     public static final int EDGE_PAGE_SIZE = 100;
+    public static final int SELECTION_EDGE_LIMIT = 200;
+    public static final int SELECTION_PERSON_LIMIT = 20;
     private final WorkRepository works;
     private final RelationshipExplorerRepository reads;
     private final RelationshipExplorerMapper mapper;
+
+    @Override
+    public SelectionExploration exploreSelectedRelationships(Long member, UUID work, Integer episodeNo, UUID focus,
+            List<UUID> counterparts, int page) {
+        if (counterparts != null && counterparts.stream().anyMatch(Objects::isNull)) invalid();
+        List<UUID> selectedIds = counterparts == null ? List.of() : List.copyOf(counterparts);
+        if (page < 0 || page > 10000 || focus == null && (!selectedIds.isEmpty() || page != 0)
+                || selectedIds.stream().anyMatch(id -> id.equals(focus))
+                || new HashSet<>(selectedIds).size() != selectedIds.size()) invalid();
+        if (selectedIds.size() > SELECTION_PERSON_LIMIT) throw new AppException(RELATIONSHIP_SELECTION_LIMIT_EXCEEDED);
+        Snapshot s = snapshot(member, work, episodeNo);
+        var stats = reads.stats(work, s.cutoff());
+        if (!stats.integrity()) conflict();
+        var focusPerson = focus == null ? null : reads.nodes(work, s.cutoff(), List.of(focus)).stream().findFirst()
+                .orElseThrow(() -> new AppException(RELATIONSHIP_GRAPH_NOT_FOUND));
+        long focusEdges = focusPerson == null ? stats.edgeCount() : focusPerson.edgeCount();
+        var selected = reads.selectedCounterparts(work, s.cutoff(), focus, selectedIds);
+        if (selected.size() != selectedIds.size()) throw new AppException(RELATIONSHIP_GRAPH_NOT_FOUND);
+        long scope = selected.isEmpty() ? focusEdges : selected.stream().mapToLong(RelationshipExplorerRepository.Person::edgeCount).sum();
+        if (scope > SELECTION_EDGE_LIMIT && selected.size() > 1) throw new AppException(RELATIONSHIP_SELECTION_LIMIT_EXCEEDED);
+        boolean directory = focus == null && (stats.edgeCount() >= OVERVIEW_THRESHOLD || stats.peopleCount() >= OVERVIEW_NODE_THRESHOLD);
+        boolean chooseCounterparts = focus != null && selected.isEmpty() && focusEdges >= SELECTION_EDGE_LIMIT;
+        boolean pagedPair = selected.size() == 1 && scope > SELECTION_EDGE_LIMIT;
+        if (page != 0 && !pagedPair) invalid();
+        int size = focus == null ? OVERVIEW_THRESHOLD - 1 : SELECTION_EDGE_LIMIT;
+        var rows = directory || chooseCounterparts ? List.<Row>of()
+                : reads.edges(work, s.cutoff(), focus, null, selectedIds, page * size, size);
+        var edges = edges(work, s, rows);
+        Set<UUID> ids = new HashSet<>();
+        rows.forEach(r -> { ids.add(r.source()); ids.add(r.target()); });
+        if (focus != null) ids.add(focus);
+        var nodes = reads.nodes(work, s.cutoff(), ids).stream().map(RelationshipExplorerRepository.Person::node).toList();
+        String revision = Integer.toHexString(Objects.hash(edges, nodes, s.available(), s.status(), s.incomplete(), stats.edgeCount()));
+        Graph graph = mapper.toGraphResponse(s.selected(), s.available(), revision, nodes, edges, false,
+                stats.edgeCount(), s.status(), s.partial(), !s.incomplete().isEmpty(), s.incomplete());
+        return mapper.toSelectionExplorationResponse(graph, directory, stats.peopleCount(),
+                focusPerson == null ? null : focusPerson.node(), focusEdges, chooseCounterparts, selected,
+                page, size, scope, pagedPair && (long) (page + 1) * size < scope,
+                SELECTION_PERSON_LIMIT, SELECTION_EDGE_LIMIT);
+    }
+
+    @Override
+    public PageResponse<Person> searchRelationshipCounterparts(Long member, UUID work, Integer episodeNo, UUID focus,
+            String query, int page, int size) {
+        if (focus == null || page < 0 || page > 10000 || size < 1 || size > 50 || query == null || query.length() > 100) invalid();
+        Snapshot s = snapshot(member, work, episodeNo);
+        if (!reads.stats(work, s.cutoff()).integrity()) conflict();
+        if (reads.nodes(work, s.cutoff(), List.of(focus)).isEmpty()) throw new AppException(RELATIONSHIP_GRAPH_NOT_FOUND);
+        return mapper.toPeopleResponse(reads.peoplePage(work, s.cutoff(), query.strip(), focus, page * size, size), page, size);
+    }
 
     public Exploration exploreRelationships(Long member, UUID work, Integer episodeNo, UUID focus, int page) {
         if (page < 0 || page > 10000 || focus == null && page != 0) invalid();

@@ -2,6 +2,9 @@ package org.monitoring.catchholebackend.domain.relationship.service;
 
 import java.util.LinkedHashMap;
 import java.util.Objects;
+import java.util.Map;
+import org.monitoring.catchholebackend.domain.work.entity.Work;
+import org.monitoring.catchholebackend.domain.relationship.dto.response.FamilyTreeExplorationResponse;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -36,6 +39,23 @@ public class FamilyTreeServiceImpl implements FamilyTreeService {
     private final FamilyTreeMapper mapper;
 
     @Override
+    public FamilyTreeExplorationResponse exploreFamilyTree(Long memberId, UUID workId, boolean includeHistorical,
+            UUID focusCharacterId, String query, int page, int size) {
+        var work = workRepository.getOwnedWork(workId, memberId);
+        var focus = focusCharacterId == null ? null : characterRepository
+                .findByIdAndWorkIdAndStatus(focusCharacterId, workId, CharacterStatus.ACTIVE)
+                .orElseThrow(() -> new AppException(CharacterErrorCode.CHARACTER_NOT_FOUND));
+        var graph = graphReader.readGraph(workId);
+        var mentions = mentionReader.readMentions(workId, graph);
+        if (focus == null) {
+            var snapshot = projector.prepare(graph, mentions, includeHistorical, Map.of());
+            if (snapshot.edges().size() > FamilyTreeProjector.MAX_LIMIT)
+                return mapper.toDirectory(projector.directory(snapshot, query, page, size));
+        }
+        return mapper.toExploration(render(work, graph, mentions, focus, includeHistorical, FamilyTreeProjector.MAX_LIMIT));
+    }
+
+    @Override
     public FamilyTreeResponse getFamilyTree(Long memberId, UUID workId, boolean includeHistorical, UUID focusCharacterId, int limit) {
         var work = workRepository.getOwnedWork(workId, memberId);
         var focus = focusCharacterId == null ? null : characterRepository
@@ -43,7 +63,12 @@ public class FamilyTreeServiceImpl implements FamilyTreeService {
                 .orElseThrow(() -> new AppException(CharacterErrorCode.CHARACTER_NOT_FOUND));
         var graph = graphReader.readGraph(workId);
         var mentions = mentionReader.readMentions(workId, graph);
-        var roles = roleResolver.resolveRoles(workId, graph, mentions);
+        return render(work, graph, mentions, focus, includeHistorical, limit);
+    }
+
+    private FamilyTreeResponse render(Work work, RelationshipGraphReader.Graph graph,
+            RelationshipMentionReader.Snapshot mentions, WorkCharacter focus, boolean includeHistorical, int limit) {
+        var roles = roleResolver.resolveRoles(work.getId(), graph, mentions);
         var projection = projector.projectFamilyTree(work, graph, focus, includeHistorical, limit, mentions, roles);
         var visibleIds = projection.nodes().stream().map(FamilyTreeProjector.TreeNode::characterId)
                 .filter(Objects::nonNull).collect(Collectors.toSet());

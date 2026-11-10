@@ -125,6 +125,81 @@ class FamilyTreeControllerIntegrationTest {
     }
 
     @Test
+    @DisplayName("200개는 전체, 201개는 전체 가족 인원순 선택이며 선택 전 이미지를 읽지 않는다")
+    void exploresLargeFamilyBeforeLoadingTheDiagram() throws Exception {
+        seedFamily(200, RelationshipTemporalScope.CURRENT, "현재 가족 ");
+        var historic = seedFamily(1, RelationshipTemporalScope.HISTORICAL, "과거 가족 ");
+        var small = getData("/family-tree/explore");
+        assertThat(small.path("selectionRequired").asBoolean()).isFalse();
+        assertThat(small.path("graph").path("edges")).hasSize(200);
+        clearInvocations(characterImages);
+        var directory = getData("/family-tree/explore?includeHistorical=true&size=2");
+        assertThat(directory.path("selectionRequired").asBoolean()).isTrue();
+        assertThat(directory.path("graph").isNull()).isTrue();
+        assertThat(directory.path("totalEdgeCount").asInt()).isEqualTo(201);
+        assertThat(directory.path("people").path("totalElements").asInt()).isEqualTo(202);
+        assertThat(directory.at("/people/page").asInt()).isZero();
+        assertThat(directory.at("/people/size").asInt()).isEqualTo(2);
+        assertThat(directory.at("/people/totalPages").asInt()).isEqualTo(101);
+        assertThat(directory.at("/people/hasNext").asBoolean()).isTrue();
+        assertThat(directory.path("people").path("content")).hasSize(2);
+        assertThat(directory.at("/people/content/0/id").asText()).isEqualTo(parent.toString());
+        assertThat(directory.at("/people/content/0/familyCount").asInt()).isEqualTo(201);
+        org.mockito.Mockito.verifyNoInteractions(characterImages);
+        var last = getData("/family-tree/explore?includeHistorical=true&page=100&size=2");
+        assertThat(last.at("/people/content")).hasSize(2);
+        assertThat(last.at("/people/page").asInt()).isEqualTo(100);
+        assertThat(last.at("/people/size").asInt()).isEqualTo(2);
+        assertThat(last.at("/people/hasNext").asBoolean()).isFalse();
+        var searched = data(mvc.perform(get(base() + "/family-tree/explore")
+                .param("includeHistorical", "true").param("query", "과거 가족 0000")
+                .header(HttpHeaders.AUTHORIZATION, bearer())).andExpect(status().isOk()));
+        assertThat(searched.at("/people/content")).hasSize(1);
+        assertThat(searched.at("/people/content/0/id").asText()).isEqualTo(historic.getFirst().toString());
+        var focused = getData("/family-tree/explore?includeHistorical=true&focusCharacterId=" + historic.getFirst());
+        assertThat(focused.path("selectionRequired").asBoolean()).isFalse();
+        assertThat(focused.at("/graph/focusCharacterId").asText()).isEqualTo(historic.getFirst().toString());
+        assertThat(focused.at("/graph/edges")).hasSize(200);
+        assertThat(focused.at("/graph/truncated").asBoolean()).isTrue();
+        archive(historic.getFirst());
+        assertThat(getData("/family-tree/explore?includeHistorical=true").path("selectionRequired").asBoolean()).isFalse();
+    }
+
+    @Test
+    @DisplayName("가계도 탐색도 작품 권한과 페이지·검색·중심 인물 조건을 검증한다")
+    void familyExplorerChecksOwnershipAndParameters() throws Exception {
+        mvc.perform(get(base() + "/family-tree/explore")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/works/" + foreignWorkId + "/family-tree/explore").header(HttpHeaders.AUTHORIZATION, bearer())).andExpect(status().isNotFound());
+        mvc.perform(get(base() + "/family-tree/explore?focusCharacterId=" + foreignCharacter).header(HttpHeaders.AUTHORIZATION, bearer())).andExpect(status().isNotFound());
+        for (String query : List.of("page=-1", "size=51", "size=0", "query=" + "a".repeat(101)))
+            mvc.perform(get(base() + "/family-tree/explore?" + query).header(HttpHeaders.AUTHORIZATION, bearer())).andExpect(status().isBadRequest());
+    }
+
+    private List<UUID> seedFamily(int count, RelationshipTemporalScope temporal, String prefix) {
+        Source source = source(parent, "profile.family_seed_" + sourceIndex++, "합성 가족 연결");
+        return tx.execute(transaction -> {
+            var work = works.getOwnedWorkForUpdate(workId, memberId);
+            var subject = em.find(WorkCharacter.class, parent);
+            List<UUID> ids = new ArrayList<>();
+            for (int i = 0; i < count; i++) {
+                UUID id = character(work, prefix + String.format("%04d", i));
+                ids.add(id);
+                var object = em.find(WorkCharacter.class, id);
+                var key = UUID.randomUUID().toString().replace("-", "").repeat(2);
+                var relation = CharacterRelationship.create(work, subject, object, RelationshipKind.PARENT_OF,
+                        RelationshipSubtype.UNSPECIFIED, temporal, null, key);
+                em.persist(relation);
+                var candidate = RelationshipCandidate.create(work, UUID.randomUUID(), key, subject, object, null,
+                        RelationshipKind.PARENT_OF, RelationshipSubtype.UNSPECIFIED, temporal, null, RelationshipAssertion.ASSERTED, null);
+                candidate.confirm(relation);
+                em.persist(candidate);
+                em.persist(RelationshipEvidence.create(candidate, em.find(CharacterFact.class, source.factId()), source.token()));
+            }
+            return ids;
+        });
+    }
+
+    @Test
     @DisplayName("같은 이름의 미등록 후보는 명시적 묶기 전에는 별개이며 묶기·해제 후에도 모든 간선과 근거가 유지된다")
     void explicitlyGroupsMentionsAndReversiblyUngroupsWithoutMergingEdges() throws Exception {
         source(child, "profile.family", "태조의 5대손");

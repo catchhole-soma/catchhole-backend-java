@@ -10,12 +10,26 @@ import java.util.UUID;
 import org.monitoring.catchholebackend.domain.relationship.dto.response.FamilyTreeEdgeResponse;
 import org.monitoring.catchholebackend.domain.relationship.dto.response.FamilyTreeNodeResponse;
 import org.monitoring.catchholebackend.domain.relationship.dto.response.FamilyTreeResponse;
+import org.monitoring.catchholebackend.domain.relationship.dto.response.FamilyTreeExplorationResponse;
 import org.monitoring.catchholebackend.domain.relationship.processor.FamilyTreeProjector;
 import org.monitoring.catchholebackend.domain.worldimage.dto.response.WorldSettingImageResponse;
+import org.monitoring.catchholebackend.global.common.response.PageResponse;
 import org.springframework.stereotype.Component;
 
 @Component
 public class FamilyTreeMapper {
+    public FamilyTreeExplorationResponse toExploration(FamilyTreeResponse graph) {
+        return new FamilyTreeExplorationResponse(false, graph.totalNodeCount(), graph.totalEdgeCount(), graph, null);
+    }
+
+    public FamilyTreeExplorationResponse toDirectory(FamilyTreeProjector.Directory directory) {
+        var people = new PageResponse<>(directory.content().stream()
+                .map(person -> new FamilyTreeExplorationResponse.Person(person.node().characterId(),
+                        person.node().name(), person.familyCount())).toList(), directory.page(), directory.size(),
+                directory.totalElements(), directory.totalPages(), directory.hasNext());
+        return new FamilyTreeExplorationResponse(true, directory.totalNodeCount(), directory.totalEdgeCount(), null, people);
+    }
+
     public FamilyTreeResponse toResponse(FamilyTreeProjector.Projection projection, Map<UUID, WorldSettingImageResponse> images) {
         return new FamilyTreeResponse(projection.nodes().stream()
                 .map(node -> new FamilyTreeNodeResponse(node.id(), node.name(), node.nodeType(), node.characterId(), node.candidateId(),
