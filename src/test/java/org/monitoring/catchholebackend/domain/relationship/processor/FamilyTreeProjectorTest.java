@@ -35,6 +35,7 @@ class FamilyTreeProjectorTest {
     private final Work work = Work.create(null, "합성 작품", WorkGenre.FANTASY, null);
 
     @Test
+    @DisplayName("서로 다른 가족 인원을 세고 그래프 상한 밖의 인물도 전체 선택 목록에 포함한다")
     void directoryCountsDistinctFamilyAndKeepsPeopleBeyondGraphLimit() {
         var hub = character(9999);
         List<CharacterRelationship> edges = new ArrayList<>();

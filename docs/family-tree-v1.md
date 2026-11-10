@@ -209,6 +209,8 @@ JDK 21에서 `env -u DOCKER_HOST ./gradlew bootJar test --tests 'org.monitoring.
 
 `GET /api/v1/works/{workId}/family-tree/explore` (`exploreFamilyTree`)를 추가한다. 기존 `/family-tree` 계약은 유지한다. `includeHistorical`, `focusCharacterId`, `query`(이름 부분 검색·최대 100자), `page`(0~100000), `size`(1~50, 기본 24)를 받는다.
 
+선택 목록 `people`은 공통 `PageResponse<Person>`를 사용한다. `content`, `page`, `size`, `totalElements`, `totalPages`, `hasNext`의 기존 JSON 필드와 의미는 유지하며 도메인 전용 페이지 DTO를 별도로 만들지 않는다. 생성 SDK도 실제 OpenAPI의 공통 페이지 모델을 따른다.
+
 중심이 없고 유효 가족 간선이 200개를 넘으면 `selectionRequired=true`, `graph=null`과 등록 인물 `people` 페이지를 반환한다. 합계는 현재/과거 조건의 전체 유효 범위다. 미등록 명시 인물도 가족 연결 수와 전체 인물 수에 포함하지만 선택 카드의 주체는 등록 캐릭터다. 인물별 서로 다른 직접 가족 인원 내림차순, 이름·ID 순으로 정렬하며 같은 상대의 복수 관계는 한 번만 센다. 이름 검색과 페이지는 표시 상한 적용 전 전체 등록 인물에 적용한다. 페이지 밖 인물·근거·이미지는 응답하지 않는다.
 
 200개 이하거나 중심이 있으면 `selectionRequired=false`, `people=null`, 기존 `FamilyTreeResponse`를 `graph`에 반환한다. 중심은 같은 작품의 활성 캐릭터만 허용한다. 연결 가족 범위 자체가 크면 기존 거리순 200개 상한과 `truncated`를 유지한다. 권한 검사·REPEATABLE_READ·현재 근거·보관/철회·순환·시점·미등록 인물의 구분은 기존 Reader/Projector를 공유한다.

@@ -13,6 +13,7 @@ import org.monitoring.catchholebackend.domain.relationship.dto.response.FamilyTr
 import org.monitoring.catchholebackend.domain.relationship.dto.response.FamilyTreeExplorationResponse;
 import org.monitoring.catchholebackend.domain.relationship.processor.FamilyTreeProjector;
 import org.monitoring.catchholebackend.domain.worldimage.dto.response.WorldSettingImageResponse;
+import org.monitoring.catchholebackend.global.common.response.PageResponse;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -22,10 +23,10 @@ public class FamilyTreeMapper {
     }
 
     public FamilyTreeExplorationResponse toDirectory(FamilyTreeProjector.Directory directory) {
-        var people = new FamilyTreeExplorationResponse.People(directory.content().stream()
+        var people = new PageResponse<>(directory.content().stream()
                 .map(person -> new FamilyTreeExplorationResponse.Person(person.node().characterId(),
-                        person.node().name(), person.familyCount())).toList(), directory.totalElements(),
-                directory.page(), directory.size(), directory.totalPages(), directory.hasNext());
+                        person.node().name(), person.familyCount())).toList(), directory.page(), directory.size(),
+                directory.totalElements(), directory.totalPages(), directory.hasNext());
         return new FamilyTreeExplorationResponse(true, directory.totalNodeCount(), directory.totalEdgeCount(), null, people);
     }
 

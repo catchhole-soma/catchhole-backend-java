@@ -138,12 +138,18 @@ class FamilyTreeControllerIntegrationTest {
         assertThat(directory.path("graph").isNull()).isTrue();
         assertThat(directory.path("totalEdgeCount").asInt()).isEqualTo(201);
         assertThat(directory.path("people").path("totalElements").asInt()).isEqualTo(202);
+        assertThat(directory.at("/people/page").asInt()).isZero();
+        assertThat(directory.at("/people/size").asInt()).isEqualTo(2);
+        assertThat(directory.at("/people/totalPages").asInt()).isEqualTo(101);
+        assertThat(directory.at("/people/hasNext").asBoolean()).isTrue();
         assertThat(directory.path("people").path("content")).hasSize(2);
         assertThat(directory.at("/people/content/0/id").asText()).isEqualTo(parent.toString());
         assertThat(directory.at("/people/content/0/familyCount").asInt()).isEqualTo(201);
         org.mockito.Mockito.verifyNoInteractions(characterImages);
         var last = getData("/family-tree/explore?includeHistorical=true&page=100&size=2");
         assertThat(last.at("/people/content")).hasSize(2);
+        assertThat(last.at("/people/page").asInt()).isEqualTo(100);
+        assertThat(last.at("/people/size").asInt()).isEqualTo(2);
         assertThat(last.at("/people/hasNext").asBoolean()).isFalse();
         var searched = data(mvc.perform(get(base() + "/family-tree/explore")
                 .param("includeHistorical", "true").param("query", "과거 가족 0000")

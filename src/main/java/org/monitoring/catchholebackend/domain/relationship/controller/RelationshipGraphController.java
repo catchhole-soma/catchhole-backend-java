@@ -48,7 +48,7 @@ public class RelationshipGraphController {
     @GetMapping("/explore/selection")
     @Operation(operationId = "exploreSelectedEpisodeRelationships", summary = "전체 인물 목록과 선택한 상대의 관계 탐색",
             description = "중심 관계 200개 이상은 상대 선택부터 시작합니다. 최대 20명·200개를 함께 선택하며 한 상대만 200개를 넘는 경우 페이지로 나눕니다.")
-    public CommonResponse<org.monitoring.catchholebackend.domain.relationship.dto.RelationshipExplorerContract.SelectionExploration> selection(
+    public CommonResponse<org.monitoring.catchholebackend.domain.relationship.dto.RelationshipExplorerContract.SelectionExploration> exploreSelectedEpisodeRelationships(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId, @RequestParam(required = false) Integer episodeNo,
             @RequestParam(required = false) UUID focusNodeId,
