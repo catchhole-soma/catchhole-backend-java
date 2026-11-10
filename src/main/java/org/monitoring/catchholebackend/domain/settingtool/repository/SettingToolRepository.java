@@ -96,23 +96,33 @@ public class SettingToolRepository {
 
     public Page<WorkCharacter> characters(UUID workId, SettingToolQuery request) {
         var params = params(workId);
-        String from = "from WorkCharacter c where c.work.id = :workId and c.status = 'ACTIVE'";
-        if (request.query() != null && !request.query().isBlank()) {
-            from += " and lower(c.name) like :query escape '!'";
-            params.put("query", like(request.query()));
-        }
+        String from = characterLookup(request.query(), params);
         return page(WorkCharacter.class, "c", from, from, "lower(c.name), c.id", params, request);
     }
 
     /** Snapshot의 기존 scalar 해석을 재사용하기 위한 전체 활성 목록. 조건 적용 이전에 페이지로 자르지 않는다. */
     public List<WorkCharacter> charactersForCurrentLookup(UUID workId, String nameQuery) {
-        String hql = "select c from WorkCharacter c where c.work.id = :workId and c.status = 'ACTIVE'";
-        boolean named = nameQuery != null && !nameQuery.isBlank();
-        if (named) hql += " and lower(c.name) like :query escape '!'";
-        var query = entityManager.createQuery(hql + " order by lower(c.name), c.id", WorkCharacter.class)
-                .setParameter("workId", workId);
-        if (named) query.setParameter("query", like(nameQuery));
+        var params = params(workId);
+        String from = characterLookup(nameQuery, params);
+        var query = entityManager.createQuery("select c " + from + " order by lower(c.name), c.id", WorkCharacter.class);
+        params.forEach(query::setParameter);
         return query.getResultList();
+    }
+
+    private String characterLookup(String nameQuery, Map<String, Object> params) {
+        String from = "from WorkCharacter c where c.work.id = :workId and c.status = 'ACTIVE'";
+        if (nameQuery == null || nameQuery.isBlank()) return from;
+        params.put("query", like(nameQuery));
+        params.put("alias", nameQuery.trim());
+        // 캐릭터 목록과 같은 확정 발견을 사용하되, 챗봇에서 별칭의 부분 일치로 대상을 확장하지 않는다.
+        return from + """
+                 and (lower(c.name) like :query escape '!'
+                   or exists (select 1 from SettingCandidate a
+                       where a.work.id = :workId and a.matchedCharacterId = c.id
+                         and a.candidateKind = org.monitoring.catchholebackend.domain.character.type.SettingCandidateKind.CHARACTER_DISCOVERY
+                         and a.reviewStatus = org.monitoring.catchholebackend.domain.character.type.SettingCandidateReviewStatus.CONFIRMED
+                         and a.provisionalSubjectKey is null and lower(a.entityName) = lower(:alias)))
+                """;
     }
 
     public List<WorldSetting> worldsForCurrentLookup(UUID workId, WorldSettingCategory category) {

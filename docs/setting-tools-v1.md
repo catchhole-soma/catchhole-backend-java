@@ -84,7 +84,9 @@ Spring이 소유권과 설정의 의미를 결정하고 Python은 이 읽기 전
 - `WORLD_FIELDS`는 대상 세계관의 실제 현재 속성과 허용된 확정 이력의 `(scopeName, settingKey)`를 합친다. 동명 속성도 scope가 다르면 별개이며 회차 범위가 있으면 해당 이력만 반환한다. 대상이 없으면 작품의 현재 경로만 `(category, scopeName, settingKey)`별로 합치며 `worldCategory`로 분류를 제한할 수 있다. 이때 `subjectId=workId`, `subjectName=작품의 세계관 설정`, `settingVersion=null`이고 회차 범위는 거절한다.
 - `FIELD`의 값·JSON·직접 근거·현재 기여 판단은 null/빈 목록이다. 메타데이터만으로 현재값이나 원문 근거를 주장할 수 없다. 후속 모델은 서버가 제공한 경로 후보의 참조를 선택하고, 오케스트레이터가 그 후보의 저장 key/type/scope를 재사용한다. 임의 key 생성은 모델 계약에서 허용하지 않는다.
 
-`FIND_CHARACTERS` 조건은 `factType`, `settingKey`, `valueEquals` 세 필드를 함께 요구하며 `valueEquals`는 최대 200자다. 이름 `query`가 있으면 이름과 조건을 모두 만족해야 한다. `CharacterSnapshotAccessor`로 현재 snapshot을 해석하고 scalar 또는 object의 `value`/`name` 대표값을 앞뒤 공백 제거·Unicode NFC·대소문자 무시로 정확히 비교한다. 서술문의 부분 일치, 유사어 확장, 다중 조건, 숫자 범위 비교는 제공하지 않는다. 저장된 대표값이 없으면 설명용 factValue나 오래된 Fact로 대신 판단하지 않는다. 수동 수정·삭제·보관·타 작품 범위를 기존 snapshot/권한 정책과 같이 적용한다.
+`FIND_CHARACTERS`의 `query`는 활성 인물의 대표 이름에 부분 일치하거나, 해당 인물에 연결된 작품 내 확정 `CHARACTER_DISCOVERY`의 이름(별칭)에 정확히 일치하면 찾는다(#420). 입력의 앞뒤 공백과 대소문자를 무시한다. 동일 인물에 일치하는 별칭 기록이 여러 개여도 대표 카드 한 건을 반환하고, 별칭이 여러 인물에 일치하거나 다른 인물의 이름과 겹치면 후보를 모두 반환한다. 챗봇은 여러 후보가 있으면 대상 확인을 요청한다. 현재 설정·이력·원문 근거 조회에는 반환된 대표 카드 ID를 사용한다.
+
+`FIND_CHARACTERS` 조건은 `factType`, `settingKey`, `valueEquals` 세 필드를 함께 요구하며 `valueEquals`는 최대 200자다. `query`가 있으면 이름 또는 별칭 검색을 통과한 인물에게 현재값 조건도 적용한다. `CharacterSnapshotAccessor`로 현재 snapshot을 해석하고 scalar 또는 object의 `value`/`name` 대표값을 앞뒤 공백 제거·Unicode NFC·대소문자 무시로 정확히 비교한다. 서술문의 부분 일치, 유사어 확장, 다중 조건, 숫자 범위 비교는 제공하지 않는다. 저장된 대표값이 없으면 설명용 factValue나 오래된 Fact로 대신 판단하지 않는다. 수동 수정·삭제·보관·타 작품 범위를 기존 snapshot/권한 정책과 같이 적용한다.
 
 현재 조건 검색은 snapshot 포맷 해석을 SQL에서 중복 구현하지 않기 위해 작품의 활성 인물을 전체 조회한 뒤 필터와 결과 pagination을 적용한다. 따라서 조건 결과의 `totalElements`는 정확한 일치 수이고, 임의 scan 상한 때문에 뒤쪽 인물이 누락되지는 않는다. **DB 조회·JSON 해석 비용과 메모리는 작품의 활성 인물 수에 비례한다.** 작품 전체 경로 탐색도 같은 비용 특성이 있다. 전용 검색 인덱스·SQL 최적화와 운영 부하 측정은 미실시이며, 대규모 작품에 대해 검증된 처리량으로 설명하지 않는다. 읽은 인물들의 활성 상태·snapshot version은 응답 전에 묶음 재확인한다.
 
