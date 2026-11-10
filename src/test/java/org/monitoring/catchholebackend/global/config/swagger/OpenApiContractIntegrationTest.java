@@ -529,6 +529,12 @@ class OpenApiContractIntegrationTest {
                         .exists())
                 .andExpect(jsonPath("$['components']['schemas']['EpisodeDetectionRequest']['properties']['episodeConfirmations']")
                         .doesNotExist())
+                .andExpect(jsonPath("$['components']['schemas']['EpisodeDetectionRequest']['properties']['allowManualEpisodeNumber']")
+                        .exists())
+                .andExpect(jsonPath("$['components']['schemas']['DetectedEpisodeResponse']['properties']['episodeNo']['type']")
+                        .value(containsInAnyOrder("integer", "null")))
+                .andExpect(jsonPath("$['components']['schemas']['DetectedEpisodeResponse']['properties']['numberDetectionStatus']['enum']")
+                        .value(containsInAnyOrder("DETECTED", "REQUIRES_INPUT", "NUMBER_CONFLICT")))
                 .andExpect(jsonPath("$['components']['schemas']['EpisodeUploadRequest']['properties']['episodeConfirmations']")
                         .exists())
                 .andExpect(jsonPath("$['components']['schemas']['EpisodeUploadRequest']['properties']['uploadType']['enum']")
@@ -564,6 +570,7 @@ class OpenApiContractIntegrationTest {
                                 "detectionOrder",
                                 "sourceFileIndex",
                                 "episodeNo",
+                                "numberDetectionStatus",
                                 "title",
                                 "sourceHeading",
                                 "charCount",

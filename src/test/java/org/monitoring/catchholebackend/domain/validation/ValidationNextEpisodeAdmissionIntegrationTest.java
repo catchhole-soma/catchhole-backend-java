@@ -270,7 +270,7 @@ class ValidationNextEpisodeAdmissionIntegrationTest extends ValidationSettingsAp
     void replaceAndDetectAreNotBlocked() throws Exception {
         var f=fixture();runToCompletion(f,true);
         var before=writes(f.work());
-        var detected=episodes.detectEpisodes(f.member(),f.work(),new EpisodeDetectionRequest(EpisodeUploadType.SINGLE_EPISODE,102,"합성 102"),List.of(text("102.txt","합성 102화 원고")));
+        var detected=episodes.detectEpisodes(f.member(),f.work(),new EpisodeDetectionRequest(EpisodeUploadType.SINGLE_EPISODE,102,"합성 102",null),List.of(text("102.txt","합성 102화 원고")));
         assertThat(detected.detectedEpisodes()).hasSize(1);assertThat(writes(f.work())).as("detection writes nothing").isEqualTo(before);
         assertThat(episodes.updateEpisodeTitle(f.member(),f.work(),f.target(),new EpisodeTitleUpdateRequest("고친 제목")).title()).isEqualTo("고친 제목");
         settingBooks.uploadSettingBook(f.member(),f.work(),new MockMultipartFile("file","setting.txt","text/plain","합성 설정집 본문".getBytes(StandardCharsets.UTF_8)));

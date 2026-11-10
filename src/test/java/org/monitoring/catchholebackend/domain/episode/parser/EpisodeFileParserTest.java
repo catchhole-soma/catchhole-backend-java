@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.monitoring.catchholebackend.domain.episode.type.EpisodeNumberDetectionStatus;
 import org.monitoring.catchholebackend.domain.episode.type.EpisodeUploadType;
 import org.monitoring.catchholebackend.domain.upload.exception.UploadErrorCode;
 import org.monitoring.catchholebackend.domain.upload.parser.TextDocumentReader;
@@ -482,6 +483,114 @@ class EpisodeFileParserTest {
         assertThatThrownBy(() -> textDocumentReader.readText(docx))
                 .isInstanceOfSatisfying(AppException.class, exception ->
                         assertThat(exception.getResultCode()).isEqualTo(UploadErrorCode.UPLOAD_FILE_TOO_LARGE));
+    }
+
+    @Test
+    @DisplayName("직접 입력을 허용하면 가운데 파일의 번호를 못 찾아도 세 파일을 모두 돌려준다")
+    void manualNumberKeepsFileWithMissingNumber() {
+        List<DetectedEpisodeFile> detected = parseWithManualNumber(List.of(
+                textFile("1화.txt", "첫 본문입니다."),
+                textFile("원고.txt", "가운데 본문입니다."),
+                textFile("3화.txt", "세 번째 본문입니다.")
+        ));
+
+        assertThat(detected).hasSize(3);
+        assertThat(detected).extracting(file -> file.detectedEpisodes().getFirst().episodeNo())
+                .containsExactly(1, null, 3);
+        assertThat(detected).extracting(file -> file.detectedEpisodes().getFirst().numberDetectionStatus())
+                .containsExactly(
+                        EpisodeNumberDetectionStatus.DETECTED,
+                        EpisodeNumberDetectionStatus.REQUIRES_INPUT,
+                        EpisodeNumberDetectionStatus.DETECTED
+                );
+        assertThat(detected.get(1).detectedEpisodes().getFirst().title()).isNull();
+        assertThat(detected.get(1).detectedEpisodes().getFirst().content()).isEqualTo("가운데 본문입니다.");
+    }
+
+    @Test
+    @DisplayName("직접 입력을 허용하면 모든 파일의 번호를 못 찾아도 파일마다 한 행을 돌려준다")
+    void manualNumberKeepsEveryFileWhenAllNumbersAreMissing() {
+        List<DetectedEpisodeFile> detected = parseWithManualNumber(List.of(
+                textFile("원고A.txt", "첫 본문입니다."),
+                textFile("원고B.txt", "두 번째 본문입니다.")
+        ));
+
+        assertThat(detected).extracting(file -> file.detectedEpisodes().getFirst().episodeNo())
+                .containsExactly(null, null);
+    }
+
+    @Test
+    @DisplayName("번호를 못 찾은 파일도 25만 자 합계에 포함한다")
+    void manualNumberCountsUnresolvedFilesTowardCharacterLimit() {
+        assertThatThrownBy(() -> parseWithManualNumber(List.of(
+                textFile("1화.txt", "가".repeat(150_000)),
+                textFile("원고.txt", "나".repeat(100_001))
+        ))).isInstanceOfSatisfying(AppException.class, exception ->
+                assertThat(exception.getResultCode()).isEqualTo(UploadErrorCode.UPLOAD_CHARACTER_LIMIT_EXCEEDED));
+    }
+
+    @Test
+    @DisplayName("파일명과 본문의 번호가 다르면 둘 중 하나를 고르지 않고 제목만 채워 돌려준다")
+    void manualNumberLeavesConflictingNumberBlank() {
+        DetectedEpisode conflicted = parseWithManualNumber(List.of(
+                textFile("3화.txt", "제5화 갈림길\n본문입니다."),
+                textFile("6화.txt", "여섯 번째 본문입니다.")
+        )).getFirst().detectedEpisodes().getFirst();
+
+        assertThat(conflicted.episodeNo()).isNull();
+        assertThat(conflicted.numberDetectionStatus()).isEqualTo(EpisodeNumberDetectionStatus.NUMBER_CONFLICT);
+        assertThat(conflicted.title()).isEqualTo("갈림길");
+    }
+
+    @Test
+    @DisplayName("직접 입력을 허용해도 번호 자체가 잘못되거나 파일에 회차가 둘 이상이면 거절한다")
+    void manualNumberDoesNotRecoverOtherFailures() {
+        assertThatThrownBy(() -> parseWithManualNumber(List.of(
+                textFile("0화.txt", "본문입니다."),
+                textFile("2화.txt", "두 번째 본문입니다.")
+        ))).isInstanceOfSatisfying(AppException.class, exception ->
+                assertThat(exception.getResultCode()).isEqualTo(UploadErrorCode.UPLOAD_EPISODE_NO_INVALID));
+        assertThatThrownBy(() -> parseWithManualNumber(List.of(
+                textFile("원고.txt", "제1화 시작\n본문\n제2화 다음\n본문"),
+                textFile("3화.txt", "세 번째 본문입니다.")
+        ))).isInstanceOfSatisfying(AppException.class, exception ->
+                assertThat(exception.getResultCode())
+                        .isEqualTo(UploadErrorCode.UPLOAD_MULTI_FILE_EPISODE_COUNT_INVALID));
+    }
+
+    @Test
+    @DisplayName("직접 입력을 켜지 않으면 번호를 못 찾은 파일 하나로 전체가 실패한다")
+    void strictDetectionStillFailsWithoutManualNumber() {
+        assertThatThrownBy(() -> parseEpisodeFiles(
+                EpisodeUploadType.MULTI_EPISODE_MULTI_FILE,
+                List.of(textFile("1화.txt", "본문입니다."), textFile("원고.txt", "본문입니다."))
+        )).isInstanceOfSatisfying(AppException.class, exception ->
+                assertThat(exception.getResultCode()).isEqualTo(UploadErrorCode.UPLOAD_EPISODE_NO_DETECTION_FAILED));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"SINGLE_EPISODE", "MULTI_EPISODE_SINGLE_FILE"})
+    @DisplayName("직접 입력 감지는 여러 파일 방식이 아니면 거절한다")
+    void manualNumberIsRejectedForOtherUploadTypes(String uploadType) {
+        assertThatThrownBy(() -> episodeFileParser.parseEpisodeFiles(
+                EpisodeUploadType.valueOf(uploadType),
+                null,
+                null,
+                List.of(textFile("1화.txt", "제1화 시작\n본문\n제2화 다음\n본문")),
+                true
+        )).isInstanceOfSatisfying(AppException.class, exception ->
+                assertThat(exception.getResultCode())
+                        .isEqualTo(UploadErrorCode.UPLOAD_MANUAL_EPISODE_NUMBER_NOT_ALLOWED));
+    }
+
+    private List<DetectedEpisodeFile> parseWithManualNumber(List<MultipartFile> sourceEpisodeFiles) {
+        return episodeFileParser.parseEpisodeFiles(
+                EpisodeUploadType.MULTI_EPISODE_MULTI_FILE,
+                null,
+                null,
+                sourceEpisodeFiles,
+                true
+        );
     }
 
     private List<DetectedEpisodeFile> parseEpisodeFiles(

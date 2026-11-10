@@ -67,7 +67,9 @@ public class EpisodeUploadProcessor {
                 uploadRequest.uploadType(),
                 uploadRequest.singleEpisodeNo(),
                 uploadRequest.singleEpisodeTitle(),
-                sourceEpisodeFiles
+                sourceEpisodeFiles,
+                // 여러 파일 저장은 파일별 확정 번호가 필수라 감지 번호가 없어도 저장할 수 있다.
+                uploadRequest.uploadType() == EpisodeUploadType.MULTI_EPISODE_MULTI_FILE
         );
         List<FinalizedEpisodeFile> finalizedEpisodeFiles = finalizeEpisodeFiles(
                 uploadRequest.uploadType(),

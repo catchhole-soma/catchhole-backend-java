@@ -27,6 +27,7 @@ import org.monitoring.catchholebackend.domain.episode.event.EpisodeSourcePurgeRe
 import org.monitoring.catchholebackend.domain.episode.exception.EpisodeErrorCode;
 import org.monitoring.catchholebackend.domain.episode.mapper.EpisodeDetectionMapper;
 import org.monitoring.catchholebackend.domain.episode.mapper.EpisodeMapper;
+import org.monitoring.catchholebackend.domain.episode.parser.DetectedEpisodeFile;
 import org.monitoring.catchholebackend.domain.episode.parser.EpisodeFileParser;
 import org.monitoring.catchholebackend.domain.episode.processor.EpisodeUploadProcessor;
 import org.monitoring.catchholebackend.domain.episode.processor.EpisodeUploadPolicy;
@@ -273,15 +274,14 @@ public class EpisodeServiceImpl implements EpisodeService {
     ) {
         Work work = workRepository.getOwnedWork(workId, memberId);
         work.requireActive();
-        return episodeDetectionMapper.toResponse(
+        List<DetectedEpisodeFile> detectedEpisodeFiles = episodeFileParser.parseEpisodeFiles(
                 detectionRequest.uploadType(),
-                episodeFileParser.parseEpisodeFiles(
-                        detectionRequest.uploadType(),
-                        detectionRequest.singleEpisodeNo(),
-                        detectionRequest.singleEpisodeTitle(),
-                        sourceEpisodeFiles
-                )
+                detectionRequest.singleEpisodeNo(),
+                detectionRequest.singleEpisodeTitle(),
+                sourceEpisodeFiles,
+                detectionRequest.allowsManualEpisodeNumber()
         );
+        return episodeDetectionMapper.toResponse(detectionRequest.uploadType(), detectedEpisodeFiles);
     }
 
     private Episode getEpisodeInWork(UUID episodeId, Work work) {

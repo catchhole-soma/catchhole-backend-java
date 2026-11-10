@@ -23,6 +23,10 @@ public enum UploadErrorCode implements ResultCode {
     UPLOAD_EPISODE_NO_INVALID(HttpStatus.BAD_REQUEST, "감지한 회차 번호는 1 이상의 정수여야 합니다."),
     UPLOAD_EPISODE_NO_DETECTION_FAILED(HttpStatus.BAD_REQUEST, "회차 번호를 인식할 수 없습니다."),
     UPLOAD_EPISODE_NO_CONFLICT(HttpStatus.BAD_REQUEST, "파일명과 원문에서 서로 다른 회차 번호를 감지했습니다."),
+    UPLOAD_MANUAL_EPISODE_NUMBER_NOT_ALLOWED(
+            HttpStatus.BAD_REQUEST,
+            "회차 번호 직접 입력 감지는 다회차 여러 파일 업로드에서만 사용할 수 있습니다."
+    ),
     UPLOAD_EPISODE_COUNT_INVALID(HttpStatus.BAD_REQUEST, "다회차 업로드에는 두 개 이상의 회차가 필요합니다."),
     UPLOAD_SINGLE_EPISODE_COUNT_INVALID(
             HttpStatus.BAD_REQUEST,
