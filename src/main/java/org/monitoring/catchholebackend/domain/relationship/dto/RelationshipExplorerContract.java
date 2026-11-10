@@ -12,5 +12,4 @@ public final class RelationshipExplorerContract {
     public record Exploration(Graph graph, boolean selectionRequired, long totalNodeCount,
             List<Person> suggestedPeople, Node focusNode, int page, int pageSize, long scopeEdgeCount,
             boolean hasNext) {}
-    public record People(List<Person> content, int page, int size, boolean hasNext) {}
 }

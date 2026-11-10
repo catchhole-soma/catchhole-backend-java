@@ -22,7 +22,7 @@
 | GET 경로 (`/api/v1/works/{workId}/relationship-graph` 아래) | 입력 | 반환 |
 | --- | --- | --- |
 | `/explore` | `episodeNo?`, `focusNodeId?`, `page=0` | 작은 개요 또는 선택 화면, 중심 관계 100개 페이지, 전체 인물/관계 수 |
-| `/people` | `episodeNo?`, `query`, `page=0`, `size=20` (최대 50) | 전체 유효 인물의 이름·확정 별칭 검색, 다음 페이지 여부 |
+| `/people` | `episodeNo?`, `query`, `page=0`, `size=20` (최대 50) | 전체 유효 인물의 이름·확정 별칭 검색, 공통 `PageResponse<Person>`의 전체 개수·페이지 수·다음 페이지 여부 |
 | `/explore/edges/{edgeId}` | `episodeNo?` | 선택한 연결과 유효한 원문 인용 |
 
 페이지는 0부터 시작한다. 중심 인물 없이 0 이외 페이지는 400, 존재하지 않는 인물·회차·관계는 404다. 검색 `%`, `_`는 패턴으로 확장하지 않는다. 문맥 없는 동명이인을 묶지 않는다. 다른 작품의 인물 ID는 해당 작품의 탐색 조건을 통과하지 못한다.
@@ -46,3 +46,7 @@ PostgreSQL 16 Testcontainers에 합성 198회차, 인물 3,130명, 관계 3,129�
 
 - PostgreSQL 통합 테스트는 기존 관계도 시나리오마다 새 조회의 회차·상태·인물·관계·인용을 대조한다. 299/300개, 인물 99/100명, 100개 페이지, 전체 검색, 리다이렉트, 사용자 정정, 숨김, 파기·교체, 기술적 실패와 의미상 보류를 검증한다.
 - `GH412_FIXTURE_OUTPUT=/tmp/gh412-explorer-contract.json ./gradlew test --tests '*EpisodeRelationshipGraphPostgresIntegrationTest'`는 실제 MVC 응답과 인증/잘못된 입력/없는 회차 상태 코드를 검증하고 프런트 계약 테스트용 응답을 저장한다. 프런트는 이를 그대로 재생하며 운영 서버 연결 검증으로 표현하지 않는다.
+
+## 리뷰 보완
+
+서비스 인터페이스와 구현체를 분리하고 공개 응답 조립을 Spring Mapper로 옮겼다. 인물 검색의 일치 집합을 한 번 계산한 SQL에서 페이지와 전체 개수를 함께 반환하며, 마지막 페이지 뒤의 빈 결과도 정확한 전체 개수·페이지 수를 유지한다. 전체 항목은 서버 메모리로 읽지 않는다. 인물 관계도 URL은 가계도의 기존 `relationPage`와 별개인 `relationPeoplePage`를 사용한다.

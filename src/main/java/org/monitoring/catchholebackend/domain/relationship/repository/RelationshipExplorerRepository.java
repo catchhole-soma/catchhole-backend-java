@@ -28,6 +28,7 @@ public class RelationshipExplorerRepository {
             int rejected, boolean failures, boolean openHold) {}
     public record Stats(long edgeCount, long peopleCount, boolean integrity) {}
     public record Person(Node node, long neighborCount) {}
+    public record PeoplePage(List<Person> content, long total) {}
     public record Row(UUID id, UUID source, UUID target, Axis axis, Kind kind, String label,
             String summary, Direction direction, EdgeStatus status, long version) {}
     public record FailedPair(UUID source, UUID target, int episodeNo, boolean valid) {}
@@ -71,7 +72,7 @@ public class RelationshipExplorerRepository {
             """, params(workId, cutoff), (r, i) -> new Stats(r.getLong("edges"), r.getLong("people"), r.getBoolean("integrity")));
     }
 
-    public List<Person> people(UUID workId, int cutoff, String query, int offset, int limit) {
+    private String matchingPeople(String query) {
         // position() treats % and _ literally; no user-controlled SQL or wildcard expansion.
         String matching = query.isEmpty() ? "" : """
             , matching AS MATERIALIZED (
@@ -92,11 +93,33 @@ public class RelationshipExplorerRepository {
                     AND position(:query IN lower(a.entity_name)) > 0
             )
             """;
-        return jdbc.query(base + matching + "SELECT p.* FROM people p "
-                + (query.isEmpty() ? "" : "JOIN matching m ON m.id = p.id ")
-                + "ORDER BY neighbor_count DESC, name, p.id LIMIT :limit OFFSET :offset",
+        return base + matching + ", matched_people AS MATERIALIZED (SELECT p.* FROM people p "
+                + (query.isEmpty() ? "" : "JOIN matching m ON m.id = p.id ") + ") ";
+    }
+
+    public List<Person> people(UUID workId, int cutoff, String query, int offset, int limit) {
+        return jdbc.query(matchingPeople(query) + "SELECT * FROM matched_people ORDER BY neighbor_count DESC, name, id LIMIT :limit OFFSET :offset",
                 params(workId, cutoff).addValue("query", query.toLowerCase(Locale.ROOT))
                     .addValue("offset", offset).addValue("limit", limit), (r, i) -> person(r));
+    }
+
+    public PeoplePage peoplePage(UUID workId, int cutoff, String query, int offset, int limit) {
+        // Compute the matching set once; the LEFT JOIN preserves totals even beyond the last page.
+        return jdbc.query(matchingPeople(query) + """
+                SELECT page.*, totals.total FROM (SELECT count(*) AS total FROM matched_people) totals
+                LEFT JOIN LATERAL (SELECT * FROM matched_people ORDER BY neighbor_count DESC, name, id
+                    LIMIT :limit OFFSET :offset) page ON true
+                ORDER BY page.neighbor_count DESC, page.name, page.id
+                """, params(workId, cutoff).addValue("query", query.toLowerCase(Locale.ROOT))
+                    .addValue("offset", offset).addValue("limit", limit), r -> {
+                        List<Person> content = new ArrayList<>();
+                        long total = 0;
+                        while (r.next()) {
+                            total = r.getLong("total");
+                            if (r.getObject("id") != null) content.add(person(r));
+                        }
+                        return new PeoplePage(content, total);
+                    });
     }
 
     public List<Person> nodes(UUID workId, int cutoff, Collection<UUID> ids) {

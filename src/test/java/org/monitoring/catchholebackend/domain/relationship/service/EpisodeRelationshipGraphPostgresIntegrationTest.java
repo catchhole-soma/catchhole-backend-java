@@ -35,7 +35,7 @@ class EpisodeRelationshipGraphPostgresIntegrationTest
         Graph old;
         try { old = service.getRelationshipGraph(owner(), work(), null); }
         catch (AppException error) {
-            assertThatThrownBy(() -> explorer.explore(owner(), work(), null, null, 0))
+            assertThatThrownBy(() -> explorer.exploreRelationships(owner(), work(), null, null, 0))
                     .isInstanceOfSatisfying(AppException.class, actual ->
                         assertThat(actual.getResultCode()).isEqualTo(error.getResultCode()));
             return;
@@ -47,7 +47,7 @@ class EpisodeRelationshipGraphPostgresIntegrationTest
     }
 
     private void compare(Integer episode, Graph old) {
-        var exploration = explorer.explore(owner(), work(), episode, null, 0);
+        var exploration = explorer.exploreRelationships(owner(), work(), episode, null, 0);
         var actual = exploration.graph();
         assertThat(actual.selectedEpisode()).isEqualTo(old.selectedEpisode());
         assertThat(actual.availableEpisodes()).isEqualTo(old.availableEpisodes());
@@ -61,7 +61,7 @@ class EpisodeRelationshipGraphPostgresIntegrationTest
             if (!old.edges().isEmpty()) {
                 UUID edge = old.edges().getFirst().id();
                 var expected = service.getRelationshipEdge(owner(), work(), edge, episode);
-                var detail = explorer.detail(owner(), work(), edge, episode);
+                var detail = explorer.getRelationshipDetail(owner(), work(), edge, episode);
                 assertThat(detail.edge()).isEqualTo(expected.edge());
                 assertThat(detail.evidence()).containsExactlyInAnyOrderElementsOf(expected.evidence());
             }
@@ -88,33 +88,47 @@ class EpisodeRelationshipGraphPostgresIntegrationTest
     @Test @DisplayName("관계 300개 또는 인물 100명부터 선택하며 전체 검색과 페이지에 누락이 없다")
     void explorerBoundarySearchAndPages() {
         UUID center = seedEdges(300);
-        var large = explorer.explore(owner(), work(), null, null, 0);
+        var large = explorer.exploreRelationships(owner(), work(), null, null, 0);
         assertThat(large.selectionRequired()).isTrue();
         assertThat(large.graph().edges()).isEmpty();
         assertThat(large.totalNodeCount()).isEqualTo(301);
         assertThat(large.suggestedPeople().getFirst().node().id()).isEqualTo(center);
         assertThat(large.suggestedPeople().getFirst().neighborCount()).isEqualTo(300);
-        assertThat(explorer.people(owner(), work(), null, "인물299", 0, 20).content()).hasSize(1);
-        assertThat(explorer.people(owner(), work(), null, "%", 0, 20).content()).isEmpty();
+        assertThat(explorer.searchRelationshipPeople(owner(), work(), null, "인물299", 0, 20).content()).hasSize(1);
+        assertThat(explorer.searchRelationshipPeople(owner(), work(), null, "%", 0, 20).content()).isEmpty();
+        var firstPeople = explorer.searchRelationshipPeople(owner(), work(), null, "", 0, 20);
+        assertThat(firstPeople.totalElements()).isEqualTo(301);
+        assertThat(firstPeople.totalPages()).isEqualTo(16);
+        assertThat(firstPeople.content()).hasSize(20);
+        assertThat(firstPeople.hasNext()).isTrue();
+        var lastPeople = explorer.searchRelationshipPeople(owner(), work(), null, "", 15, 20);
+        assertThat(lastPeople.content()).hasSize(1);
+        assertThat(lastPeople.hasNext()).isFalse();
+        var pastPeople = explorer.searchRelationshipPeople(owner(), work(), null, "", 16, 20);
+        assertThat(pastPeople.content()).isEmpty();
+        assertThat(pastPeople.totalElements()).isEqualTo(301);
+        assertThat(pastPeople.totalPages()).isEqualTo(16);
+        assertThat(pastPeople.hasNext()).isFalse();
+        assertThat(explorer.searchRelationshipPeople(owner(), work(), null, "%", 0, 20).totalPages()).isZero();
         Set<UUID> found = new HashSet<>();
         for (int page = 0; page < 3; page++) {
-            var slice = explorer.explore(owner(), work(), null, center, page);
+            var slice = explorer.exploreRelationships(owner(), work(), null, center, page);
             assertThat(slice.graph().edges()).hasSize(100);
             assertThat(slice.hasNext()).isEqualTo(page < 2);
             slice.graph().edges().forEach(e -> assertThat(found.add(e.id())).isTrue());
         }
         assertThat(found).hasSize(300);
         jdbc.update("UPDATE relationship_graph_edges SET suppressed=true WHERE id=?", found.iterator().next());
-        assertThat(explorer.explore(owner(),work(),null,null,0).selectionRequired()).isTrue();
+        assertThat(explorer.exploreRelationships(owner(),work(),null,null,0).selectionRequired()).isTrue();
         // Collapse alias nodes onto 40 distinct people: 299 edges with fewer than 100 people is an overview.
         var leaves = jdbc.queryForList("SELECT id FROM relationship_graph_nodes WHERE work_id=? AND id<>? ORDER BY id",UUID.class,work(),center);
         for (int i=40;i<leaves.size();i++) jdbc.update("UPDATE relationship_graph_nodes SET merged_into_node_id=?,merged_at_episode_no=1 WHERE id=?",leaves.get(i%40),leaves.get(i));
-        var small = explorer.explore(owner(), work(), null, null, 0);
+        var small = explorer.exploreRelationships(owner(), work(), null, null, 0);
         assertThat(small.totalNodeCount()).isLessThan(100);
         assertThat(small.selectionRequired()).isFalse();
         assertThat(small.graph().edges()).hasSize(299);
-        assertThatThrownBy(() -> explorer.explore((Long)ReflectionTestUtils.getField(this,"other"),work(),null,null,0)).isInstanceOf(AppException.class);
-        assertThatThrownBy(() -> explorer.explore(owner(),work(),null,UUID.randomUUID(),0)).isInstanceOf(AppException.class);
+        assertThatThrownBy(() -> explorer.exploreRelationships((Long)ReflectionTestUtils.getField(this,"other"),work(),null,null,0)).isInstanceOf(AppException.class);
+        assertThatThrownBy(() -> explorer.exploreRelationships(owner(),work(),null,UUID.randomUUID(),0)).isInstanceOf(AppException.class);
     }
 
     @Test @DisplayName("198회차와 3129개 관계의 합성 자료에서 비용과 응답 크기를 비교한다")
@@ -136,19 +150,19 @@ class EpisodeRelationshipGraphPostgresIntegrationTest
             org.mockito.Mockito.clearInvocations(explorerJdbc);
             statistics.clear();
             before = System.nanoTime();
-            var overview = explorer.explore(owner(), work(), null, null, 0);
+            var overview = explorer.exploreRelationships(owner(), work(), null, null, 0);
             double overviewMs = (System.nanoTime() - before) / 1_000_000.0;
             long overviewQueries = statistics.getPrepareStatementCount() + nativeQueryUpperBound();
             assertThat(overviewQueries).isLessThanOrEqualTo(9);
             org.mockito.Mockito.clearInvocations(explorerJdbc);
             statistics.clear();
             before = System.nanoTime();
-            var focused = explorer.explore(owner(), work(), null, center, 0);
+            var focused = explorer.exploreRelationships(owner(), work(), null, center, 0);
             double focusMs = (System.nanoTime() - before) / 1_000_000.0;
             long focusQueries = statistics.getPrepareStatementCount() + nativeQueryUpperBound();
             assertThat(focusQueries).isLessThanOrEqualTo(10);
             before = System.nanoTime();
-            var search = explorer.people(owner(), work(), null, "인물2999", 0, 20);
+            var search = explorer.searchRelationshipPeople(owner(), work(), null, "인물2999", 0, 20);
             double searchMs = (System.nanoTime() - before) / 1_000_000.0;
             assertThat(search.content()).hasSize(1);
             if (i >= 2) measurements.add(String.format(java.util.Locale.ROOT,
@@ -213,25 +227,25 @@ class EpisodeRelationshipGraphPostgresIntegrationTest
         UUID character = ReflectionTestUtils.invokeMethod(this,"character","아라 린");
         UUID node = ReflectionTestUtils.invokeMethod(this,"profileNodeAt",1,"아라 린과 보라는 함께 길을 떠났다.","아라 린","보라",character);
         ReflectionTestUtils.invokeMethod(this,"confirmedAliasAt",2,"작은별은 아라 린의 별명이다.",character,"작은별");
-        assertThat(explorer.people(owner(),work(),1,"작은별",0,20).content()).isEmpty();
+        assertThat(explorer.searchRelationshipPeople(owner(),work(),1,"작은별",0,20).content()).isEmpty();
         UUID third = ReflectionTestUtils.invokeMethod(this,"job",3);
         // Empty successful episode advances the selectable cutoff without introducing another relation.
         jdbc.update("UPDATE relationship_graph_analyses SET status='APPLIED' WHERE id=?",third);
-        assertThat(explorer.people(owner(),work(),3,"작은별",0,20).content()).extracting(p -> p.node().id()).containsExactly(node);
+        assertThat(explorer.searchRelationshipPeople(owner(),work(),3,"작은별",0,20).content()).extracting(p -> p.node().id()).containsExactly(node);
         jdbc.update("UPDATE episodes SET content_s3_version='replaced' WHERE work_id=? AND episode_no=2",work());
-        assertThat(explorer.people(owner(),work(),3,"작은별",0,20).content()).isEmpty();
+        assertThat(explorer.searchRelationshipPeople(owner(),work(),3,"작은별",0,20).content()).isEmpty();
     }
 
     @Test @DisplayName("관계가 300개 미만이어도 인물이 100명 이상이면 선택부터 시작한다")
     void nodeThresholdProtectsSparseLargeGraphs() {
         seedEdges(99);
-        var result = explorer.explore(owner(),work(),null,null,0);
+        var result = explorer.exploreRelationships(owner(),work(),null,null,0);
         assertThat(result.totalNodeCount()).isEqualTo(100);
         assertThat(result.graph().totalEdgeCount()).isEqualTo(99);
         assertThat(result.selectionRequired()).isTrue();
         UUID edge = jdbc.queryForObject("SELECT id FROM relationship_graph_edges WHERE work_id=? LIMIT 1",UUID.class,work());
         jdbc.update("UPDATE relationship_graph_edges SET suppressed=true WHERE id=?",edge);
-        var smaller = explorer.explore(owner(),work(),null,null,0);
+        var smaller = explorer.exploreRelationships(owner(),work(),null,null,0);
         assertThat(smaller.totalNodeCount()).isEqualTo(99);
         assertThat(smaller.selectionRequired()).isFalse();
     }

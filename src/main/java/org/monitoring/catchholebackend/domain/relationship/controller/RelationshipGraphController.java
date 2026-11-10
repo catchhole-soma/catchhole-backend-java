@@ -50,17 +50,17 @@ public class RelationshipGraphController {
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId, @RequestParam(required = false) Integer episodeNo,
             @RequestParam(required = false) UUID focusNodeId, @RequestParam(defaultValue = "0") int page) {
-        return CommonResponse.success(explorer.explore(member.memberId(), workId, episodeNo, focusNodeId, page));
+        return CommonResponse.success(explorer.exploreRelationships(member.memberId(), workId, episodeNo, focusNodeId, page));
     }
 
     @GetMapping("/people")
     @Operation(operationId = "searchEpisodeRelationshipPeople", summary = "선택 회차의 전체 관계 인물을 이름과 별칭으로 검색")
-    public CommonResponse<org.monitoring.catchholebackend.domain.relationship.dto.RelationshipExplorerContract.People> people(
+    public CommonResponse<org.monitoring.catchholebackend.global.common.response.PageResponse<org.monitoring.catchholebackend.domain.relationship.dto.RelationshipExplorerContract.Person>> people(
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId, @RequestParam(required = false) Integer episodeNo,
             @RequestParam(defaultValue = "") String query, @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return CommonResponse.success(explorer.people(member.memberId(), workId, episodeNo, query, page, size));
+        return CommonResponse.success(explorer.searchRelationshipPeople(member.memberId(), workId, episodeNo, query, page, size));
     }
 
     @GetMapping("/explore/edges/{edgeId}")
@@ -69,7 +69,7 @@ public class RelationshipGraphController {
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId, @PathVariable UUID edgeId,
             @RequestParam(required = false) Integer episodeNo) {
-        return CommonResponse.success(explorer.detail(member.memberId(), workId, edgeId, episodeNo));
+        return CommonResponse.success(explorer.getRelationshipDetail(member.memberId(), workId, edgeId, episodeNo));
     }
 
 
