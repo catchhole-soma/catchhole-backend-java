@@ -350,6 +350,67 @@ class SettingToolIntegrationTest {
         assertThat(result.at("/items/content/0/subjectName").asText()).isEqualTo("아리아");
     }
 
+    @Test @DisplayName("확정 별칭은 대표 이름과 같은 인물의 현재값·이력·원문 근거를 찾는다")
+    void resolvesConfirmedAliasToCanonicalCharacter() throws Exception {
+        discovery(character, episode, job, "Aria the Blue").confirm();
+        discovery(character, episode, job, "Aria the Blue").confirm();
+        var fact = fact("10", true);
+        snapshot("10", List.of(fact));
+
+        var named = findCharacters("아리");
+        var aliased = findCharacters("  ARIA the blue  ");
+        assertThat(aliased).isEqualTo(named);
+        assertThat(aliased.at("/totalElements").asInt()).isEqualTo(1);
+        assertThat(findCharacters("Aria").at("/totalElements").asInt()).isZero();
+
+        var target = UUID.fromString(aliased.at("/content/0/subjectId").asText());
+        var current = run(SettingTool.CHARACTER_CURRENT, target).items().content().getFirst();
+        assertThat(current.value()).isEqualTo("10");
+        assertThat(current.sources()).extracting(source -> source.targetId()).containsExactly(fact.getId());
+        assertThat(run(SettingTool.CHARACTER_HISTORY, target).items().content())
+                .extracting(item -> item.id()).containsExactly(fact.getId());
+        assertThat(run(SettingTool.CHARACTER_EVIDENCE, fact.getId()).items().content().getFirst().evidence().status().name())
+                .isEqualTo("AVAILABLE");
+
+        var condition = new SettingToolQuery(SettingTool.FIND_CHARACTERS, null, "Aria the Blue", SLOT.factKey(),
+                null, null, null, 0, 20, SLOT.factType(), "10");
+        assertThat(postQuery(work, condition, 200).path("items")).isEqualTo(named);
+    }
+
+    @Test @DisplayName("별칭이 다른 인물과 겹치면 페이지를 나눠도 모든 후보를 알 수 있다")
+    void preservesAliasCollisionsForClarification() throws Exception {
+        var sameName = save(WorkCharacter.create(work, "청의", null, null, null, null, null, null, null, null, null));
+        var otherAlias = save(WorkCharacter.create(work, "하린", null, null, null, null, null, null, null, null, null));
+        discovery(character, episode, job, "청의").confirm();
+        discovery(otherAlias, episode, job, "청의").confirm();
+        discovery(sameName, episode, job, "청의").confirm();
+
+        var results = findCharacters("청의");
+        assertThat(results.path("content")).extracting(item -> item.path("subjectId").asText())
+                .containsExactlyInAnyOrder(character.getId().toString(), sameName.getId().toString(), otherAlias.getId().toString());
+        var firstPage = new SettingToolQuery(SettingTool.FIND_CHARACTERS, null, "청의", null, null, null, null, 0, 1);
+        var paged = postQuery(work, firstPage, 200).path("items");
+        assertThat(paged.path("totalElements").asInt()).isEqualTo(3);
+        assertThat(paged.path("hasNext").asBoolean()).isTrue();
+    }
+
+    @Test @DisplayName("미확정·제외·다른 작품·보관 인물의 별칭은 검색되지 않는다")
+    void excludesAliasesOutsideConfirmedActiveWorkCharacters() throws Exception {
+        discovery(character, episode, job, "미확정이름");
+        discovery(character, episode, job, "제외이름").dismiss();
+        var archived = save(WorkCharacter.create(work, "로하", null, null, null, null, null, null, null, null, null));
+        discovery(archived, episode, job, "보관이름").confirm();
+        archived.archive();
+        var foreignCharacter = save(WorkCharacter.create(otherWork, "연우", null, null, null, null, null, null, null, null, null));
+        var foreignEpisode = save(Episode.create(otherWork, null, 1, "다른 원문", "secret-key", null, null, 10));
+        var foreignJob = save(AnalysisJob.create(otherWork, null, foreignEpisode, AnalysisJobType.SETTING_EXTRACTION));
+        discovery(foreignCharacter, foreignEpisode, foreignJob, "타작품이름").confirm();
+
+        for (String name : List.of("미확정이름", "제외이름", "보관이름", "타작품이름", "미등록이름")) {
+            assertThat(findCharacters(name).at("/totalElements").asInt()).as(name).isZero();
+        }
+    }
+
     @Test @DisplayName("설정 유형과 저장 경로는 페이지 제한 전에 적용해 많은 다른 설정 뒤의 값과 전체 이력을 조회한다")
     void filtersTypeAndKeyBeforePagination() throws Exception {
         var entries = new LinkedHashMap<CharacterSnapshotSlot, CharacterSnapshotEntry>();
@@ -923,6 +984,14 @@ class SettingToolIntegrationTest {
                 .contentType("application/json").content(json.writeValueAsString(request)))
                 .andExpect(status().is(status)).andReturn().getResponse();
         return json.readTree(response.getContentAsString(StandardCharsets.UTF_8)).path("data");
+    }
+    private JsonNode findCharacters(String name) throws Exception {
+        return postQuery(work, new SettingToolQuery(SettingTool.FIND_CHARACTERS, null, name, null, null, null, null, 0, 20), 200)
+                .path("items");
+    }
+    private SettingCandidate discovery(WorkCharacter target, Episode source, AnalysisJob analysis, String alias) {
+        return save(SettingCandidate.createCharacterDiscovery(target.getWork(), source, null, analysis, alias, alias,
+                target.getId(), SettingCandidateMatchStatus.MATCHED, null, BigDecimal.ONE, null));
     }
     private CharacterFact fact(String value, boolean confirmed) {
         var spans = nodes.arrayNode().add(nodes.objectNode().put("quote", "마력은 10이다.").put("startOffset", 2).put("endOffset", 11));
