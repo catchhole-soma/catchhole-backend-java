@@ -1229,3 +1229,7 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - 기술 실패가 있는 APPLIED 전이는 V111 trigger가 기존 outbox에 안전한 reason별 인물 쌍 개수만 기록한다. V107의 실행 시도·발송 묶음을 재사용하며 V109의 검사·발췌 정제를 유지하고, pair 알림은 실패 Job/후보 개수와 구분한다. 선행 실패의 파급은 재알림하지 않는다. 전체 추출 실패는 FAILED/BLOCKED이며 빈 결과를 정상 완료로 가장하지 않는다.
 - 공개 `updateIncomplete`/`incompleteEpisodeNos`는 기술적 누락만, 기존 `partial`은 의미상 HOLD도 포함한다. edge `lastVerifiedEpisodeNo`는 같은 쌍의 첫 실패 또는 위치를 특정할 수 없는 원문 누락 앞까지의 기술적 완료 구간이며 관계 변경 회차가 아니다. 0은 완료 구간이 없다는 뜻이다. 현재 공개 세대와 선택 회차를 넘는 실패·미래 이름을 노출하지 않는다.
 - 실제 연동 검증은 `RelationshipBackfillHttpPostgresIntegrationTest`에서 `GH332_AI_CHECKOUT`/`GH332_PYTHON`으로 로컬 Python Worker를 사용한다. `GH359_FRONT_CHECKOUT`을 추가하면 그 테스트가 만든 Spring·PostgreSQL에 실제 프런트 SDK·브라우저를 연결하며 `GH359_NODE`는 선택적인 Node 실행 경로다. 테스트 JWT는 0600 임시 파일로만 전달하고 종료 시 지운다. HTTP 응답을 대체하거나 운영·유료 LLM·외부 Discord에 연결하지 않는다. CI에는 환경 opt-in 없이 실행되는 PostgreSQL 부분 완료·outbox 회귀 테스트도 유지한다.
+
+### GH412 관계 탐색 읽기
+
+- `RelationshipExplorerService`/`RelationshipExplorerRepository`는 기존 관계 분석·쓰기 서비스와 분리한 PostgreSQL 읽기 경로다. 대형 분석 JSON 엔티티 적재를 피하기 위해 공통 CTE를 `src/main/resources/queries/relationship/explorer.sql`에 둔다. 이 SQL의 변경은 실제 PostgreSQL 테스트와 기존 읽기 계약 대조를 실행한다. 기준·API·성능 검증은 `docs/relationship-explorer.md`를 따른다.

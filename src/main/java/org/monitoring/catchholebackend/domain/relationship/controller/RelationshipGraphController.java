@@ -42,6 +42,36 @@ import java.util.UUID;
 })
 public class RelationshipGraphController {
     private final RelationshipGraphService service;
+    private final org.monitoring.catchholebackend.domain.relationship.service.RelationshipExplorerService explorer;
+
+    @GetMapping("/explore")
+    @Operation(operationId = "exploreEpisodeRelationships", summary = "관계 규모에 따른 개요 또는 중심 인물 탐색")
+    public CommonResponse<org.monitoring.catchholebackend.domain.relationship.dto.RelationshipExplorerContract.Exploration> explore(
+            @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
+            @PathVariable UUID workId, @RequestParam(required = false) Integer episodeNo,
+            @RequestParam(required = false) UUID focusNodeId, @RequestParam(defaultValue = "0") int page) {
+        return CommonResponse.success(explorer.explore(member.memberId(), workId, episodeNo, focusNodeId, page));
+    }
+
+    @GetMapping("/people")
+    @Operation(operationId = "searchEpisodeRelationshipPeople", summary = "선택 회차의 전체 관계 인물을 이름과 별칭으로 검색")
+    public CommonResponse<org.monitoring.catchholebackend.domain.relationship.dto.RelationshipExplorerContract.People> people(
+            @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
+            @PathVariable UUID workId, @RequestParam(required = false) Integer episodeNo,
+            @RequestParam(defaultValue = "") String query, @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return CommonResponse.success(explorer.people(member.memberId(), workId, episodeNo, query, page, size));
+    }
+
+    @GetMapping("/explore/edges/{edgeId}")
+    @Operation(operationId = "getExploredRelationshipEdge", summary = "선택한 관계만 원문 근거 조회")
+    public CommonResponse<Detail> exploredEdge(
+            @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
+            @PathVariable UUID workId, @PathVariable UUID edgeId,
+            @RequestParam(required = false) Integer episodeNo) {
+        return CommonResponse.success(explorer.detail(member.memberId(), workId, edgeId, episodeNo));
+    }
+
 
     @GetMapping
     @Operation(
