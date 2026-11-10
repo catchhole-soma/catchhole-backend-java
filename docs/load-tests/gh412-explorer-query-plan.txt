@@ -1,0 +1,249 @@
+Limit  (cost=3627.89..3627.90 rows=7 width=259) (actual time=15.819..15.838 rows=8 loops=1)
+  Buffers: shared hit=1000
+  CTE latest
+    ->  Unique  (cost=960.84..961.34 rows=86 width=63) (actual time=0.296..0.315 rows=198 loops=1)
+          Buffers: shared hit=119
+          InitPlan 3 (returns $2)
+            ->  Index Scan using relationship_backfill_works_pkey on relationship_backfill_works  (cost=0.14..8.16 rows=1 width=8) (actual time=0.001..0.001 rows=0 loops=1)
+                  Index Cond: (work_id = 'a57814f5-6cb2-4adc-810a-66345710860c'::uuid)
+                  Buffers: shared hit=1
+          ->  Sort  (cost=952.68..952.93 rows=99 width=63) (actual time=0.295..0.302 rows=198 loops=1)
+                Sort Key: a.episode_no, a.created_at DESC, a.id DESC
+                Sort Method: quicksort  Memory: 42kB
+                Buffers: shared hit=119
+                ->  Hash Left Join  (cost=103.54..949.40 rows=99 width=63) (actual time=0.208..0.281 rows=198 loops=1)
+                      Hash Cond: (a.episode_id = e.id)
+                      Buffers: shared hit=119
+                      ->  Hash Right Join  (cost=81.61..118.14 rows=99 width=207) (actual time=0.155..0.194 rows=198 loops=1)
+                            Hash Cond: (j.id = a.id)
+                            Buffers: shared hit=105
+                            ->  Seq Scan on analysis_jobs j  (cost=0.00..35.16 rows=516 width=62) (actual time=0.001..0.055 rows=516 loops=1)
+                                  Buffers: shared hit=30
+                            ->  Hash  (cost=80.38..80.38 rows=99 width=145) (actual time=0.107..0.107 rows=198 loops=1)
+                                  Buckets: 1024  Batches: 1  Memory Usage: 44kB
+                                  Buffers: shared hit=75
+                                  ->  Seq Scan on relationship_graph_analyses a  (cost=0.00..80.38 rows=99 width=145) (actual time=0.004..0.092 rows=198 loops=1)
+                                        Filter: ((work_id = 'a57814f5-6cb2-4adc-810a-66345710860c'::uuid) AND (generation = COALESCE($2, '0'::bigint)))
+                                        Rows Removed by Filter: 227
+                                        Buffers: shared hit=75
+                      ->  Hash  (cost=19.45..19.45 rows=198 width=161) (actual time=0.049..0.049 rows=198 loops=1)
+                            Buckets: 1024  Batches: 1  Memory Usage: 46kB
+                            Buffers: shared hit=14
+                            ->  Seq Scan on episodes e  (cost=0.00..19.45 rows=198 width=161) (actual time=0.014..0.034 rows=198 loops=1)
+                                  Filter: (work_id = 'a57814f5-6cb2-4adc-810a-66345710860c'::uuid)
+                                  Rows Removed by Filter: 238
+                                  Buffers: shared hit=14
+                      SubPlan 2
+                        ->  Seq Scan on episode_source_purge_requests p  (cost=0.00..10.40 rows=40 width=16) (actual time=0.001..0.001 rows=0 loops=1)
+  CTE valid
+    ->  CTE Scan on latest latest_1  (cost=1.84..3.99 rows=1 width=318) (actual time=0.324..0.339 rows=198 loops=1)
+          Filter: ((episode_no < COALESCE($4, 2147483647)) AND ((status)::text = 'APPLIED'::text))
+          Buffers: shared hit=119
+          InitPlan 5 (returns $4)
+            ->  Aggregate  (cost=1.83..1.84 rows=1 width=4) (actual time=0.027..0.028 rows=1 loops=1)
+                  ->  CTE Scan on latest  (cost=0.00..1.72 rows=43 width=4) (actual time=0.027..0.027 rows=0 loops=1)
+                        Filter: (NOT source_available)
+                        Rows Removed by Filter: 198
+  CTE canonical
+    ->  Hash Left Join  (cost=905.29..1029.95 rows=2913 width=32) (actual time=3.088..3.669 rows=3130 loops=1)
+          Hash Cond: (n7.merged_into_node_id = n8.id)
+          Filter: (((n7.merged_into_node_id IS NULL) OR (n8.id IS NOT NULL)) AND (n8.merged_into_node_id IS NULL))
+          Buffers: shared hit=156
+          ->  Hash Left Join  (cost=763.11..879.56 rows=3130 width=144) (actual time=2.773..3.154 rows=3130 loops=1)
+                Hash Cond: (relationship_graph_nodes.merged_into_node_id = n1.id)
+                Filter: (((relationship_graph_nodes.merged_into_node_id IS NULL) OR (n1.id IS NOT NULL)) AND ((n1.merged_into_node_id IS NULL) OR (n2.id IS NOT NULL)) AND ((n2.merged_into_node_id IS NULL) OR (n3.id IS NOT NULL)) AND ((n3.merged_into_node_id IS NULL) OR (n4.id IS NOT NULL)) AND ((n4.merged_into_node_id IS NULL) OR (n5.id IS NOT NULL)) AND ((n5.merged_into_node_id IS NULL) OR (n6.id IS NOT NULL)) AND ((n6.merged_into_node_id IS NULL) OR (n7.id IS NOT NULL)))
+                Buffers: shared hit=104
+                ->  Seq Scan on relationship_graph_nodes  (cost=0.00..103.05 rows=3130 width=32) (actual time=0.028..0.139 rows=3130 loops=1)
+                      Filter: (work_id = 'a57814f5-6cb2-4adc-810a-66345710860c'::uuid)
+                      Rows Removed by Filter: 954
+                      Buffers: shared hit=52
+                ->  Hash  (cost=723.99..723.99 rows=3130 width=224) (actual time=2.743..2.748 rows=3130 loops=1)
+                      Buckets: 4096  Batches: 1  Memory Usage: 204kB
+                      Buffers: shared hit=52
+                      ->  Nested Loop Left Join  (cost=1.74..723.99 rows=3130 width=224) (actual time=0.024..2.526 rows=3130 loops=1)
+                            Buffers: shared hit=52
+                            ->  Nested Loop Left Join  (cost=1.45..620.50 rows=3130 width=192) (actual time=0.024..2.128 rows=3130 loops=1)
+                                  Buffers: shared hit=52
+                                  ->  Nested Loop Left Join  (cost=1.16..517.01 rows=3130 width=160) (actual time=0.023..1.736 rows=3130 loops=1)
+                                        Buffers: shared hit=52
+                                        ->  Nested Loop Left Join  (cost=0.87..413.52 rows=3130 width=128) (actual time=0.022..1.350 rows=3130 loops=1)
+                                              Buffers: shared hit=52
+                                              ->  Nested Loop Left Join  (cost=0.58..310.03 rows=3130 width=96) (actual time=0.021..0.977 rows=3130 loops=1)
+                                                    Buffers: shared hit=52
+                                                    ->  Nested Loop Left Join  (cost=0.29..206.54 rows=3130 width=64) (actual time=0.020..0.594 rows=3130 loops=1)
+                                                          Buffers: shared hit=52
+                                                          ->  Seq Scan on relationship_graph_nodes n1  (cost=0.00..103.05 rows=3130 width=32) (actual time=0.018..0.164 rows=3130 loops=1)
+                                                                Filter: (work_id = 'a57814f5-6cb2-4adc-810a-66345710860c'::uuid)
+                                                                Rows Removed by Filter: 954
+                                                                Buffers: shared hit=52
+                                                          ->  Memoize  (cost=0.29..0.40 rows=1 width=32) (actual time=0.000..0.000 rows=0 loops=3130)
+                                                                Cache Key: n1.merged_into_node_id
+                                                                Cache Mode: logical
+                                                                Hits: 3129  Misses: 1  Evictions: 0  Overflows: 0  Memory Usage: 1kB
+                                                                ->  Index Scan using relationship_graph_nodes_pkey on relationship_graph_nodes n2  (cost=0.28..0.39 rows=1 width=32) (actual time=0.000..0.001 rows=0 loops=1)
+                                                                      Index Cond: (id = n1.merged_into_node_id)
+                                                                      Filter: (work_id = 'a57814f5-6cb2-4adc-810a-66345710860c'::uuid)
+                                                    ->  Memoize  (cost=0.29..0.40 rows=1 width=32) (actual time=0.000..0.000 rows=0 loops=3130)
+                                                          Cache Key: n2.merged_into_node_id
+                                                          Cache Mode: logical
+                                                          Hits: 3129  Misses: 1  Evictions: 0  Overflows: 0  Memory Usage: 1kB
+                                                          ->  Index Scan using relationship_graph_nodes_pkey on relationship_graph_nodes n3  (cost=0.28..0.39 rows=1 width=32) (actual time=0.000..0.000 rows=0 loops=1)
+                                                                Index Cond: (id = n2.merged_into_node_id)
+                                                                Filter: (work_id = 'a57814f5-6cb2-4adc-810a-66345710860c'::uuid)
+                                              ->  Memoize  (cost=0.29..0.40 rows=1 width=32) (actual time=0.000..0.000 rows=0 loops=3130)
+                                                    Cache Key: n3.merged_into_node_id
+                                                    Cache Mode: logical
+                                                    Hits: 3129  Misses: 1  Evictions: 0  Overflows: 0  Memory Usage: 1kB
+                                                    ->  Index Scan using relationship_graph_nodes_pkey on relationship_graph_nodes n4  (cost=0.28..0.39 rows=1 width=32) (actual time=0.000..0.001 rows=0 loops=1)
+                                                          Index Cond: (id = n3.merged_into_node_id)
+                                                          Filter: (work_id = 'a57814f5-6cb2-4adc-810a-66345710860c'::uuid)
+                                        ->  Memoize  (cost=0.29..0.40 rows=1 width=32) (actual time=0.000..0.000 rows=0 loops=3130)
+                                              Cache Key: n4.merged_into_node_id
+                                              Cache Mode: logical
+                                              Hits: 3129  Misses: 1  Evictions: 0  Overflows: 0  Memory Usage: 1kB
+                                              ->  Index Scan using relationship_graph_nodes_pkey on relationship_graph_nodes n5  (cost=0.28..0.39 rows=1 width=32) (actual time=0.000..0.000 rows=0 loops=1)
+                                                    Index Cond: (id = n4.merged_into_node_id)
+                                                    Filter: (work_id = 'a57814f5-6cb2-4adc-810a-66345710860c'::uuid)
+                                  ->  Memoize  (cost=0.29..0.40 rows=1 width=32) (actual time=0.000..0.000 rows=0 loops=3130)
+                                        Cache Key: n5.merged_into_node_id
+                                        Cache Mode: logical
+                                        Hits: 3129  Misses: 1  Evictions: 0  Overflows: 0  Memory Usage: 1kB
+                                        ->  Index Scan using relationship_graph_nodes_pkey on relationship_graph_nodes n6  (cost=0.28..0.39 rows=1 width=32) (actual time=0.000..0.000 rows=0 loops=1)
+                                              Index Cond: (id = n5.merged_into_node_id)
+                                              Filter: (work_id = 'a57814f5-6cb2-4adc-810a-66345710860c'::uuid)
+                            ->  Memoize  (cost=0.29..0.40 rows=1 width=32) (actual time=0.000..0.000 rows=0 loops=3130)
+                                  Cache Key: n6.merged_into_node_id
+                                  Cache Mode: logical
+                                  Hits: 3129  Misses: 1  Evictions: 0  Overflows: 0  Memory Usage: 1kB
+                                  ->  Index Scan using relationship_graph_nodes_pkey on relationship_graph_nodes n7  (cost=0.28..0.39 rows=1 width=32) (actual time=0.000..0.000 rows=0 loops=1)
+                                        Index Cond: (id = n6.merged_into_node_id)
+                                        Filter: (work_id = 'a57814f5-6cb2-4adc-810a-66345710860c'::uuid)
+          ->  Hash  (cost=103.05..103.05 rows=3130 width=32) (actual time=0.313..0.313 rows=3130 loops=1)
+                Buckets: 4096  Batches: 1  Memory Usage: 179kB
+                Buffers: shared hit=52
+                ->  Seq Scan on relationship_graph_nodes n8  (cost=0.00..103.05 rows=3130 width=32) (actual time=0.019..0.172 rows=3130 loops=1)
+                      Filter: (work_id = 'a57814f5-6cb2-4adc-810a-66345710860c'::uuid)
+                      Rows Removed by Filter: 954
+                      Buffers: shared hit=52
+  CTE latest_events
+    ->  Unique  (cost=266.68..267.80 rows=224 width=100) (actual time=1.181..1.462 rows=3129 loops=1)
+          Buffers: shared hit=694
+          InitPlan 8 (returns $13)
+            ->  CTE Scan on valid  (cost=0.00..0.02 rows=1 width=16) (actual time=0.324..0.361 rows=198 loops=1)
+                  Buffers: shared hit=119
+          ->  Sort  (cost=266.66..267.22 rows=224 width=100) (actual time=1.181..1.280 rows=3129 loops=1)
+                Sort Key: ev.edge_id, ev.episode_no DESC, ev.created_at DESC, ev.id DESC
+                Sort Method: quicksort  Memory: 512kB
+                Buffers: shared hit=694
+                ->  Bitmap Heap Scan on relationship_graph_events ev  (cost=41.03..257.91 rows=224 width=100) (actual time=0.514..0.858 rows=3129 loops=1)
+                      Recheck Cond: (analysis_id = ANY ($13))
+                      Filter: ((episode_no <= 198) AND (work_id = 'a57814f5-6cb2-4adc-810a-66345710860c'::uuid))
+                      Heap Blocks: exact=157
+                      Buffers: shared hit=694
+                      ->  Bitmap Index Scan on uk_relationship_graph_event  (cost=0.00..40.97 rows=285 width=0) (actual time=0.505..0.505 rows=3129 loops=1)
+                            Index Cond: (analysis_id = ANY ($13))
+                            Buffers: shared hit=537
+  CTE visible
+    ->  Hash Join  (cost=287.20..430.09 rows=1908 width=1310) (actual time=6.825..7.562 rows=3129 loops=1)
+          Hash Cond: (e_1.source_node_id = s.original_id)
+          Join Filter: (s.id <> t.id)
+          Buffers: shared hit=947
+          ->  Hash Join  (cost=192.53..263.03 rows=132 width=1337) (actual time=2.773..3.255 rows=3129 loops=1)
+                Hash Cond: (t.original_id = e_1.target_node_id)
+                Buffers: shared hit=791
+                ->  CTE Scan on canonical t  (cost=0.00..58.26 rows=2913 width=32) (actual time=0.000..0.095 rows=3130 loops=1)
+                ->  Hash  (cost=190.32..190.32 rows=177 width=1337) (actual time=2.771..2.772 rows=3129 loops=1)
+                      Buckets: 4096 (originally 1024)  Batches: 1 (originally 1)  Memory Usage: 668kB
+                      Buffers: shared hit=791
+                      ->  Hash Join  (cost=185.25..190.32 rows=177 width=1337) (actual time=1.624..2.442 rows=3129 loops=1)
+                            Hash Cond: (ev_1.edge_id = e_1.id)
+                            Buffers: shared hit=791
+                            ->  CTE Scan on latest_events ev_1  (cost=0.00..4.48 rows=224 width=1250) (actual time=1.182..1.632 rows=3129 loops=1)
+                                  Buffers: shared hit=694
+                            ->  Hash  (cost=146.25..146.25 rows=3120 width=103) (actual time=0.440..0.441 rows=3129 loops=1)
+                                  Buckets: 4096  Batches: 1  Memory Usage: 375kB
+                                  Buffers: shared hit=97
+                                  ->  Seq Scan on relationship_graph_edges e_1  (cost=0.00..146.25 rows=3120 width=103) (actual time=0.038..0.238 rows=3129 loops=1)
+                                        Filter: ((NOT suppressed) AND (work_id = 'a57814f5-6cb2-4adc-810a-66345710860c'::uuid))
+                                        Rows Removed by Filter: 811
+                                        Buffers: shared hit=97
+          ->  Hash  (cost=58.26..58.26 rows=2913 width=32) (actual time=4.051..4.051 rows=3130 loops=1)
+                Buckets: 4096  Batches: 1  Memory Usage: 228kB
+                Buffers: shared hit=156
+                ->  CTE Scan on canonical s  (cost=0.00..58.26 rows=2913 width=32) (actual time=3.088..3.909 rows=3130 loops=1)
+                      Buffers: shared hit=156
+  CTE endpoints
+    ->  Append  (cost=0.00..95.40 rows=3816 width=278) (actual time=6.826..8.693 rows=6258 loops=1)
+          Buffers: shared hit=947
+          ->  CTE Scan on visible  (cost=0.00..38.16 rows=1908 width=278) (actual time=6.826..8.264 rows=3129 loops=1)
+                Buffers: shared hit=947
+          ->  CTE Scan on visible visible_1  (cost=0.00..38.16 rows=1908 width=278) (actual time=0.000..0.208 rows=3129 loops=1)
+  CTE people
+    ->  Hash Left Join  (cost=726.26..839.08 rows=7 width=259) (actual time=13.969..15.228 rows=3130 loops=1)
+          Hash Cond: (relationship_graph_nodes_1.character_id = rp.character_id)
+          Buffers: shared hit=1000
+          ->  Nested Loop Left Join  (cost=665.50..778.24 rows=7 width=289) (actual time=13.962..15.035 rows=3130 loops=1)
+                Buffers: shared hit=999
+                ->  Hash Join  (cost=665.36..777.04 rows=7 width=262) (actual time=13.961..14.640 rows=3130 loops=1)
+                      Hash Cond: (relationship_graph_nodes_1.id = o.id)
+                      Buffers: shared hit=999
+                      ->  Hash Join  (cost=338.45..449.73 rows=153 width=60) (actual time=1.990..2.408 rows=3130 loops=1)
+                            Hash Cond: (relationship_graph_nodes_1.id = d.id)
+                            Buffers: shared hit=52
+                            ->  Seq Scan on relationship_graph_nodes relationship_graph_nodes_1  (cost=0.00..103.05 rows=3130 width=36) (actual time=0.025..0.160 rows=3130 loops=1)
+                                  Filter: (work_id = 'a57814f5-6cb2-4adc-810a-66345710860c'::uuid)
+                                  Rows Removed by Filter: 954
+                                  Buffers: shared hit=52
+                            ->  Hash  (cost=335.95..335.95 rows=200 width=24) (actual time=1.962..1.963 rows=3130 loops=1)
+                                  Buckets: 4096 (originally 1024)  Batches: 1 (originally 1)  Memory Usage: 204kB
+                                  ->  Subquery Scan on d  (cost=303.33..335.95 rows=200 width=24) (actual time=1.080..1.803 rows=3130 loops=1)
+                                        ->  GroupAggregate  (cost=303.33..333.95 rows=200 width=24) (actual time=1.080..1.676 rows=3130 loops=1)
+                                              Group Key: endpoints.id
+                                              ->  Sort  (cost=303.33..312.87 rows=3816 width=32) (actual time=1.078..1.221 rows=6258 loops=1)
+                                                    Sort Key: endpoints.id, endpoints.neighbor
+                                                    Sort Method: quicksort  Memory: 535kB
+                                                    ->  CTE Scan on endpoints  (cost=0.00..76.32 rows=3816 width=32) (actual time=0.000..0.224 rows=6258 loops=1)
+                      ->  Hash  (cost=324.41..324.41 rows=200 width=234) (actual time=11.969..11.970 rows=3130 loops=1)
+                            Buckets: 4096 (originally 1024)  Batches: 1 (originally 1)  Memory Usage: 212kB
+                            Buffers: shared hit=947
+                            ->  Subquery Scan on o  (cost=303.33..324.41 rows=200 width=234) (actual time=11.287..11.812 rows=3130 loops=1)
+                                  Buffers: shared hit=947
+                                  ->  Unique  (cost=303.33..322.41 rows=200 width=262) (actual time=11.287..11.672 rows=3130 loops=1)
+                                        Buffers: shared hit=947
+                                        ->  Sort  (cost=303.33..312.87 rows=3816 width=262) (actual time=11.287..11.428 rows=6258 loops=1)
+                                              Sort Key: endpoints_1.id, endpoints_1.episode_no DESC, endpoints_1.created_at DESC, endpoints_1.event_id DESC
+                                              Sort Method: quicksort  Memory: 681kB
+                                              Buffers: shared hit=947
+                                              ->  CTE Scan on endpoints endpoints_1  (cost=0.00..76.32 rows=3816 width=262) (actual time=6.827..9.421 rows=6258 loops=1)
+                                                    Buffers: shared hit=947
+                ->  Index Scan using idx_characters_work_status_records_id on characters c  (cost=0.14..0.17 rows=1 width=43) (actual time=0.000..0.000 rows=0 loops=3130)
+                      Index Cond: ((work_id = 'a57814f5-6cb2-4adc-810a-66345710860c'::uuid) AND (id = relationship_graph_nodes_1.character_id))
+          ->  Hash  (cost=60.74..60.74 rows=1 width=24) (actual time=0.004..0.005 rows=0 loops=1)
+                Buckets: 1024  Batches: 1  Memory Usage: 8kB
+                Buffers: shared hit=1
+                ->  Subquery Scan on rp  (cost=60.71..60.74 rows=1 width=24) (actual time=0.004..0.004 rows=0 loops=1)
+                      Buffers: shared hit=1
+                      ->  GroupAggregate  (cost=60.71..60.73 rows=1 width=24) (actual time=0.004..0.004 rows=0 loops=1)
+                            Group Key: relationship_graph_nodes_2.character_id
+                            Buffers: shared hit=1
+                            ->  Sort  (cost=60.71..60.72 rows=1 width=16) (actual time=0.003..0.004 rows=0 loops=1)
+                                  Sort Key: relationship_graph_nodes_2.character_id
+                                  Sort Method: quicksort  Memory: 25kB
+                                  Buffers: shared hit=1
+                                  ->  Bitmap Heap Scan on relationship_graph_nodes relationship_graph_nodes_2  (cost=8.45..60.70 rows=1 width=16) (actual time=0.002..0.002 rows=0 loops=1)
+                                        Recheck Cond: ((work_id = 'a57814f5-6cb2-4adc-810a-66345710860c'::uuid) AND (character_id IS NOT NULL))
+                                        Filter: ((merged_into_node_id IS NULL) AND (character_linked_episode_no <= 198))
+                                        Buffers: shared hit=1
+                                        ->  Bitmap Index Scan on idx_relationship_graph_node_profile  (cost=0.00..8.45 rows=41 width=0) (actual time=0.001..0.002 rows=0 loops=1)
+                                              Index Cond: (work_id = 'a57814f5-6cb2-4adc-810a-66345710860c'::uuid)
+                                              Buffers: shared hit=1
+  ->  Sort  (cost=0.24..0.26 rows=7 width=259) (actual time=15.819..15.819 rows=8 loops=1)
+        Sort Key: people.neighbor_count DESC, people.name, people.id
+        Sort Method: top-N heapsort  Memory: 25kB
+        Buffers: shared hit=1000
+        ->  CTE Scan on people  (cost=0.00..0.14 rows=7 width=259) (actual time=13.970..15.521 rows=3130 loops=1)
+              Buffers: shared hit=1000
+Planning:
+  Buffers: shared hit=87
+Planning Time: 0.895 ms
+Execution Time: 15.981 ms

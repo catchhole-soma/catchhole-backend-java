@@ -71,6 +71,9 @@ class CatchHoleBackendApplicationTests {
     private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
     @MockitoBean
+    private org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate namedParameterJdbcTemplate;
+
+    @MockitoBean
     private org.monitoring.catchholebackend.domain.relationship.repository.RelationshipGraphAnalysisRepository relationshipGraphAnalysisRepository;
 
     @MockitoBean

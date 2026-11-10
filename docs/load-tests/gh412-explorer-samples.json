@@ -1,0 +1,67 @@
+{
+  "fixture": "198 episodes, 3130 nodes, 3129 star edges, 40k-character synthetic context per analysis",
+  "environment": "local PostgreSQL 16 Testcontainers, Spring service; 2 warmups + 5 measurements; no network or LLM",
+  "query_count": "legacy Hibernate prepared statements; new counts are conservative bounds including JDBC delegation",
+  "samples": [
+    {
+      "legacy_ms": 117.4,
+      "overview_ms": 29.25,
+      "focus_ms": 53.09,
+      "search_ms": 27.7,
+      "legacy_queries": 603.0,
+      "overview_query_bound": 4.0,
+      "focus_query_bound": 10.0,
+      "legacy_bytes": 110575.0,
+      "overview_bytes": 16975.0,
+      "focus_bytes": 63557.0
+    },
+    {
+      "legacy_ms": 121.52,
+      "overview_ms": 29.45,
+      "focus_ms": 52.89,
+      "search_ms": 30.99,
+      "legacy_queries": 603.0,
+      "overview_query_bound": 4.0,
+      "focus_query_bound": 10.0,
+      "legacy_bytes": 110575.0,
+      "overview_bytes": 16975.0,
+      "focus_bytes": 63557.0
+    },
+    {
+      "legacy_ms": 115.21,
+      "overview_ms": 29.32,
+      "focus_ms": 55.82,
+      "search_ms": 29.63,
+      "legacy_queries": 603.0,
+      "overview_query_bound": 4.0,
+      "focus_query_bound": 10.0,
+      "legacy_bytes": 110575.0,
+      "overview_bytes": 16975.0,
+      "focus_bytes": 63557.0
+    },
+    {
+      "legacy_ms": 114.9,
+      "overview_ms": 29.65,
+      "focus_ms": 58.81,
+      "search_ms": 29.39,
+      "legacy_queries": 603.0,
+      "overview_query_bound": 4.0,
+      "focus_query_bound": 10.0,
+      "legacy_bytes": 110575.0,
+      "overview_bytes": 16975.0,
+      "focus_bytes": 63557.0
+    },
+    {
+      "legacy_ms": 114.59,
+      "overview_ms": 29.19,
+      "focus_ms": 68.03,
+      "search_ms": 29.47,
+      "legacy_queries": 603.0,
+      "overview_query_bound": 4.0,
+      "focus_query_bound": 10.0,
+      "legacy_bytes": 110575.0,
+      "overview_bytes": 16975.0,
+      "focus_bytes": 63557.0
+    }
+  ]
+}
