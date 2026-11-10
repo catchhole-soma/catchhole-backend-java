@@ -1,5 +1,6 @@
 package org.monitoring.catchholebackend.domain.episode.parser;
 
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -303,7 +304,8 @@ public class EpisodeFileParser {
         if (!StringUtils.hasText(filename)) {
             return Optional.empty();
         }
-        Matcher matcher = EPISODE_NO_PATTERN.matcher(filename);
+        // Mac 브라우저는 파일명을 자모 분리형(NFD)으로 보내므로 합쳐서 비교해야 `화`를 인식한다.
+        Matcher matcher = EPISODE_NO_PATTERN.matcher(Normalizer.normalize(filename, Normalizer.Form.NFC));
         if (!matcher.find()) {
             return Optional.empty();
         }

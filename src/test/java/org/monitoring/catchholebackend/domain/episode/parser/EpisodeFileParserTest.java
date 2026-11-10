@@ -583,6 +583,29 @@ class EpisodeFileParserTest {
                         .isEqualTo(UploadErrorCode.UPLOAD_MANUAL_EPISODE_NUMBER_NOT_ALLOWED));
     }
 
+    @Test
+    @DisplayName("Mac 브라우저가 보내는 자모 분리형 파일명의 회차 번호도 인식한다")
+    void detectsEpisodeNoFromDecomposedFilename() {
+        DetectedEpisodeFile detected = parseEpisodeFiles(
+                EpisodeUploadType.SINGLE_EPISODE,
+                List.of(textFile(java.text.Normalizer.normalize("12화.txt", java.text.Normalizer.Form.NFD), "제목 행이 없는 본문입니다."))
+        ).getFirst();
+
+        assertThat(detected.detectedEpisodes().getFirst().episodeNo()).isEqualTo(12);
+    }
+
+    @Test
+    @DisplayName("자모 분리형 파일명과 본문의 번호가 다르면 충돌로 처리한다")
+    void detectsConflictFromDecomposedFilename() {
+        String decomposed = java.text.Normalizer.normalize("7화.txt", java.text.Normalizer.Form.NFD);
+
+        assertThatThrownBy(() -> parseEpisodeFiles(
+                EpisodeUploadType.SINGLE_EPISODE,
+                List.of(textFile(decomposed, "제9화 갈림길\n본문입니다."))
+        )).isInstanceOfSatisfying(AppException.class, exception ->
+                assertThat(exception.getResultCode()).isEqualTo(UploadErrorCode.UPLOAD_EPISODE_NO_CONFLICT));
+    }
+
     private List<DetectedEpisodeFile> parseWithManualNumber(List<MultipartFile> sourceEpisodeFiles) {
         return episodeFileParser.parseEpisodeFiles(
                 EpisodeUploadType.MULTI_EPISODE_MULTI_FILE,
