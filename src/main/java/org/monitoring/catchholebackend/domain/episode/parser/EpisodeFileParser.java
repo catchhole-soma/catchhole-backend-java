@@ -13,6 +13,8 @@ import org.monitoring.catchholebackend.domain.episode.type.EpisodeNumberDetectio
 import org.monitoring.catchholebackend.domain.episode.type.EpisodeUploadType;
 import org.monitoring.catchholebackend.domain.upload.exception.UploadErrorCode;
 import org.monitoring.catchholebackend.domain.upload.parser.TextDocumentReader;
+import org.monitoring.catchholebackend.global.config.logging.UploadFailureLogger;
+import org.monitoring.catchholebackend.global.config.logging.UploadFailureLogger.Stage;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -85,6 +87,7 @@ public class EpisodeFileParser {
         long totalCharacters = 0;
         for (int index = 0; index < sourceFiles.size(); index++) {
             MultipartFile sourceFile = sourceFiles.get(index);
+            UploadFailureLogger.markStage(Stage.FILE_READ, index, sourceFile);
             String content;
             try {
                 content = textDocumentReader.readTextPreservingWhitespace(sourceFile);
@@ -93,6 +96,7 @@ public class EpisodeFileParser {
             }
             int characters = content.codePointCount(0, content.length());
             totalCharacters += characters;
+            UploadFailureLogger.markStage(Stage.CHARACTER_LIMIT, index, sourceFile);
             if (totalCharacters > MAX_UPLOAD_CHARACTERS) {
                 throw new AppException(UploadErrorCode.UPLOAD_CHARACTER_LIMIT_EXCEEDED);
             }
@@ -109,10 +113,12 @@ public class EpisodeFileParser {
         SourceDocument document = sourceDocuments.getFirst();
         MultipartFile sourceFile = document.sourceFile();
         String content = document.content();
+        UploadFailureLogger.markStage(Stage.EPISODE_STRUCTURE, 0, sourceFile);
         validateOneEpisodePerFileContent(
                 content,
                 UploadErrorCode.UPLOAD_SINGLE_EPISODE_COUNT_INVALID
         );
+        UploadFailureLogger.markStage(Stage.EPISODE_NO_DETECTION, 0, sourceFile);
         int episodeNo = singleEpisodeNo == null
                 ? resolveDetectedEpisodeNo(sourceFile, content)
                 : singleEpisodeNo;
@@ -135,10 +141,12 @@ public class EpisodeFileParser {
             String content = document.content();
             DetectedEpisode detectedEpisode;
             try {
+                UploadFailureLogger.markStage(Stage.EPISODE_STRUCTURE, index, sourceFile);
                 validateOneEpisodePerFileContent(
                         content,
                         UploadErrorCode.UPLOAD_MULTI_FILE_EPISODE_COUNT_INVALID
                 );
+                UploadFailureLogger.markStage(Stage.EPISODE_NO_DETECTION, index, sourceFile);
                 detectedEpisode = detectEpisodeOfFile(sourceFile, content, allowManualEpisodeNumber);
             } catch (AppException exception) {
                 throw withFailedFile(exception, index);
@@ -191,10 +199,12 @@ public class EpisodeFileParser {
         SourceDocument document = sourceDocuments.getFirst();
         MultipartFile sourceFile = document.sourceFile();
         String episodeText = document.content();
+        UploadFailureLogger.markStage(Stage.EPISODE_NO_DETECTION, 0, sourceFile);
         List<EpisodeHeading> headings = findEpisodeHeadings(episodeText);
         if (headings.isEmpty()) {
             throw new AppException(UploadErrorCode.UPLOAD_EPISODE_NO_DETECTION_FAILED);
         }
+        UploadFailureLogger.markStage(Stage.EPISODE_STRUCTURE, 0, sourceFile);
         if (headings.size() == 1) {
             throw new AppException(UploadErrorCode.UPLOAD_EPISODE_COUNT_INVALID);
         }

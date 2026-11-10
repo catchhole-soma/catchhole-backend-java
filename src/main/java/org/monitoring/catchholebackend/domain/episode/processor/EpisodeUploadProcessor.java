@@ -33,6 +33,8 @@ import org.monitoring.catchholebackend.domain.upload.type.UploadFileRole;
 import org.monitoring.catchholebackend.domain.upload.type.UploadSourceType;
 import org.monitoring.catchholebackend.domain.upload.type.UploadType;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
+import org.monitoring.catchholebackend.global.config.logging.UploadFailureLogger;
+import org.monitoring.catchholebackend.global.config.logging.UploadFailureLogger.Stage;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.monitoring.catchholebackend.global.storage.ObjectStorageService;
 import org.monitoring.catchholebackend.global.storage.StoredObject;
@@ -62,6 +64,7 @@ public class EpisodeUploadProcessor {
      */
     public EpisodeUploadResponse processEpisodeUpload(Work work, EpisodeUploadRequest uploadRequest, List<MultipartFile> sourceEpisodeFiles) {
         // TODO: 현재 동기 업로드는 예외 시 트랜잭션 rollback으로 batch도 함께 사라질 수 있다. 모니터링 이력 기록이 필요하면 batch 선커밋/별도 트랜잭션/비동기 처리 중 어떤 방식이 맞을지 후속으로 검토한다.
+        UploadFailureLogger.markStage(Stage.CONFIRMATION);
         validateUploadRequest(uploadRequest);
         List<DetectedEpisodeFile> detectedEpisodeFiles = episodeFileParser.parseEpisodeFiles(
                 uploadRequest.uploadType(),
@@ -71,11 +74,13 @@ public class EpisodeUploadProcessor {
                 // 여러 파일 저장은 파일별 확정 번호가 필수라 감지 번호가 없어도 저장할 수 있다.
                 uploadRequest.uploadType() == EpisodeUploadType.MULTI_EPISODE_MULTI_FILE
         );
+        UploadFailureLogger.markStage(Stage.CONFIRMATION);
         List<FinalizedEpisodeFile> finalizedEpisodeFiles = finalizeEpisodeFiles(
                 uploadRequest.uploadType(),
                 detectedEpisodeFiles,
                 uploadRequest.episodeConfirmations()
         );
+        UploadFailureLogger.markStage(Stage.NUMBER_AVAILABILITY);
         validateEpisodeNumberAvailability(work, finalizedEpisodeFiles);
 
         int previousLatest = episodeRepository.findFirstByWorkIdAndStatusNotOrderByEpisodeNoDesc(work.getId(), EpisodeStatus.ARCHIVED)
@@ -93,7 +98,9 @@ public class EpisodeUploadProcessor {
         uploadBatch.updateFileCount(sourceEpisodeFiles.size());
 
         List<Episode> savedEpisodes = new ArrayList<>();
-        for (FinalizedEpisodeFile finalizedEpisodeFile : finalizedEpisodeFiles) {
+        for (int index = 0; index < finalizedEpisodeFiles.size(); index++) {
+            FinalizedEpisodeFile finalizedEpisodeFile = finalizedEpisodeFiles.get(index);
+            UploadFailureLogger.markStage(Stage.STORAGE, index, finalizedEpisodeFile.sourceFile());
             saveEpisodeSourceFileAndEpisodes(uploadBatch, work, finalizedEpisodeFile, savedEpisodes);
         }
         if (uploadRequest.uploadType() == EpisodeUploadType.SINGLE_EPISODE && savedEpisodes.size() == 1
