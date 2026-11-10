@@ -35,6 +35,24 @@ class FamilyTreeProjectorTest {
     private final Work work = Work.create(null, "합성 작품", WorkGenre.FANTASY, null);
 
     @Test
+    void directoryCountsDistinctFamilyAndKeepsPeopleBeyondGraphLimit() {
+        var hub = character(9999);
+        List<CharacterRelationship> edges = new ArrayList<>();
+        for (int i = 1; i <= 300; i++) edges.add(edge(i, hub, character(i)));
+        edges.add(edge(301, hub, character(1)));
+        var snapshot = projector.prepare(graph(edges), new RelationshipMentionReader.Snapshot(List.of(), 0), false, Map.of());
+        var first = projector.directory(snapshot, "", 0, 24);
+        assertThat(first.content()).hasSize(24);
+        assertThat(first.content().getFirst().node().characterId()).isEqualTo(hub.getId());
+        assertThat(first.content().getFirst().familyCount()).isEqualTo(300);
+        assertThat(first.totalElements()).isEqualTo(301);
+        assertThat(projector.directory(snapshot, "합성 인물 300", 0, 24).content()).singleElement()
+                .satisfies(person -> assertThat(person.node().characterId()).isEqualTo(character(300).getId()));
+        assertThat(projector.directory(snapshot, "없는 이름", 0, 24).totalElements()).isZero();
+        assertThat(projector.directory(snapshot, "", 100, 24).content()).isEmpty();
+    }
+
+    @Test
     @DisplayName("큰 작품의 분리된 가족도 전체 합계는 유지하고 최대 200간선·400인물만 반환한다")
     void boundsDisconnectedFamiliesAndPreservesCompleteCounts() {
         List<CharacterRelationship> edges = new ArrayList<>();

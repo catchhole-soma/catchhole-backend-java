@@ -12,6 +12,7 @@ import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -52,8 +53,30 @@ public class FamilyTreeProjector {
             boolean includeHistorical, int limit, RelationshipMentionReader.Snapshot mentions,
             Map<String, FamilyTreeRoleResolver.EndpointRoles> roles) {
         if (limit < 1 || limit > MAX_LIMIT) throw new AppException(RelationshipErrorCode.RELATIONSHIP_INVALID_RELATIONSHIP);
-        Map<String, TreeNode> allById = new HashMap<>();
+        var snapshot = prepare(graph, mentions, includeHistorical, roles);
+        var allById = new HashMap<>(snapshot.nodes());
         if (focus != null) allById.put(focus.getId().toString(), characterNode(focus));
+        var eligible = snapshot.edges();
+        String focusNodeId = focus == null ? null : focus.getId().toString();
+        var distances = focus == null ? Map.<String, Integer>of() : distancesFrom(eligible, focusNodeId);
+        var scoped = eligible.stream().filter(edge -> focus == null || distances.containsKey(edge.subjectNodeId()))
+                .sorted(focus == null ? EDGE_ORDER : Comparator.<TreeEdge>comparingInt(edge ->
+                        Math.min(distances.get(edge.subjectNodeId()), distances.get(edge.objectNodeId())))
+                        .thenComparing(EDGE_ORDER)).toList();
+        var allNodes = nodes(scoped, allById, focusNodeId);
+        var displayed = scoped.stream().limit(limit).toList();
+        UUID focusId = focus == null ? null : focus.getId();
+        long optionalLinkCount = mentions.candidates().size();
+        return new Projection(nodes(displayed, allById, focusNodeId), displayed, allNodes.size(), scoped.size(),
+                mentions.pendingCandidateCount(), scoped.size() > limit, limit, includeHistorical, focusId,
+                revision(work, allNodes, scoped, focusId, includeHistorical, limit, mentions.pendingCandidateCount(), optionalLinkCount),
+                optionalLinkCount);
+    }
+
+    /** Shared eligibility and identity rules for both the directory and the diagram. */
+    public Snapshot prepare(RelationshipGraphReader.Graph graph, RelationshipMentionReader.Snapshot mentions,
+            boolean includeHistorical, Map<String, FamilyTreeRoleResolver.EndpointRoles> roles) {
+        Map<String, TreeNode> allById = new HashMap<>();
         List<TreeEdge> available = new ArrayList<>();
         graph.relationships().stream()
                 .filter(relation -> graph.validity().get(relation.getId()) == RelationshipValidity.VALID)
@@ -88,21 +111,33 @@ public class FamilyTreeProjector {
         }
         var eligible = available.stream().filter(edge -> edge.temporalScope() == RelationshipTemporalScope.CURRENT
                 || includeHistorical && edge.temporalScope() == RelationshipTemporalScope.HISTORICAL).sorted(EDGE_ORDER).toList();
-        String focusNodeId = focus == null ? null : focus.getId().toString();
-        var distances = focus == null ? Map.<String, Integer>of() : distancesFrom(eligible, focusNodeId);
-        var scoped = eligible.stream().filter(edge -> focus == null || distances.containsKey(edge.subjectNodeId()))
-                .sorted(focus == null ? EDGE_ORDER : Comparator.<TreeEdge>comparingInt(edge ->
-                        Math.min(distances.get(edge.subjectNodeId()), distances.get(edge.objectNodeId())))
-                        .thenComparing(EDGE_ORDER)).toList();
-        var allNodes = nodes(scoped, allById, focusNodeId);
-        var displayed = scoped.stream().limit(limit).toList();
-        UUID focusId = focus == null ? null : focus.getId();
-        long optionalLinkCount = mentions.candidates().size();
-        return new Projection(nodes(displayed, allById, focusNodeId), displayed, allNodes.size(), scoped.size(),
-                mentions.pendingCandidateCount(), scoped.size() > limit, limit, includeHistorical, focusId,
-                revision(work, allNodes, scoped, focusId, includeHistorical, limit, mentions.pendingCandidateCount(), optionalLinkCount),
-                optionalLinkCount);
+        return new Snapshot(Map.copyOf(allById), eligible);
     }
+
+    public Directory directory(Snapshot snapshot, String query, int page, int size) {
+        Map<String, Set<String>> neighbors = new HashMap<>();
+        for (var edge : snapshot.edges()) {
+            if (edge.subjectNodeId().equals(edge.objectNodeId())) continue;
+            neighbors.computeIfAbsent(edge.subjectNodeId(), ignored -> new HashSet<>()).add(edge.objectNodeId());
+            neighbors.computeIfAbsent(edge.objectNodeId(), ignored -> new HashSet<>()).add(edge.subjectNodeId());
+        }
+        String normalized = query == null ? "" : query.strip().toLowerCase(Locale.ROOT);
+        var people = neighbors.entrySet().stream().map(entry ->
+                new Person(snapshot.nodes().get(entry.getKey()), entry.getValue().size()))
+                .filter(person -> person.node().nodeType() == FamilyTreeNodeType.CHARACTER
+                        && person.node().name().toLowerCase(Locale.ROOT).contains(normalized))
+                .sorted(Comparator.comparingInt(Person::familyCount).reversed()
+                        .thenComparing(person -> person.node().name()).thenComparing(person -> person.node().id()))
+                .toList();
+        return new Directory(people.stream().skip((long) page * size).limit(size).toList(),
+                people.size(), page, size, (people.size() + size - 1) / size,
+                (long) (page + 1) * size < people.size(), neighbors.size(), snapshot.edges().size());
+    }
+
+    public record Snapshot(Map<String, TreeNode> nodes, List<TreeEdge> edges) {}
+    public record Person(TreeNode node, int familyCount) {}
+    public record Directory(List<Person> content, int totalElements, int page, int size, int totalPages,
+                            boolean hasNext, int totalNodeCount, int totalEdgeCount) {}
 
     private TreeNode characterNode(WorkCharacter character) {
         return new TreeNode(character.getId().toString(), character.getName(), FamilyTreeNodeType.CHARACTER, character.getId(), null, null, null, List.of());
