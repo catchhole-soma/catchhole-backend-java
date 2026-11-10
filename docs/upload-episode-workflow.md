@@ -104,7 +104,7 @@ flowchart LR
     B1 --> B2["singleEpisodeNo 입력값 또는<br/>파일명/본문 heading에서 번호 감지"]
     B2 --> B3["singleEpisodeTitle 또는 명시적 heading 제목 사용<br/>파일명 title fallback 없음"]
 
-    C --> C1["각 파일명 또는 본문에서 회차 번호 감지"]
+    C --> C1["각 파일명 또는 본문에서 회차 번호 감지<br/>못 찾았거나 서로 다르면 직접 입력 대상으로 표시(감지 opt-in·최종 저장)"]
     C1 --> C2["파일마다 heading 최대 1개<br/>파일 1개를 회차 1개로 감지"]
 
     D --> D1["파일 1개 본문에서 heading 목록 감지"]
