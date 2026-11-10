@@ -10,6 +10,7 @@ import jakarta.persistence.MapsId;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -48,9 +49,14 @@ public class AiTokenAccount extends BaseEntity {
     @Column(name = "reserved_tokens", nullable = false, precision = 22, scale = 2)
     private BigDecimal reservedTokens = BigDecimal.ZERO;
 
+    // 사용자에게 보여 줄 남은 비율의 100% 기준. 지급받은 순간의 잔량이다.
+    @Column(name = "percent_basis_tokens", nullable = false, precision = 22, scale = 2)
+    private BigDecimal percentBasisTokens;
+
     private AiTokenAccount(Member member, long defaultGrant) {
         this.member = member;
         this.grantedTokens = BigDecimal.valueOf(defaultGrant);
+        this.percentBasisTokens = this.grantedTokens;
     }
 
     public static AiTokenAccount create(Member member, long defaultGrant) {
@@ -59,6 +65,23 @@ public class AiTokenAccount extends BaseEntity {
 
     public BigDecimal remainingTokens() {
         return grantedTokens.subtract(usedTokens).subtract(reservedTokens).max(BigDecimal.ZERO);
+    }
+
+    /**
+     * 지급받은 순간의 잔량을 100%로 본 현재 잔량 비율. 지급 때 예약 중이던 양이 해제되어 기준을 넘어도 100%로 제한한다.
+     */
+    public double remainingPercent() {
+        BigDecimal remaining = remainingTokens();
+        if (remaining.signum() == 0) {
+            return 0;
+        }
+        if (percentBasisTokens.signum() <= 0) {
+            return 100;
+        }
+        return remaining.min(percentBasisTokens)
+                .multiply(BigDecimal.valueOf(100))
+                .divide(percentBasisTokens, 2, RoundingMode.HALF_UP)
+                .doubleValue();
     }
 
     public void reserve(long tokens) {
@@ -94,5 +117,6 @@ public class AiTokenAccount extends BaseEntity {
             throw new AppException(AiTokenErrorCode.AI_TOKEN_USAGE_INVALID);
         }
         grantedTokens = grantedTokens.add(BigDecimal.valueOf(tokens));
+        percentBasisTokens = remainingTokens();
     }
 }

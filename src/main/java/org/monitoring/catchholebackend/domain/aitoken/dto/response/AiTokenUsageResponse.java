@@ -13,7 +13,7 @@ public record AiTokenUsageResponse(
         BigDecimal reservedTokens,
         @Schema(description = "새 요청에 사용할 수 있는 남은 사용량 (소수 2자리)", example = "1620075")
         BigDecimal remainingTokens,
-        @Schema(description = "현재 1회 제공량 대비 남은 사용량 비율(최대 100%)", example = "81.0")
+        @Schema(description = "가장 최근 지급 직후의 잔량 대비 남은 사용량 비율(최대 100%)", example = "81.0")
         double remainingPercent,
         @Schema(description = "새 AI 요청을 시작할 수 없는 소진 여부", example = "false")
         boolean exhausted,
