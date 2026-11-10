@@ -1,15 +1,20 @@
 package org.monitoring.catchholebackend.domain.episode.parser;
 
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.monitoring.catchholebackend.domain.episode.type.EpisodeNumberDetectionStatus;
 import org.monitoring.catchholebackend.domain.episode.type.EpisodeUploadType;
 import org.monitoring.catchholebackend.domain.upload.exception.UploadErrorCode;
 import org.monitoring.catchholebackend.domain.upload.parser.TextDocumentReader;
+import org.monitoring.catchholebackend.global.config.logging.UploadFailureLogger;
+import org.monitoring.catchholebackend.global.config.logging.UploadFailureLogger.Stage;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -31,6 +36,8 @@ public class EpisodeFileParser {
             "(?i)(?:제\\s*)?(\\d+)\\s*(?:화|회|편|장)|(?:EP|Episode|Chapter)\\s*[._\\s-]?(\\d+)"
     );
 
+    private static final String SOURCE_FILE_INDEX = "sourceFileIndex";
+
     private final TextDocumentReader textDocumentReader;
 
     /**
@@ -42,27 +49,54 @@ public class EpisodeFileParser {
             String singleEpisodeTitle,
             List<MultipartFile> sourceEpisodeFiles
     ) {
+        return parseEpisodeFiles(uploadType, singleEpisodeNo, singleEpisodeTitle, sourceEpisodeFiles, false);
+    }
+
+    /**
+     * allowManualEpisodeNumber가 true이면 여러 파일 방식에서 번호를 확정하지 못한 파일도 결과에 남긴다.
+     */
+    public List<DetectedEpisodeFile> parseEpisodeFiles(
+            EpisodeUploadType uploadType,
+            Integer singleEpisodeNo,
+            String singleEpisodeTitle,
+            List<MultipartFile> sourceEpisodeFiles,
+            boolean allowManualEpisodeNumber
+    ) {
+        if (allowManualEpisodeNumber && uploadType != EpisodeUploadType.MULTI_EPISODE_MULTI_FILE) {
+            throw new AppException(UploadErrorCode.UPLOAD_MANUAL_EPISODE_NUMBER_NOT_ALLOWED);
+        }
         validateModeSpecificMetadata(uploadType, singleEpisodeNo, singleEpisodeTitle);
         validateSourceFileCount(uploadType, sourceEpisodeFiles);
-        List<SourceDocument> sourceDocuments = readWithinCharacterLimit(sourceEpisodeFiles);
+        List<SourceDocument> sourceDocuments = readWithinCharacterLimit(
+                sourceEpisodeFiles,
+                uploadType == EpisodeUploadType.MULTI_EPISODE_MULTI_FILE
+        );
         return switch (uploadType) {
             case SINGLE_EPISODE -> parseSingleEpisodeFile(
                     singleEpisodeNo,
                     singleEpisodeTitle,
                     sourceDocuments
             );
-            case MULTI_EPISODE_MULTI_FILE -> parseOneEpisodePerFile(sourceDocuments);
+            case MULTI_EPISODE_MULTI_FILE -> parseOneEpisodePerFile(sourceDocuments, allowManualEpisodeNumber);
             case MULTI_EPISODE_SINGLE_FILE -> parseMultipleEpisodesFromSingleFile(sourceDocuments);
         };
     }
 
-    private List<SourceDocument> readWithinCharacterLimit(List<MultipartFile> sourceFiles) {
+    private List<SourceDocument> readWithinCharacterLimit(List<MultipartFile> sourceFiles, boolean reportFailedFile) {
         List<SourceDocument> sourceDocuments = new ArrayList<>();
         long totalCharacters = 0;
-        for (MultipartFile sourceFile : sourceFiles) {
-            String content = textDocumentReader.readTextPreservingWhitespace(sourceFile);
+        for (int index = 0; index < sourceFiles.size(); index++) {
+            MultipartFile sourceFile = sourceFiles.get(index);
+            UploadFailureLogger.markStage(Stage.FILE_READ, index, sourceFile);
+            String content;
+            try {
+                content = textDocumentReader.readTextPreservingWhitespace(sourceFile);
+            } catch (AppException exception) {
+                throw reportFailedFile ? withFailedFile(exception, index) : exception;
+            }
             int characters = content.codePointCount(0, content.length());
             totalCharacters += characters;
+            UploadFailureLogger.markStage(Stage.CHARACTER_LIMIT, index, sourceFile);
             if (totalCharacters > MAX_UPLOAD_CHARACTERS) {
                 throw new AppException(UploadErrorCode.UPLOAD_CHARACTER_LIMIT_EXCEEDED);
             }
@@ -79,10 +113,12 @@ public class EpisodeFileParser {
         SourceDocument document = sourceDocuments.getFirst();
         MultipartFile sourceFile = document.sourceFile();
         String content = document.content();
+        UploadFailureLogger.markStage(Stage.EPISODE_STRUCTURE, 0, sourceFile);
         validateOneEpisodePerFileContent(
                 content,
                 UploadErrorCode.UPLOAD_SINGLE_EPISODE_COUNT_INVALID
         );
+        UploadFailureLogger.markStage(Stage.EPISODE_NO_DETECTION, 0, sourceFile);
         int episodeNo = singleEpisodeNo == null
                 ? resolveDetectedEpisodeNo(sourceFile, content)
                 : singleEpisodeNo;
@@ -94,24 +130,67 @@ public class EpisodeFileParser {
         return List.of(new DetectedEpisodeFile(sourceFile, List.of(detectedEpisode), document.characters()));
     }
 
-    private List<DetectedEpisodeFile> parseOneEpisodePerFile(List<SourceDocument> sourceDocuments) {
+    private List<DetectedEpisodeFile> parseOneEpisodePerFile(
+            List<SourceDocument> sourceDocuments,
+            boolean allowManualEpisodeNumber
+    ) {
         List<DetectedEpisodeFile> detectedEpisodeFiles = new ArrayList<>();
-        for (SourceDocument document : sourceDocuments) {
+        for (int index = 0; index < sourceDocuments.size(); index++) {
+            SourceDocument document = sourceDocuments.get(index);
             MultipartFile sourceFile = document.sourceFile();
             String content = document.content();
-            validateOneEpisodePerFileContent(
-                    content,
-                    UploadErrorCode.UPLOAD_MULTI_FILE_EPISODE_COUNT_INVALID
-            );
-            int episodeNo = resolveDetectedEpisodeNo(sourceFile, content);
-            DetectedEpisode detectedEpisode = new DetectedEpisode(
-                    episodeNo,
-                    resolveEpisodeTitle(null, content, episodeNo),
-                    content
-            );
+            DetectedEpisode detectedEpisode;
+            try {
+                UploadFailureLogger.markStage(Stage.EPISODE_STRUCTURE, index, sourceFile);
+                validateOneEpisodePerFileContent(
+                        content,
+                        UploadErrorCode.UPLOAD_MULTI_FILE_EPISODE_COUNT_INVALID
+                );
+                UploadFailureLogger.markStage(Stage.EPISODE_NO_DETECTION, index, sourceFile);
+                detectedEpisode = detectEpisodeOfFile(sourceFile, content, allowManualEpisodeNumber);
+            } catch (AppException exception) {
+                throw withFailedFile(exception, index);
+            }
             detectedEpisodeFiles.add(new DetectedEpisodeFile(sourceFile, List.of(detectedEpisode), document.characters()));
         }
         return detectedEpisodeFiles;
+    }
+
+    private AppException withFailedFile(AppException exception, int index) {
+        return exception.withErrorContext(Map.of(SOURCE_FILE_INDEX, index));
+    }
+
+    private DetectedEpisode detectEpisodeOfFile(
+            MultipartFile sourceFile,
+            String content,
+            boolean allowManualEpisodeNumber
+    ) {
+        int episodeNo;
+        try {
+            episodeNo = resolveDetectedEpisodeNo(sourceFile, content);
+        } catch (AppException exception) {
+            EpisodeNumberDetectionStatus status = recoverableNumberStatus(exception);
+            if (!allowManualEpisodeNumber || status == null) {
+                throw exception;
+            }
+            return DetectedEpisode.unresolved(findFirstHeadingTitle(content), content, status);
+        }
+        return new DetectedEpisode(episodeNo, resolveEpisodeTitle(null, content, episodeNo), content);
+    }
+
+    private EpisodeNumberDetectionStatus recoverableNumberStatus(AppException exception) {
+        if (exception.getResultCode() == UploadErrorCode.UPLOAD_EPISODE_NO_DETECTION_FAILED) {
+            return EpisodeNumberDetectionStatus.REQUIRES_INPUT;
+        }
+        if (exception.getResultCode() == UploadErrorCode.UPLOAD_EPISODE_NO_CONFLICT) {
+            return EpisodeNumberDetectionStatus.NUMBER_CONFLICT;
+        }
+        return null;
+    }
+
+    private String findFirstHeadingTitle(String content) {
+        List<EpisodeHeading> headings = findEpisodeHeadings(content);
+        return headings.isEmpty() ? null : headings.getFirst().title();
     }
 
     private List<DetectedEpisodeFile> parseMultipleEpisodesFromSingleFile(
@@ -120,10 +199,12 @@ public class EpisodeFileParser {
         SourceDocument document = sourceDocuments.getFirst();
         MultipartFile sourceFile = document.sourceFile();
         String episodeText = document.content();
+        UploadFailureLogger.markStage(Stage.EPISODE_NO_DETECTION, 0, sourceFile);
         List<EpisodeHeading> headings = findEpisodeHeadings(episodeText);
         if (headings.isEmpty()) {
             throw new AppException(UploadErrorCode.UPLOAD_EPISODE_NO_DETECTION_FAILED);
         }
+        UploadFailureLogger.markStage(Stage.EPISODE_STRUCTURE, 0, sourceFile);
         if (headings.size() == 1) {
             throw new AppException(UploadErrorCode.UPLOAD_EPISODE_COUNT_INVALID);
         }
@@ -233,7 +314,8 @@ public class EpisodeFileParser {
         if (!StringUtils.hasText(filename)) {
             return Optional.empty();
         }
-        Matcher matcher = EPISODE_NO_PATTERN.matcher(filename);
+        // Mac 브라우저는 파일명을 자모 분리형(NFD)으로 보내므로 합쳐서 비교해야 `화`를 인식한다.
+        Matcher matcher = EPISODE_NO_PATTERN.matcher(Normalizer.normalize(filename, Normalizer.Form.NFC));
         if (!matcher.find()) {
             return Optional.empty();
         }

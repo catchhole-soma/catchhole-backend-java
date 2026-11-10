@@ -27,6 +27,8 @@ import org.monitoring.catchholebackend.domain.episode.event.EpisodeSourcePurgeRe
 import org.monitoring.catchholebackend.domain.episode.exception.EpisodeErrorCode;
 import org.monitoring.catchholebackend.domain.episode.mapper.EpisodeDetectionMapper;
 import org.monitoring.catchholebackend.domain.episode.mapper.EpisodeMapper;
+import org.monitoring.catchholebackend.domain.episode.parser.DetectedEpisode;
+import org.monitoring.catchholebackend.domain.episode.parser.DetectedEpisodeFile;
 import org.monitoring.catchholebackend.domain.episode.parser.EpisodeFileParser;
 import org.monitoring.catchholebackend.domain.episode.processor.EpisodeUploadProcessor;
 import org.monitoring.catchholebackend.domain.episode.processor.EpisodeUploadPolicy;
@@ -36,6 +38,7 @@ import org.monitoring.catchholebackend.domain.episode.repository.EpisodeReposito
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeAnalysisSummary;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeAnalysisSummaryRepository;
 import org.monitoring.catchholebackend.domain.episode.repository.EpisodeSourcePurgeRequestRepository;
+import org.monitoring.catchholebackend.domain.episode.type.EpisodeNumberDetectionStatus;
 import org.monitoring.catchholebackend.domain.episode.type.EpisodeStatus;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadFile;
@@ -50,6 +53,7 @@ import org.monitoring.catchholebackend.domain.upload.type.UploadSourceType;
 import org.monitoring.catchholebackend.domain.upload.type.UploadType;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
+import org.monitoring.catchholebackend.global.config.logging.UploadFailureLogger;
 import org.monitoring.catchholebackend.global.exception.AppException;
 import org.monitoring.catchholebackend.global.storage.ObjectStorageService;
 import org.monitoring.catchholebackend.global.storage.StoredObject;
@@ -273,15 +277,32 @@ public class EpisodeServiceImpl implements EpisodeService {
     ) {
         Work work = workRepository.getOwnedWork(workId, memberId);
         work.requireActive();
-        return episodeDetectionMapper.toResponse(
+        List<DetectedEpisodeFile> detectedEpisodeFiles = episodeFileParser.parseEpisodeFiles(
                 detectionRequest.uploadType(),
-                episodeFileParser.parseEpisodeFiles(
-                        detectionRequest.uploadType(),
-                        detectionRequest.singleEpisodeNo(),
-                        detectionRequest.singleEpisodeTitle(),
-                        sourceEpisodeFiles
-                )
+                detectionRequest.singleEpisodeNo(),
+                detectionRequest.singleEpisodeTitle(),
+                sourceEpisodeFiles,
+                detectionRequest.allowsManualEpisodeNumber()
         );
+        logUnresolvedEpisodeNumbers(workId, detectedEpisodeFiles);
+        return episodeDetectionMapper.toResponse(detectionRequest.uploadType(), detectedEpisodeFiles);
+    }
+
+    private void logUnresolvedEpisodeNumbers(UUID workId, List<DetectedEpisodeFile> detectedEpisodeFiles) {
+        List<UploadFailureLogger.UnresolvedFile> unresolvedFiles = new ArrayList<>();
+        for (int index = 0; index < detectedEpisodeFiles.size(); index++) {
+            DetectedEpisodeFile detectedEpisodeFile = detectedEpisodeFiles.get(index);
+            for (DetectedEpisode detectedEpisode : detectedEpisodeFile.detectedEpisodes()) {
+                if (detectedEpisode.numberDetectionStatus() != EpisodeNumberDetectionStatus.DETECTED) {
+                    unresolvedFiles.add(new UploadFailureLogger.UnresolvedFile(
+                            index,
+                            detectedEpisodeFile.sourceFile(),
+                            detectedEpisode.numberDetectionStatus().name()
+                    ));
+                }
+            }
+        }
+        UploadFailureLogger.logUnresolvedEpisodeNumbers(workId, detectedEpisodeFiles.size(), unresolvedFiles);
     }
 
     private Episode getEpisodeInWork(UUID episodeId, Work work) {

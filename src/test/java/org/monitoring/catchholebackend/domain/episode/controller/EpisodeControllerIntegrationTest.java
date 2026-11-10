@@ -28,6 +28,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -725,6 +726,275 @@ class EpisodeControllerIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPLOAD_EPISODE_CONFIRMATION_INVALID"));
+        assertThat(episodeRepository.count()).isZero();
+        verify(objectStorage, never()).putText(anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("여러 파일 감지가 파일 때문에 실패하면 실패한 파일의 순번을 알려 준다")
+    void detectReportsFailedFileIndex() throws Exception {
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes/detect", work.getId())
+                        .file(metadataPart("{\"uploadType\":\"MULTI_EPISODE_MULTI_FILE\",\"allowManualEpisodeNumber\":true}"))
+                        .file(textFile("episodeFiles", "1화.txt", "첫 본문"))
+                        .file(textFile("episodeFiles", "두회차.txt", "제2화 시작\n본문\n제3화 다음\n본문"))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("UPLOAD_MULTI_FILE_EPISODE_COUNT_INVALID"))
+                .andExpect(jsonPath("$.error.context.sourceFileIndex").value(1));
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes/detect", work.getId())
+                        .file(metadataPart("{\"uploadType\":\"MULTI_EPISODE_MULTI_FILE\",\"allowManualEpisodeNumber\":true}"))
+                        .file(textFile("episodeFiles", "0화.txt", "본문"))
+                        .file(textFile("episodeFiles", "2화.txt", "본문"))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("UPLOAD_EPISODE_NO_INVALID"))
+                .andExpect(jsonPath("$.error.context.sourceFileIndex").value(0));
+    }
+
+    @Test
+    @DisplayName("여러 파일에서 읽지 못한 파일의 순번을 알려 주고 원인 진단은 유지한다")
+    void detectReportsUnreadableFileIndex() throws Exception {
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes/detect", work.getId())
+                        .file(metadataPart("{\"uploadType\":\"MULTI_EPISODE_MULTI_FILE\",\"allowManualEpisodeNumber\":true}"))
+                        .file(textFile("episodeFiles", "1화.txt", "첫 본문"))
+                        .file(new MockMultipartFile("episodeFiles", "2화.txt", "text/plain", "외부 인코딩 본문".getBytes(java.nio.charset.Charset.forName("MS949"))))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("UPLOAD_DOCUMENT_INVALID"))
+                .andExpect(jsonPath("$.error.context.sourceFileIndex").value(1));
+    }
+
+    @Test
+    @DisplayName("특정 파일 때문이 아닌 합계 분량 초과에는 파일 순번을 붙이지 않는다")
+    void detectOmitsFileIndexForTotalCharacterLimit() throws Exception {
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes/detect", work.getId())
+                        .file(metadataPart("{\"uploadType\":\"MULTI_EPISODE_MULTI_FILE\",\"allowManualEpisodeNumber\":true}"))
+                        .file(textFile("episodeFiles", "1화.txt", "가".repeat(150_000)))
+                        .file(textFile("episodeFiles", "2화.txt", "나".repeat(100_001)))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("UPLOAD_CHARACTER_LIMIT_EXCEEDED"))
+                .andExpect(jsonPath("$.error.context.sourceFileIndex").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("직접 입력을 요청한 감지는 번호를 못 찾은 파일을 빈 번호로 함께 돌려준다")
+    void detectReturnsFileWithMissingNumberWhenManualNumberAllowed() throws Exception {
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes/detect", work.getId())
+                        .file(metadataPart("{\"uploadType\":\"MULTI_EPISODE_MULTI_FILE\",\"allowManualEpisodeNumber\":true}"))
+                        .file(textFile("episodeFiles", "1화.txt", "첫 본문"))
+                        .file(textFile("episodeFiles", "원고.txt", "가운데 본문"))
+                        .file(textFile("episodeFiles", "3화.txt", "셋째 본문"))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.detectedEpisodes", hasSize(3)))
+                .andExpect(jsonPath("$.data.detectedEpisodes[0].episodeNo").value(1))
+                .andExpect(jsonPath("$.data.detectedEpisodes[0].numberDetectionStatus").value("DETECTED"))
+                .andExpect(jsonPath("$.data.detectedEpisodes[1].episodeNo").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data.detectedEpisodes[1].numberDetectionStatus").value("REQUIRES_INPUT"))
+                .andExpect(jsonPath("$.data.detectedEpisodes[1].sourceFileIndex").value(1))
+                .andExpect(jsonPath("$.data.detectedEpisodes[2].episodeNo").value(3));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"uploadType\":\"MULTI_EPISODE_MULTI_FILE\"}",
+            "{\"uploadType\":\"MULTI_EPISODE_MULTI_FILE\",\"allowManualEpisodeNumber\":false}",
+            "{\"uploadType\":\"MULTI_EPISODE_MULTI_FILE\",\"allowManualEpisodeNumber\":null}"
+    })
+    @DisplayName("직접 입력을 요청하지 않은 감지는 기존처럼 전체를 거절한다")
+    void detectStaysStrictWithoutManualNumber(String metadata) throws Exception {
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes/detect", work.getId())
+                        .file(metadataPart(metadata))
+                        .file(textFile("episodeFiles", "1화.txt", "첫 본문"))
+                        .file(textFile("episodeFiles", "원고.txt", "가운데 본문"))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("UPLOAD_EPISODE_NO_DETECTION_FAILED"));
+    }
+
+    @Test
+    @DisplayName("직접 입력 감지를 다른 업로드 방식에 요청하면 거절한다")
+    void detectRejectsManualNumberForOtherUploadTypes() throws Exception {
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes/detect", work.getId())
+                        .file(metadataPart("{\"uploadType\":\"SINGLE_EPISODE\",\"allowManualEpisodeNumber\":true}"))
+                        .file(textFile("episodeFiles", "1화.txt", "첫 본문"))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("UPLOAD_MANUAL_EPISODE_NUMBER_NOT_ALLOWED"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("번호를 못 찾은 파일도 확정 번호로 원래 내용과 함께 저장한다")
+    void uploadSavesFileWithMissingNumberUnderConfirmedNumber(boolean reordered) throws Exception {
+        String first = "{\"detectionOrder\":0,\"episodeNo\":1}";
+        String second = "{\"detectionOrder\":1,\"episodeNo\":2}";
+        String third = "{\"detectionOrder\":2,\"episodeNo\":3}";
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes", work.getId())
+                        .file(metadataPart("{\"uploadType\":\"MULTI_EPISODE_MULTI_FILE\",\"episodeConfirmations\":["
+                                + (reordered ? third + "," + first + "," + second : first + "," + second + "," + third) + "]}"))
+                        .file(textFile("episodeFiles", "1화.txt", "첫 본문"))
+                        .file(textFile("episodeFiles", "원고.txt", "가운데 본문"))
+                        .file(textFile("episodeFiles", "3화.txt", "셋째 본문"))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk());
+
+        Map<Integer, String> expected = Map.of(1, "첫 본문", 2, "가운데 본문", 3, "셋째 본문");
+        var episodes = episodeRepository.findAllByWorkIdAndStatusNotOrderByEpisodeNoDesc(work.getId(), EpisodeStatus.ARCHIVED);
+        assertThat(episodes).extracting(Episode::getEpisodeNo).containsExactly(3, 2, 1);
+        for (Episode episode : episodes) {
+            verify(objectStorage).putText(eq(episode.getContentS3Key()), eq(expected.get(episode.getEpisodeNo())));
+        }
+    }
+
+    @Test
+    @DisplayName("파일 이름이 같아도 확정 번호는 각 파일의 원래 내용에 연결된다")
+    void uploadKeepsMappingForDuplicateFilenames() throws Exception {
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes", work.getId())
+                        .file(metadataPart("""
+                                {"uploadType":"MULTI_EPISODE_MULTI_FILE","episodeConfirmations":[
+                                  {"detectionOrder":1,"episodeNo":5},{"detectionOrder":0,"episodeNo":7}]}
+                                """))
+                        .file(textFile("episodeFiles", "원고.txt", "먼저 고른 본문"))
+                        .file(textFile("episodeFiles", "원고.txt", "나중에 고른 본문"))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk());
+
+        var episodes = episodeRepository.findAllByWorkIdAndStatusNotOrderByEpisodeNoDesc(work.getId(), EpisodeStatus.ARCHIVED);
+        assertThat(episodes).extracting(Episode::getEpisodeNo).containsExactly(7, 5);
+        verify(objectStorage).putText(eq(episodes.get(0).getContentS3Key()), eq("먼저 고른 본문"));
+        verify(objectStorage).putText(eq(episodes.get(1).getContentS3Key()), eq("나중에 고른 본문"));
+    }
+
+    @Test
+    @DisplayName("파일명과 본문의 번호가 달라도 작가가 정한 번호로 저장한다")
+    void uploadSavesConflictingFileUnderConfirmedNumber() throws Exception {
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes", work.getId())
+                        .file(metadataPart("""
+                                {"uploadType":"MULTI_EPISODE_MULTI_FILE","episodeConfirmations":[
+                                  {"detectionOrder":0,"episodeNo":3,"title":"갈림길"},{"detectionOrder":1,"episodeNo":6}]}
+                                """))
+                        .file(textFile("episodeFiles", "3화.txt", "제5화 갈림길\n본문"))
+                        .file(textFile("episodeFiles", "6화.txt", "여섯째 본문"))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk());
+
+        var episodes = episodeRepository.findAllByWorkIdAndStatusNotOrderByEpisodeNoDesc(work.getId(), EpisodeStatus.ARCHIVED);
+        assertThat(episodes).extracting(Episode::getEpisodeNo).containsExactly(6, 3);
+        assertThat(episodes.get(1).getTitle()).isEqualTo("갈림길");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"detectionOrder\":0,\"episodeNo\":13},{\"detectionOrder\":0,\"episodeNo\":14}",
+            "{\"detectionOrder\":0,\"episodeNo\":13},{\"detectionOrder\":2,\"episodeNo\":14}",
+            "{\"detectionOrder\":0,\"episodeNo\":13}"
+    })
+    @DisplayName("번호를 못 찾은 파일도 잘못된 감지 식별자는 저장 전에 거절한다")
+    void uploadRejectsInvalidMappingForFilesWithMissingNumber(String confirmations) throws Exception {
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes", work.getId())
+                        .file(metadataPart("{\"uploadType\":\"MULTI_EPISODE_MULTI_FILE\",\"episodeConfirmations\":[" + confirmations + "]}"))
+                        .file(textFile("episodeFiles", "원고A.txt", "첫 본문"))
+                        .file(textFile("episodeFiles", "원고B.txt", "둘째 본문"))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("UPLOAD_EPISODE_CONFIRMATION_INVALID"));
+        assertThat(episodeRepository.count()).isZero();
+        verify(objectStorage, never()).putText(anyString(), anyString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"0", "-1", "null", "2147483648", "1.5"})
+    @DisplayName("번호를 못 찾은 파일에 잘못된 번호를 입력하면 저장 전에 거절한다")
+    void uploadRejectsInvalidConfirmedNumber(String number) throws Exception {
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes", work.getId())
+                        .file(metadataPart("{\"uploadType\":\"MULTI_EPISODE_MULTI_FILE\",\"episodeConfirmations\":["
+                                + "{\"detectionOrder\":0,\"episodeNo\":" + number + "},{\"detectionOrder\":1,\"episodeNo\":2}]}"))
+                        .file(textFile("episodeFiles", "원고A.txt", "첫 본문"))
+                        .file(textFile("episodeFiles", "원고B.txt", "둘째 본문"))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest());
+        assertThat(episodeRepository.count()).isZero();
+        verify(objectStorage, never()).putText(anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("입력한 번호가 서로 겹치면 저장 전에 거절한다")
+    void uploadRejectsDuplicateNumbersForFilesWithMissingNumber() throws Exception {
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes", work.getId())
+                        .file(metadataPart("""
+                                {"uploadType":"MULTI_EPISODE_MULTI_FILE","episodeConfirmations":[
+                                  {"detectionOrder":0,"episodeNo":4},{"detectionOrder":1,"episodeNo":4}]}
+                                """))
+                        .file(textFile("episodeFiles", "원고A.txt", "첫 본문"))
+                        .file(textFile("episodeFiles", "원고B.txt", "둘째 본문"))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("EPISODE_UPLOAD_DUPLICATED"));
+        verify(objectStorage, never()).putText(anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("입력한 번호가 이미 등록된 회차면 저장 전에 거절한다")
+    void uploadRejectsExistingNumberForFileWithMissingNumber() throws Exception {
+        episodeRepository.save(Episode.create(work, null, 7, "기존 회차", "works/existing-7.txt", "v1", "hash", 5));
+
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes", work.getId())
+                        .file(metadataPart("""
+                                {"uploadType":"MULTI_EPISODE_MULTI_FILE","episodeConfirmations":[
+                                  {"detectionOrder":0,"episodeNo":7},{"detectionOrder":1,"episodeNo":8}]}
+                                """))
+                        .file(textFile("episodeFiles", "원고A.txt", "첫 본문"))
+                        .file(textFile("episodeFiles", "8화.txt", "둘째 본문"))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("EPISODE_UPLOAD_DUPLICATED"));
+        verify(objectStorage, never()).putText(anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("입력한 번호가 원문 파기 중인 회차면 저장 전에 거절한다")
+    void uploadRejectsPurgeReservedNumberForFileWithMissingNumber() throws Exception {
+        Episode episode = episodeRepository.save(Episode.create(
+                work, null, 10, "삭제 대상", "works/purge-reserved.txt", "v1", "hash", 5));
+        when(objectStorage.purgePrefixesExcluding(any(), any())).thenReturn(new ObjectStoragePurgeResult(2, 1, 1));
+        mockMvc.perform(delete("/api/v1/works/{workId}/episodes/{episodeId}", work.getId(), episode.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes", work.getId())
+                        .file(metadataPart("""
+                                {"uploadType":"MULTI_EPISODE_MULTI_FILE","episodeConfirmations":[
+                                  {"detectionOrder":0,"episodeNo":10},{"detectionOrder":1,"episodeNo":11}]}
+                                """))
+                        .file(textFile("episodeFiles", "원고A.txt", "첫 본문"))
+                        .file(textFile("episodeFiles", "11화.txt", "둘째 본문"))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("EPISODE_UPLOAD_DUPLICATED"));
+        verify(objectStorage, never()).putText(anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("감지 뒤 바뀐 파일은 최종 저장에서 형식과 회차 수를 다시 검사한다")
+    void uploadRevalidatesFilesReplacedAfterDetection() throws Exception {
+        String confirmations = "{\"uploadType\":\"MULTI_EPISODE_MULTI_FILE\",\"episodeConfirmations\":["
+                + "{\"detectionOrder\":0,\"episodeNo\":1},{\"detectionOrder\":1,\"episodeNo\":2}]}";
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes", work.getId())
+                        .file(metadataPart(confirmations))
+                        .file(textFile("episodeFiles", "원고A.txt", "제1화 시작\n본문\n제2화 다음\n본문"))
+                        .file(textFile("episodeFiles", "원고B.txt", "둘째 본문"))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("UPLOAD_MULTI_FILE_EPISODE_COUNT_INVALID"));
+        mockMvc.perform(multipart("/api/v1/works/{workId}/episodes", work.getId())
+                        .file(metadataPart(confirmations))
+                        .file(textFile("episodeFiles", "원고A.pdf", "첫 본문"))
+                        .file(textFile("episodeFiles", "원고B.txt", "둘째 본문"))
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("UPLOAD_FILE_TYPE_NOT_SUPPORTED"));
         assertThat(episodeRepository.count()).isZero();
         verify(objectStorage, never()).putText(anyString(), anyString());
     }

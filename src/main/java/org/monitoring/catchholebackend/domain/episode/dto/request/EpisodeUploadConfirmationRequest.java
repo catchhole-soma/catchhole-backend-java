@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import tools.jackson.databind.annotation.JsonDeserialize;
 
 @Schema(description = "사용자가 확정한 업로드 회차 정보")
 public record EpisodeUploadConfirmationRequest(
@@ -15,6 +16,7 @@ public record EpisodeUploadConfirmationRequest(
         @Schema(description = "사용자가 확정한 회차 번호", example = "159")
         @NotNull(message = "회차 번호는 필수입니다.")
         @Min(value = 1, message = "회차 번호는 1 이상이어야 합니다.")
+        @JsonDeserialize(using = EpisodeNumberDeserializer.class)
         Integer episodeNo,
 
         @Schema(description = "사용자가 확정한 회차 제목", example = "운명의 실타래", nullable = true)

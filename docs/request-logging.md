@@ -15,20 +15,25 @@ HTTP 요청마다 서버가 UUID를 생성해 SLF4J MDC의 `requestId`와 응답
 
 ## 회차 감지·등록 실패 진단
 
-`POST /api/v1/works/{workId}/episodes/detect`와 `POST /api/v1/works/{workId}/episodes`의 오류 응답에는 `회차 업로드 요청 실패` WARN을 한 건 추가한다. 기존 HTTP 완료 로그와 같은 MDC requestId를 사용한다. 성공 요청과 다른 API에는 이 진단을 추가하지 않으며 응답 본문·상태·헤더는 기존 규약을 따른다.
+`POST /api/v1/works/{workId}/episodes/detect`와 `POST /api/v1/works/{workId}/episodes`의 오류 응답에는 `회차 업로드 요청 실패` WARN을 한 건 추가한다. 기존 HTTP 완료 로그와 같은 MDC requestId를 사용한다. 다른 API에는 이 진단을 추가하지 않으며 응답 본문·상태·헤더는 기존 규약을 따른다. 성공 요청에는 아래 `회차 번호 미인식 파일` INFO만 남긴다.
 
 - `operation`: 감지 DETECT / 등록 UPLOAD, `workId`: 정규화한 작품 UUID, `errorCode`, `status`.
 - `uploadType`, `fileCount`, `requestBytes`: 업로드 방식·파일 개수·Servlet이 관측한 요청 바이트 수. 길이를 알 수 없으면 requestBytes는 -1이다.
-- `files`: 파일 인덱스·허용된 형식 TXT/DOCX/HWP/HWPX(그 외 OTHER, 파일명 미관측 UNKNOWN)·바이트 크기를 최대 8개 기록한다. `omittedFiles`로 생략한 개수를 표시한다. 로그용으로 원고를 읽지 않으며, 원본 파일명과 원고는 진단 로그에 복사하지 않는다.
+- `files`: 파일 인덱스·파일명·허용된 형식 TXT/DOCX/HWP/HWPX(그 외 OTHER, 파일명 미관측 UNKNOWN)·바이트 크기를 최대 8개 기록한다. `omittedFiles`로 생략한 개수를 표시한다. 로그용으로 원고를 읽지 않으며 원고는 진단 로그에 복사하지 않는다.
+- `name`: 경로를 뗀 파일명이다. 제어 문자와 보이지 않는 서식 문자는 `?`로 바꿔 로그 줄을 위조하지 못하게 하고 120 code point로 자른다. 형식과 크기만으로는 어떤 파일에서 막혔는지 특정할 수 없었던 조사 경험 때문에 2026-11-10 사용자 결정으로 기록한다(#414). 파일명에 실명이나 미공개 작품명이 들어갈 수 있으므로 서버 로그 접근 권한과 14일 보관 정책 안에서만 다룬다.
+- `failureStage`: 요청이 마지막으로 들어간 단계의 고정 코드다. `REQUEST_BINDING`(컨트롤러 진입 전), `ADMISSION`(권한·작품 상태·다음 회차 차단), `FILE_READ`, `CHARACTER_LIMIT`, `EPISODE_NO_DETECTION`, `EPISODE_STRUCTURE`, `CONFIRMATION`, `NUMBER_AVAILABILITY`, `STORAGE`.
+- `failedFile`: 실패 단계가 처리하던 파일이다. 목록 상한과 무관하게 항상 기록한다. 번호 중복처럼 특정 파일이 없는 실패는 `NONE`이다.
 - `exceptionType`, `causeType`: 예외 클래스명과 직접 원인의 클래스명만 기록한다. 원인이 없으면 NONE이다. 예를 들어 TXT 인코딩 실패의 `UPLOAD_DOCUMENT_INVALID` + `MalformedInputException`을 회차 제목 개수 오류의 `UPLOAD_SINGLE_EPISODE_COUNT_INVALID`와 구분할 수 있다.
 - `invalidFields`: uploadType/singleEpisodeNo/singleEpisodeTitle/episodeConfirmations의 허용된 필드 경로만 최대 8개 기록한다. 검증 메시지·거절값·예외 메시지/stack trace·인증 헤더·쿠키·쿼리·원고 제목은 이 진단에 포함하지 않는다.
 
 컨트롤러에서 요청 바인딩을 마친 뒤 안전한 메타데이터만 request attribute에 저장하고, `GlobalExceptionHandler`의 공통 오류 응답 생성 경로에서 기록한다. JSON 오류·필수 part 누락·Bean Validation·multipart 크기 제한처럼 컨트롤러 진입 전 실패도 고정 경로 패턴으로 식별한다. Spring의 `UrlPathHelper`로 context path와 URL 인코딩을 해석해 정상 매핑되는 인코딩 경로도 같은 작품 UUID로 연결한다. 이때 아직 관측하지 못한 업로드 방식은 UNKNOWN, 파일 수는 -1, 파일 목록은 빈 목록이다. 로그를 위해 실패한 multipart를 다시 파싱하거나 메타데이터/원고를 다시 읽지 않는다. 업무 처리가 끝나면 Servlet 요청과 함께 진단 문맥도 사라지므로 후속 요청으로 전파되지 않는다.
 
+여러 파일 감지에서 일부 번호를 찾지 못하거나 파일명·본문의 번호가 다르면 요청이 HTTP 200으로 끝나 실패 진단이 남지 않는다. 이때는 `회차 번호 미인식 파일` INFO를 한 건 남긴다. `unresolvedFiles`에 해당 파일의 인덱스·파일명·형식·크기와 사유(`REQUIRES_INPUT`/`NUMBER_CONFLICT`)를 최대 8개 기록하고 `unresolvedCount`·`omittedFiles`로 전체 개수를 표시한다. 모든 번호를 찾은 요청에는 남기지 않는다.
+
 로컬 회귀 테스트에서 CP949 합성 TXT로 발생시킨 실제 진단 로그 예시다. 아래 UUID는 테스트 데이터이며, 운영 회원의 로그가 아니다. 서버에서는 한 줄로 저장된다.
 
 ```text
-2026-11-06T12:26:08.706+09:00  WARN [requestId=0653e2e3-2b50-4d38-aa59-2bf7b722bf80] 59856 --- [CatchHole-Backend] [    Test worker] o.m.c.g.c.logging.UploadFailureLogger    : 회차 업로드 요청 실패: operation=UPLOAD, workId=eec579fb-a042-452a-8267-17f93e383878, errorCode=UPLOAD_DOCUMENT_INVALID, status=400, uploadType=SINGLE_EPISODE, fileCount=1, requestBytes=-1, files=[FileInfo[index=0, format=TXT, bytes=30]], omittedFiles=0, exceptionType=AppException, causeType=MalformedInputException, invalidFields=[]
+2026-11-06T12:26:08.706+09:00  WARN [requestId=0653e2e3-2b50-4d38-aa59-2bf7b722bf80] 59856 --- [CatchHole-Backend] [    Test worker] o.m.c.g.c.logging.UploadFailureLogger    : 회차 업로드 요청 실패: operation=UPLOAD, workId=eec579fb-a042-452a-8267-17f93e383878, errorCode=UPLOAD_DOCUMENT_INVALID, status=400, uploadType=SINGLE_EPISODE, fileCount=1, requestBytes=-1, files=[FileInfo[index=0, name=episode.txt, format=TXT, bytes=30]], omittedFiles=0, failureStage=FILE_READ, failedFile=FileInfo[index=0, name=episode.txt, format=TXT, bytes=30], exceptionType=AppException, causeType=MalformedInputException, invalidFields=[]
 ```
 
 같은 requestId로 기존 `HTTP 요청 완료` 로그를 조회하면 응답 상태·소요 시간과 연결된다. `UPLOAD_SINGLE_EPISODE_COUNT_INVALID`는 회차 제목 개수 검사 실패이고, `UPLOAD_SIZE_LIMIT_EXCEEDED` + `MaxUploadSizeExceededException`은 컨트롤러 진입 전 multipart 용량 제한이다.

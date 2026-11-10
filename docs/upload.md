@@ -175,9 +175,11 @@ source
 
 - TXT, DOCX, HWP, HWPX 중 회차별 파일을 두 개 이상 전달합니다. 서로 다른 형식을 섞을 수 있습니다.
 - 각 파일에서 파일명 또는 내용의 회차 번호를 감지합니다.
-- 지원 패턴은 `1화`, `제 1화`, `1회`, `1편`, `1장`, `EP 1`, `Episode 1`, `Chapter 1` 계열입니다.
+- 지원 패턴은 `1화`, `제 1화`, `1회`, `1편`, `1장`, `EP 1`, `Episode 1`, `Chapter 1` 계열입니다. Mac 브라우저가 보내는 자모 분리형(NFD) 파일명도 합쳐서 비교합니다.
 - 각 파일은 하나의 회차로 저장되며, 한 파일에서 heading이 둘 이상 감지되면 거절합니다.
-- 최종 업로드에는 감지 결과 전체와 대응하는 `episodeConfirmations`가 반드시 필요합니다.
+- 특정 파일 때문에 감지나 최종 업로드가 실패하면 오류 응답의 `error.context.sourceFileIndex`에 0부터 시작하는 파일 순번을 담습니다. 합계 분량 초과처럼 한 파일의 문제가 아니면 넣지 않습니다.
+- 감지 요청의 `allowManualEpisodeNumber`(기본 `false`)가 `true`이면 번호를 찾지 못한 파일(`REQUIRES_INPUT`)과 파일명·본문의 번호가 다른 파일(`NUMBER_CONFLICT`)도 `episodeNo: null`로 돌려줍니다. 서버는 번호를 추측하거나 둘 중 하나를 고르지 않습니다. `0화`처럼 번호 자체가 잘못된 파일은 이 경우에도 `UPLOAD_EPISODE_NO_INVALID`로 거절합니다. 다른 업로드 방식에 `true`를 보내면 `UPLOAD_MANUAL_EPISODE_NUMBER_NOT_ALLOWED`로 거절합니다.
+- 최종 업로드에는 감지 결과 전체와 대응하는 `episodeConfirmations`가 반드시 필요합니다. 파일별 확정 번호가 필수이므로 최종 업로드의 파싱은 번호 미인식과 충돌을 허용합니다. 형식·분량·파일당 회차 수 검증은 실제 파일로 다시 수행합니다.
 
 ### `MULTI_EPISODE_SINGLE_FILE`
 

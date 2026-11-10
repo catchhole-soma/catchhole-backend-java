@@ -52,6 +52,18 @@ public class AppException extends RuntimeException {
         this.errorContext = Map.copyOf(errorContext);
     }
 
+    private AppException(AppException original, Map<String, Object> errorContext) {
+        super(original.getMessage(), original.getCause());
+        this.resultCode = original.resultCode;
+        this.retryAfterSeconds = original.retryAfterSeconds;
+        this.errorContext = Map.copyOf(errorContext);
+    }
+
+    /** 메시지와 원인은 그대로 두고 클라이언트가 분기할 구조화 정보만 붙인다. */
+    public AppException withErrorContext(Map<String, Object> errorContext) {
+        return new AppException(this, errorContext);
+    }
+
     private static String resolveMessage(ResultCode resultCode, String message) {
         return message != null ? message + " " + resultCode.getMessage() : resultCode.getMessage();
     }

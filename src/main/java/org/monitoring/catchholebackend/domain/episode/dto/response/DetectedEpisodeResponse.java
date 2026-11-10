@@ -1,6 +1,7 @@
 package org.monitoring.catchholebackend.domain.episode.dto.response;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import org.monitoring.catchholebackend.domain.episode.type.EpisodeNumberDetectionStatus;
 
 @Schema(description = "영구 저장 전 감지된 회차")
 public record DetectedEpisodeResponse(
@@ -18,8 +19,16 @@ public record DetectedEpisodeResponse(
         )
         int sourceFileIndex,
 
-        @Schema(description = "감지한 회차 번호", example = "159", requiredMode = Schema.RequiredMode.REQUIRED)
-        int episodeNo,
+        @Schema(
+                description = "감지한 회차 번호. 직접 입력을 요청한 여러 파일 감지에서 번호를 확정하지 못한 파일은 null",
+                example = "159",
+                nullable = true,
+                requiredMode = Schema.RequiredMode.REQUIRED
+        )
+        Integer episodeNo,
+
+        @Schema(description = "회차 번호 감지 결과", example = "DETECTED", requiredMode = Schema.RequiredMode.REQUIRED)
+        EpisodeNumberDetectionStatus numberDetectionStatus,
 
         @Schema(
                 description = "원문 제목 행에서 감지한 제목",

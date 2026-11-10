@@ -57,7 +57,7 @@ import org.springframework.transaction.annotation.Propagation;
 class UploadFailureLoggingIntegrationTest {
 
     private static final String PRIVATE_TITLE = "로그에 남기지 않을 원고 제목";
-    private static final String PRIVATE_FILENAME = "비공개파일\r\nforged-log.txt";
+    private static final String CRLF_FILENAME = "회차파일\r\nforged-log.txt";
     private static final String PRIVATE_CONTENT = "외부에 기록하지 않을 한글 본문";
     private final Logger logger = (Logger) LoggerFactory.getLogger(
             "org.monitoring.catchholebackend.global.config.logging.UploadFailureLogger");
@@ -96,12 +96,12 @@ class UploadFailureLoggingIntegrationTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"", "/detect"})
-    @DisplayName("실제 인코딩 실패를 요청 ID·작품·파일 형식·크기와 연결하되 비밀값을 기록하지 않는다")
+    @DisplayName("실제 인코딩 실패를 요청 ID·작품·파일명·크기와 연결하되 비밀값을 기록하지 않고 줄을 위조하지 못한다")
     void correlatesEncodingFailureWithoutPrivateInput(String suffix) throws Exception {
         byte[] bytes = PRIVATE_CONTENT.getBytes(Charset.forName("MS949"));
         MvcResult result = mockMvc.perform(multipart(path(suffix))
                         .file(metadata(singleMetadata()))
-                        .file(new MockMultipartFile("episodeFiles", PRIVATE_FILENAME, "text/plain", bytes))
+                        .file(new MockMultipartFile("episodeFiles", CRLF_FILENAME, "text/plain", bytes))
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                         .header("Cookie", "private-cookie")
                         .queryParam("privateQuery", "private-query-value"))
@@ -114,8 +114,10 @@ class UploadFailureLoggingIntegrationTest {
         assertThat(event.getFormattedMessage()).contains("workId=" + work.getId(), "status=400",
                 "operation=" + (suffix.isEmpty() ? "UPLOAD" : "DETECT"),
                 "errorCode=UPLOAD_DOCUMENT_INVALID", "uploadType=SINGLE_EPISODE", "fileCount=1",
+                "name=회차파일??forged-log.txt", "failureStage=FILE_READ",
+                "failedFile=FileInfo[index=0, name=회차파일??forged-log.txt",
                 "format=TXT", "bytes=" + bytes.length, "causeType=MalformedInputException")
-                .doesNotContain(PRIVATE_TITLE, PRIVATE_FILENAME, "forged-log", PRIVATE_CONTENT,
+                .doesNotContain(PRIVATE_TITLE, CRLF_FILENAME, "\n", "\r", PRIVATE_CONTENT,
                         token, "private-cookie", "private-query-value");
         assertThat(event.getThrowableProxy()).isNull();
     }
@@ -142,7 +144,7 @@ class UploadFailureLoggingIntegrationTest {
     @DisplayName("컨트롤러 진입 전 DTO 검증 실패도 원고 없이 기록한다")
     void logsValidationBeforeController(String json) throws Exception {
         MvcResult result = mockMvc.perform(multipart(path("/detect"))
-                        .file(metadata(json)).file(textFile(PRIVATE_FILENAME, PRIVATE_CONTENT))
+                        .file(metadata(json)).file(textFile(CRLF_FILENAME, PRIVATE_CONTENT))
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("REQUEST_VALIDATION_FAILED"))
@@ -151,7 +153,7 @@ class UploadFailureLoggingIntegrationTest {
         assertThat(onlyFailure(result).getFormattedMessage())
                 .contains("workId=" + work.getId(), "errorCode=REQUEST_VALIDATION_FAILED", "uploadType=UNKNOWN")
                 .contains("invalidFields=[" + (json.contains("null") ? "uploadType" : "singleEpisodeNo") + "]")
-                .doesNotContain(PRIVATE_FILENAME, PRIVATE_CONTENT);
+                .doesNotContain(CRLF_FILENAME, PRIVATE_CONTENT);
     }
 
     @Test
@@ -165,14 +167,14 @@ class UploadFailureLoggingIntegrationTest {
 
         MvcResult malformed = mockMvc.perform(multipart(path("/detect"))
                         .file(metadata("{\"uploadType\":\"비밀 잘못된 값\"}"))
-                        .file(textFile(PRIVATE_FILENAME, PRIVATE_CONTENT))
+                        .file(textFile(CRLF_FILENAME, PRIVATE_CONTENT))
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("REQUEST_INVALID_ARGUMENT"))
                 .andReturn();
         assertThat(onlyFailure(malformed).getFormattedMessage())
                 .contains("uploadType=UNKNOWN", "fileCount=-1")
-                .doesNotContain("비밀 잘못된 값", PRIVATE_FILENAME, PRIVATE_CONTENT, "format=TXT");
+                .doesNotContain("비밀 잘못된 값", CRLF_FILENAME, PRIVATE_CONTENT, "format=TXT");
         logs.list.clear();
 
         MvcResult missing = mockMvc.perform(multipart(path(""))
@@ -196,8 +198,9 @@ class UploadFailureLoggingIntegrationTest {
         MvcResult result = mockMvc.perform(request).andExpect(status().isBadRequest()).andReturn();
 
         String message = onlyFailure(result).getFormattedMessage();
-        assertThat(message).contains("fileCount=30", "uploadType=MULTI_EPISODE_MULTI_FILE").doesNotContain("비밀");
-        assertThat(message.length()).isLessThan(2000);
+        assertThat(message).contains("fileCount=30", "uploadType=MULTI_EPISODE_MULTI_FILE", "비밀".repeat(60))
+                .doesNotContain("비밀".repeat(61));
+        assertThat(message.length()).isLessThan(3000);
     }
 
     @ParameterizedTest
@@ -210,7 +213,7 @@ class UploadFailureLoggingIntegrationTest {
                 : path("/detect").replace(workId, "%" + Integer.toHexString(workId.charAt(0)) + workId.substring(1));
         MvcResult result = mockMvc.perform(multipart(URI.create(encodedPath))
                         .file(metadata(singleMetadata()))
-                        .file(new MockMultipartFile("episodeFiles", PRIVATE_FILENAME, "text/plain",
+                        .file(new MockMultipartFile("episodeFiles", CRLF_FILENAME, "text/plain",
                                 PRIVATE_CONTENT.getBytes(Charset.forName("MS949"))))
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isBadRequest())
@@ -245,6 +248,142 @@ class UploadFailureLoggingIntegrationTest {
     }
 
     @Test
+    @DisplayName("세 파일 중 가운데 파일에서 실패하면 그 파일의 순번·이름·단계를 남긴다")
+    void namesFailedFileAndStage() throws Exception {
+        MvcResult result = mockMvc.perform(multipart(path("/detect"))
+                        .file(metadata("{\"uploadType\":\"MULTI_EPISODE_MULTI_FILE\"}"))
+                        .file(textFile("1화.txt", "첫 본문"))
+                        .file(textFile("원고.txt", "가운데 본문"))
+                        .file(textFile("3화.txt", "셋째 본문"))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isBadRequest())
+                .andReturn();
+
+        assertThat(onlyFailure(result).getFormattedMessage())
+                .contains("errorCode=UPLOAD_EPISODE_NO_DETECTION_FAILED", "failureStage=EPISODE_NO_DETECTION",
+                        "failedFile=FileInfo[index=1, name=원고.txt, format=TXT")
+                .doesNotContain("가운데 본문");
+    }
+
+    @Test
+    @DisplayName("여러 파일의 읽기 실패에 파일 순번을 붙여도 원인 진단은 그대로 남긴다")
+    void keepsCauseWhenReportingFailedFile() throws Exception {
+        MvcResult result = mockMvc.perform(multipart(path("/detect"))
+                        .file(metadata("{\"uploadType\":\"MULTI_EPISODE_MULTI_FILE\"}"))
+                        .file(textFile("1화.txt", "첫 본문"))
+                        .file(new MockMultipartFile("episodeFiles", "2화.txt", "text/plain", PRIVATE_CONTENT.getBytes(Charset.forName("MS949"))))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.context.sourceFileIndex").value(1))
+                .andReturn();
+
+        assertThat(onlyFailure(result).getFormattedMessage())
+                .contains("failureStage=FILE_READ", "causeType=MalformedInputException", "failedFile=FileInfo[index=1, name=2화.txt");
+    }
+
+    @Test
+    @DisplayName("실패한 파일은 목록 상한 8개를 넘어도 기록한다")
+    void namesFailedFileBeyondListLimit() throws Exception {
+        var request = multipart(path("/detect"))
+                .file(metadata("{\"uploadType\":\"MULTI_EPISODE_MULTI_FILE\"}"))
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+        for (int i = 1; i <= 9; i++) {
+            request.file(textFile(i + "화.txt", "본문 " + i));
+        }
+        request.file(textFile("마지막원고.txt", "마지막 본문"));
+
+        String message = onlyFailure(mockMvc.perform(request).andExpect(status().isBadRequest()).andReturn())
+                .getFormattedMessage();
+
+        assertThat(message).contains("omittedFiles=2", "failedFile=FileInfo[index=9, name=마지막원고.txt");
+    }
+
+    @Test
+    @DisplayName("분량 초과·제목 구조 실패는 서로 다른 단계로 기록한다")
+    void separatesParsingStages() throws Exception {
+        MvcResult tooLong = mockMvc.perform(multipart(path("/detect"))
+                        .file(metadata("{\"uploadType\":\"MULTI_EPISODE_MULTI_FILE\"}"))
+                        .file(textFile("1화.txt", "가".repeat(150_000)))
+                        .file(textFile("2화.txt", "나".repeat(100_001)))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isBadRequest())
+                .andReturn();
+        assertThat(onlyFailure(tooLong).getFormattedMessage())
+                .contains("failureStage=CHARACTER_LIMIT", "failedFile=FileInfo[index=1, name=2화.txt");
+        logs.list.clear();
+
+        MvcResult twoHeadings = mockMvc.perform(multipart(path("/detect"))
+                        .file(metadata("{\"uploadType\":\"MULTI_EPISODE_MULTI_FILE\"}"))
+                        .file(textFile("1화.txt", "첫 본문"))
+                        .file(textFile("2화.txt", "제2화 시작\n본문\n제3화 다음\n본문"))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isBadRequest())
+                .andReturn();
+        assertThat(onlyFailure(twoHeadings).getFormattedMessage())
+                .contains("failureStage=EPISODE_STRUCTURE", "failedFile=FileInfo[index=1, name=2화.txt");
+    }
+
+    @Test
+    @DisplayName("확정값과 회차 번호 중복 실패는 특정 파일 없이 단계만 기록한다")
+    void separatesRequestLevelStages() throws Exception {
+        MvcResult wrongOrder = mockMvc.perform(multipart(path(""))
+                        .file(metadata(confirmations("{\"detectionOrder\":0,\"episodeNo\":1}")))
+                        .file(textFile("원고A.txt", "첫 본문"))
+                        .file(textFile("원고B.txt", "둘째 본문"))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isBadRequest())
+                .andReturn();
+        assertThat(onlyFailure(wrongOrder).getFormattedMessage())
+                .contains("failureStage=CONFIRMATION", "failedFile=NONE");
+        logs.list.clear();
+
+        MvcResult duplicate = mockMvc.perform(multipart(path(""))
+                        .file(metadata(confirmations(
+                                "{\"detectionOrder\":0,\"episodeNo\":4},{\"detectionOrder\":1,\"episodeNo\":4}")))
+                        .file(textFile("원고A.txt", "첫 본문"))
+                        .file(textFile("원고B.txt", "둘째 본문"))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isConflict())
+                .andReturn();
+        assertThat(onlyFailure(duplicate).getFormattedMessage())
+                .contains("failureStage=NUMBER_AVAILABILITY", "failedFile=NONE");
+    }
+
+    @Test
+    @DisplayName("일부 번호를 못 찾은 감지는 요청이 성공해도 해당 파일과 사유를 INFO로 남긴다")
+    void logsUnresolvedFilesOnSuccessfulDetection() throws Exception {
+        mockMvc.perform(multipart(path("/detect"))
+                        .file(metadata("{\"uploadType\":\"MULTI_EPISODE_MULTI_FILE\",\"allowManualEpisodeNumber\":true}"))
+                        .file(textFile("1화.txt", "첫 본문"))
+                        .file(textFile("원고.txt", "가운데 본문"))
+                        .file(textFile("3화.txt", "제5화 비밀 제목\n셋째 본문"))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk());
+
+        assertThat(logs.list).hasSize(1);
+        ILoggingEvent event = logs.list.getFirst();
+        assertThat(event.getLevel()).isEqualTo(Level.INFO);
+        assertThat(event.getFormattedMessage())
+                .contains("workId=" + work.getId(), "fileCount=3", "unresolvedCount=2",
+                        "index=1, name=원고.txt", "reason=REQUIRES_INPUT",
+                        "index=2, name=3화.txt", "reason=NUMBER_CONFLICT")
+                .doesNotContain("1화.txt", "가운데 본문", "비밀 제목");
+    }
+
+    @Test
+    @DisplayName("모든 번호를 찾은 직접 입력 감지에는 로그를 남기지 않는다")
+    void staysQuietWhenEveryNumberIsDetected() throws Exception {
+        mockMvc.perform(multipart(path("/detect"))
+                        .file(metadata("{\"uploadType\":\"MULTI_EPISODE_MULTI_FILE\",\"allowManualEpisodeNumber\":true}"))
+                        .file(textFile("1화.txt", "첫 본문"))
+                        .file(textFile("2화.txt", "둘째 본문"))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk());
+
+        assertThat(logs.list).isEmpty();
+    }
+
+    @Test
     @DisplayName("정상 감지와 업로드 이외 경로에는 실패 진단을 추가하지 않는다")
     void leavesSuccessfulAndUnrelatedRequestsAlone() throws Exception {
         mockMvc.perform(multipart(path("/detect")).file(metadata(singleMetadata()))
@@ -273,6 +412,10 @@ class UploadFailureLoggingIntegrationTest {
 
     private String path(String suffix) {
         return "/api/v1/works/" + work.getId() + "/episodes" + suffix;
+    }
+
+    private String confirmations(String items) {
+        return "{\"uploadType\":\"MULTI_EPISODE_MULTI_FILE\",\"episodeConfirmations\":[" + items + "]}";
     }
 
     private String singleMetadata() {

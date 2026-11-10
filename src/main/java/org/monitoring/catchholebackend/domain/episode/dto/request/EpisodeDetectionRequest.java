@@ -18,6 +18,18 @@ public record EpisodeDetectionRequest(
 
         @Schema(description = "단일 회차 감지 시 사용자가 입력한 회차 제목", example = "운명의 실타래", nullable = true)
         @Size(max = 100, message = "회차 제목은 100자 이하로 입력해주세요.")
-        String singleEpisodeTitle
+        String singleEpisodeTitle,
+
+        @Schema(
+                description = "여러 파일 업로드에서 번호를 확정하지 못한 파일도 직접 입력 대상으로 반환할지 여부",
+                example = "true",
+                defaultValue = "false",
+                nullable = true
+        )
+        Boolean allowManualEpisodeNumber
 ) {
+
+    public boolean allowsManualEpisodeNumber() {
+        return Boolean.TRUE.equals(allowManualEpisodeNumber);
+    }
 }
