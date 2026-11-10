@@ -133,6 +133,7 @@ erDiagram
         bigint granted_tokens
         bigint used_tokens
         bigint reserved_tokens
+        decimal percent_basis_tokens
         datetime created_at
         datetime updated_at
     }
