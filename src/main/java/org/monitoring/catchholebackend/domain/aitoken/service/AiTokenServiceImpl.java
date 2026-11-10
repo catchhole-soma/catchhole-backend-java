@@ -80,7 +80,6 @@ public class AiTokenServiceImpl implements AiTokenService {
     public AiTokenUsageResponse getUsage(Long memberId) {
         return aiTokenMapper.toResponse(
                 getOrCreateAccount(memberId),
-                properties.defaultGrant(),
                 properties.contactEmail()
         );
     }

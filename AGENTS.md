@@ -596,7 +596,7 @@ domain/<domain>
 - V83은 기존 계정·지급량을 보존하며 배포 전 일반 원장은 모델명과 무관하게 LEGACY_RAW_V1(1배)을 유지한다. 신규 정책을 NULL/과거 예약에 소급하지 않는다. 구 Java writer를 중지한 뒤 새 Java를 기동하며, V83 적용 후 정수 매핑 버전으로 롤백하지 않는다. 상세 계약과 배포 경계는 `docs/ai-token-usage.md`를 따른다.
 
 - `AI_TOKEN_DEFAULT_GRANT`는 신규 토큰 계정의 최초 지급량과 운영자가 추가 사용량 요청을 승인할 때의 지급량에 공통 사용한다. 승인 API에서 별도 지급량을 받거나 현재 누적 지급량으로 다음 지급량을 계산하지 않는다.
-- `AiTokenUsageResponse.remainingPercent`는 회계용 누적 지급량이 아니라 현재 `AI_TOKEN_DEFAULT_GRANT`를 100% 기준으로 계산하고 최대 100%로 제한한다. 누적 `grantedTokens`·`usedTokens`·`reservedTokens`와 실제 `remainingTokens`는 그대로 유지한다.
+- `AiTokenUsageResponse.remainingPercent`는 `ai_token_accounts.percent_basis_tokens`를 100% 기준으로 계산하고 최대 100%로 제한한다. 이 기준은 가입 지급과 추가 지급 때 그 순간의 잔량으로 새로 잡는다(#418). 1회 지급량 기준은 추가 지급 뒤 많이 써도 100%에 머물렀고, 누적 지급량 기준은 방금 지급받아도 100%가 되지 않았기 때문이다. 누적 `grantedTokens`·`usedTokens`·`reservedTokens`와 실제 `remainingTokens`는 그대로 유지한다.
 - 추가 사용량 피드백은 앞뒤 공백을 제거한 Unicode 35~1,000자로 검증하고 한 회원에게 `PENDING` 요청은 하나만 허용한다. 원고 원문이나 AI 전체 출력은 자동 첨부하지 않는다.
 - 일반 피드백은 앞뒤 공백을 제거한 Unicode code point 10~1,000자로 검증하고 `feedbacks`에 횟수 제한 없이 매번 새 행으로 저장한다. 일반 피드백 보상용 추가 사용량 요청은 기존 승인·지급 원장을 재사용하되 `GENERAL_FEEDBACK_REWARD` 출처로 회원당 전체 상태를 통틀어 한 번만 생성한다. 이후 의견은 요청 상태와 무관하게 저장하고 새 보상 요청을 만들지 않는다.
 - 의견 자동 안내는 활성 작품의 보관되지 않은 실제 회차가 합계 3개 이상이고 기존 의견이 없는 회원에게 계정당 한 번만 제공한다. 조회는 읽기 전용이며 POST 선점과 의견 작성은 같은 회원 row 잠금으로 직렬화한다. `members.feedback_prompt_shown_at`을 의견 작성 여부와 독립적으로 보존해 닫은 사용자와 여러 기기의 중복 노출을 막는다.

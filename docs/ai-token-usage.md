@@ -8,7 +8,7 @@ AI 요청별 실제 토큰 사용량을 관측하면서, 결제 기능이 없는
 - 추가 사용량 요청이 승인되면 승인 시점의 `AI_TOKEN_DEFAULT_GRANT`만큼 다시 지급받습니다. 승인 요청에서 지급량을 받지 않습니다.
 - 지급량과 사용량은 누적되며 월 단위로 자동 초기화하지 않습니다.
 - 잔여량은 `granted - used - reserved`입니다.
-- 사용자용 `remainingPercent`는 누적 지급량이 아니라 현재 `AI_TOKEN_DEFAULT_GRANT`를 100% 기준으로 계산하고 최대 100%로 제한합니다. 따라서 한도를 모두 쓴 뒤 기본 지급량과 같은 양을 추가 지급받으면 누적 지급·사용 원장은 유지하면서 화면은 100%로 복구됩니다.
+- 사용자용 `remainingPercent`는 지급받은 순간의 잔량(`percent_basis_tokens`)을 100% 기준으로 계산하고 최대 100%로 제한합니다. 예를 들어 50만이 남은 계정이 1000만을 추가로 받으면 1050만이 100%이고, 200만을 더 쓰면 80.95%입니다. 누적 지급·사용 원장은 그대로 유지합니다.
 - 분석 생성·재시도와 비교 시작·재개 시점에는 Worker가 사용할 실제 모델이 아직 정해지지 않습니다. 따라서 raw 최소 예약량(분석 기본 `6256`, 비교 기본 `128256`)을 지원 모델의 최저 차감 비율인 1/20로 환산한 하한만 확인합니다. 각각 `312.8`, `6412.8`보다 잔액이 적으면 `AI_TOKEN_QUOTA_EXHAUSTED` 409로 거절합니다. 이 빠른 검사를 통과해도 Sol 호출이나 긴 입력을 예약할 잔액이 부족할 수 있으며, 실제 모델과 예상량이 확정된 호출 직전 예약이 최종 판단입니다.
 - 실제로 실행되는 각 LLM·임베딩 호출 직전에는 예상 최대량을 예약하므로 동시 분석이 한도를 중복 소비하지 못합니다. 임베딩 feature flag가 꺼진 경우에는 임베딩 예약도 만들지 않습니다.
 - provider가 사용량을 반환하면 실제 input/output을 정산하고 사용하지 않은 예약량은 즉시 반환합니다.
@@ -59,7 +59,7 @@ GROUP BY member_id;
 
 | 테이블 | 책임 |
 | --- | --- |
-| `ai_token_accounts` | 회원별 누적 지급·사용·예약량의 현재 상태 |
+| `ai_token_accounts` | 회원별 누적 지급·사용·예약량의 현재 상태와 남은 비율의 100% 기준 |
 | `ai_token_grants` | `DEFAULT`, `MANUAL` 지급 이력. 추가 사용량 승인 지급은 원본 요청 ID를 unique로 연결 |
 | `ai_token_usages` | 요청 UUID별 예약·정산·해제와 모델 사용량 |
 | `ai_token_extension_requests` | `QUOTA_EXHAUSTION`, `GENERAL_FEEDBACK_REWARD` 출처와 `PENDING`, `APPROVED`, `REJECTED` 운영 처리 이력 |
@@ -240,7 +240,7 @@ curl -sS -X POST \
   'http://localhost:8080/api/v1/admin/ai-token-extension-requests/{requestId}/reject'
 ```
 
-승인은 요청 ID를 멱등 기준으로 사용합니다. 첫 승인만 승인 시점의 `AI_TOKEN_DEFAULT_GRANT`를 `granted_tokens`에 더하고 요청 ID가 연결된 `MANUAL` 지급 원장을 같은 transaction에 저장합니다. `used_tokens`와 `reserved_tokens`는 초기화하지 않으며, 사용자용 잔여 비율만 현재 1회 제공량 기준으로 다시 계산합니다. 같은 승인 API를 반복 호출하면 기존 승인 결과만 반환합니다. 거절은 지급 원장을 만들지 않으며 승인된 요청을 거절하거나 거절된 요청을 승인할 수 없습니다.
+승인은 요청 ID를 멱등 기준으로 사용합니다. 첫 승인만 승인 시점의 `AI_TOKEN_DEFAULT_GRANT`를 `granted_tokens`에 더하고 요청 ID가 연결된 `MANUAL` 지급 원장을 같은 transaction에 저장합니다. `used_tokens`와 `reserved_tokens`는 초기화하지 않으며, 사용자용 잔여 비율의 기준만 승인 직후의 잔량으로 새로 잡습니다. 같은 승인 API를 반복 호출하면 기존 승인 결과만 반환합니다. 거절은 지급 원장을 만들지 않으며 승인된 요청을 거절하거나 거절된 요청을 승인할 수 없습니다.
 
 운영자가 지급량을 임의로 입력하는 API와 DB 직접 지급 절차는 제공하지 않습니다. 정책 지급량을 바꾸려면 `AI_TOKEN_DEFAULT_GRANT`를 변경하고 Backend 컨테이너를 재생성한 뒤, 이후 승인 응답의 `grantedAmount`를 확인합니다.
 
