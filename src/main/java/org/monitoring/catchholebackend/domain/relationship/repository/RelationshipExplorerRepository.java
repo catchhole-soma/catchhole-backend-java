@@ -27,7 +27,7 @@ public class RelationshipExplorerRepository {
     public record Analysis(UUID id, EpisodeRef episode, String status, boolean valid,
             int rejected, boolean failures, boolean openHold) {}
     public record Stats(long edgeCount, long peopleCount, boolean integrity) {}
-    public record Person(Node node, long neighborCount) {}
+    public record Person(Node node, long neighborCount, long edgeCount) {}
     public record PeoplePage(List<Person> content, long total) {}
     public record Row(UUID id, UUID source, UUID target, Axis axis, Kind kind, String label,
             String summary, Direction direction, EdgeStatus status, long version) {}
@@ -98,20 +98,25 @@ public class RelationshipExplorerRepository {
     }
 
     public List<Person> people(UUID workId, int cutoff, String query, int offset, int limit) {
-        return jdbc.query(matchingPeople(query) + "SELECT * FROM matched_people ORDER BY neighbor_count DESC, name, id LIMIT :limit OFFSET :offset",
+        return jdbc.query(matchingPeople(query) + "SELECT * FROM matched_people ORDER BY edge_count DESC, name, id LIMIT :limit OFFSET :offset",
                 params(workId, cutoff).addValue("query", query.toLowerCase(Locale.ROOT))
                     .addValue("offset", offset).addValue("limit", limit), (r, i) -> person(r));
     }
 
     public PeoplePage peoplePage(UUID workId, int cutoff, String query, int offset, int limit) {
+        return peoplePage(workId, cutoff, query, null, offset, limit);
+    }
+
+    public PeoplePage peoplePage(UUID workId, int cutoff, String query, UUID focus, int offset, int limit) {
         // Compute the matching set once; the LEFT JOIN preserves totals even beyond the last page.
-        return jdbc.query(matchingPeople(query) + """
-                SELECT page.*, totals.total FROM (SELECT count(*) AS total FROM matched_people) totals
-                LEFT JOIN LATERAL (SELECT * FROM matched_people ORDER BY neighbor_count DESC, name, id
+        String scoped = focus == null ? ", scoped_people AS (SELECT * FROM matched_people) " : counterpartPeople(query);
+        return jdbc.query((focus == null ? matchingPeople(query) : "") + scoped + """
+                SELECT page.*, totals.total FROM (SELECT count(*) AS total FROM scoped_people) totals
+                LEFT JOIN LATERAL (SELECT * FROM scoped_people ORDER BY edge_count DESC, name, id
                     LIMIT :limit OFFSET :offset) page ON true
-                ORDER BY page.neighbor_count DESC, page.name, page.id
+                ORDER BY page.edge_count DESC, page.name, page.id
                 """, params(workId, cutoff).addValue("query", query.toLowerCase(Locale.ROOT))
-                    .addValue("offset", offset).addValue("limit", limit), r -> {
+                    .addValue("focus", focus).addValue("offset", offset).addValue("limit", limit), r -> {
                         List<Person> content = new ArrayList<>();
                         long total = 0;
                         while (r.next()) {
@@ -120,6 +125,25 @@ public class RelationshipExplorerRepository {
                         }
                         return new PeoplePage(content, total);
                     });
+    }
+
+    private String counterpartPeople(String query) {
+        return matchingPeople(query) + """
+                , pair_counts AS (
+                    SELECT CASE WHEN source_id = :focus THEN target_id ELSE source_id END AS id,
+                           count(*) AS edge_count
+                    FROM visible WHERE source_id = :focus OR target_id = :focus GROUP BY 1
+                ), scoped_people AS (
+                    SELECT p.id, p.character_id, p.registered, p.name, p.neighbor_count, c.edge_count
+                    FROM matched_people p JOIN pair_counts c ON c.id = p.id
+                )
+                """;
+    }
+
+    public List<Person> selectedCounterparts(UUID workId, int cutoff, UUID focus, List<UUID> ids) {
+        if (ids.isEmpty()) return List.of();
+        return jdbc.query(counterpartPeople("") + "SELECT * FROM scoped_people WHERE id IN (:ids) ORDER BY edge_count DESC, name, id",
+                params(workId, cutoff).addValue("focus", focus).addValue("ids", ids), (r, i) -> person(r));
     }
 
     public List<Person> nodes(UUID workId, int cutoff, Collection<UUID> ids) {
@@ -134,10 +158,15 @@ public class RelationshipExplorerRepository {
     }
 
     public List<Row> edges(UUID workId, int cutoff, UUID focus, UUID edge, int offset, int limit) {
+        return edges(workId, cutoff, focus, edge, List.of(), offset, limit);
+    }
+
+    public List<Row> edges(UUID workId, int cutoff, UUID focus, UUID edge, List<UUID> counterparts, int offset, int limit) {
         String filter = edge != null ? "WHERE id = :edge" : focus != null ? "WHERE source_id = :focus OR target_id = :focus" : "";
+        if (!counterparts.isEmpty()) filter = "WHERE (source_id = :focus AND target_id IN (:counterparts)) OR (target_id = :focus AND source_id IN (:counterparts))";
         return jdbc.query(base + "SELECT * FROM visible " + filter + " ORDER BY episode_no DESC, id LIMIT :limit OFFSET :offset",
                 params(workId, cutoff).addValue("focus", focus).addValue("edge", edge)
-                    .addValue("limit", limit).addValue("offset", offset), (r, i) -> new Row(uuid(r, "id"),
+                    .addValue("counterparts", counterparts).addValue("limit", limit).addValue("offset", offset), (r, i) -> new Row(uuid(r, "id"),
                         uuid(r, "source_id"), uuid(r, "target_id"), Axis.valueOf(r.getString("axis")),
                         Kind.valueOf(r.getString("kind")), r.getString("label"), r.getString("summary"),
                         Direction.valueOf(r.getString("direction")), EdgeStatus.valueOf(r.getString("status")), r.getLong("version")));
@@ -192,7 +221,8 @@ public class RelationshipExplorerRepository {
     }
 
     private static Person person(ResultSet r) throws SQLException {
-        return new Person(new Node(uuid(r, "id"), r.getString("name"), null, r.getBoolean("registered")), r.getLong("neighbor_count"));
+        return new Person(new Node(uuid(r, "id"), r.getString("name"), null, r.getBoolean("registered")),
+                r.getLong("neighbor_count"), r.getLong("edge_count"));
     }
     private static UUID uuid(ResultSet r, String name) throws SQLException { return r.getObject(name, UUID.class); }
 }

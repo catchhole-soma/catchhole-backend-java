@@ -18,11 +18,14 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 @DirtiesContext
+@org.springframework.boot.test.context.SpringBootTest(webEnvironment = org.springframework.boot.test.context.SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "spring.config.import=")
 @Testcontainers(disabledWithoutDocker = true)
 class EpisodeRelationshipGraphPostgresIntegrationTest
         extends EpisodeRelationshipGraphIntegrationTest {
     @Autowired RelationshipExplorerService explorer;
     @Autowired JdbcTemplate jdbc;
+    @Autowired org.monitoring.catchholebackend.domain.auth.token.JwtTokenProvider jwt;
+    @org.springframework.boot.test.web.server.LocalServerPort int httpPort;
     @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
     org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate explorerJdbc;
     private boolean largeFixture;
@@ -41,6 +44,9 @@ class EpisodeRelationshipGraphPostgresIntegrationTest
             return;
         }
         compare(null, old);
+        var selected = explorer.exploreSelectedRelationships(owner(), work(), null, null, List.of(), 0).graph();
+        assertThat(selected.selectedEpisode()).isEqualTo(old.selectedEpisode());
+        assertThat(selected.incompleteEpisodeNos()).isEqualTo(old.incompleteEpisodeNos());
         if (largeFixture) return;
         for (EpisodeRef episode : old.availableEpisodes())
             compare(episode.episodeNo(), service.getRelationshipGraph(owner(), work(), episode.episodeNo()));
@@ -49,6 +55,8 @@ class EpisodeRelationshipGraphPostgresIntegrationTest
     private void compare(Integer episode, Graph old) {
         var exploration = explorer.exploreRelationships(owner(), work(), episode, null, 0);
         var actual = exploration.graph();
+        var selection = explorer.exploreSelectedRelationships(owner(), work(), episode, null, List.of(), 0);
+        assertThat(selection.graph()).isEqualTo(actual);
         assertThat(actual.selectedEpisode()).isEqualTo(old.selectedEpisode());
         assertThat(actual.availableEpisodes()).isEqualTo(old.availableEpisodes());
         assertThat(actual.totalEdgeCount()).isEqualTo(old.totalEdgeCount());
@@ -141,6 +149,8 @@ class EpisodeRelationshipGraphPostgresIntegrationTest
         statistics.setStatisticsEnabled(true);
         var json = new com.fasterxml.jackson.databind.ObjectMapper();
         List<String> measurements = new ArrayList<>();
+        List<String> selectionMeasurements = new ArrayList<>();
+        var selectedIds = explorer.searchRelationshipCounterparts(owner(),work(),null,center,"",0,24).content().subList(0,20).stream().map(p -> p.node().id()).toList();
         for (int i = 0; i < 7; i++) {
             statistics.clear();
             long before = System.nanoTime();
@@ -165,16 +175,39 @@ class EpisodeRelationshipGraphPostgresIntegrationTest
             var search = explorer.searchRelationshipPeople(owner(), work(), null, "인물2999", 0, 20);
             double searchMs = (System.nanoTime() - before) / 1_000_000.0;
             assertThat(search.content()).hasSize(1);
+            before = System.nanoTime();
+            var directory = explorer.searchRelationshipPeople(owner(),work(),null,"",0,24);
+            double directoryMs = (System.nanoTime() - before) / 1_000_000.0;
+            assertThat(directory.content()).hasSize(24);
+            before = System.nanoTime();
+            var chooser = explorer.exploreSelectedRelationships(owner(),work(),null,center,List.of(),0);
+            double chooserMs = (System.nanoTime() - before) / 1_000_000.0;
+            assertThat(chooser.graph().edges()).isEmpty();
+            org.mockito.Mockito.clearInvocations(explorerJdbc); statistics.clear();
+            explorer.exploreSelectedRelationships(owner(),work(),null,center,selectedIds.subList(0,1),0);
+            long singleQueryBound = statistics.getPrepareStatementCount() + nativeQueryUpperBound();
+            org.mockito.Mockito.clearInvocations(explorerJdbc); statistics.clear();
+            before = System.nanoTime();
+            var selection = explorer.exploreSelectedRelationships(owner(),work(),null,center,selectedIds,0);
+            double selectionMs = (System.nanoTime() - before) / 1_000_000.0;
+            long selectionQueryBound = statistics.getPrepareStatementCount() + nativeQueryUpperBound();
+            assertThat(selectionQueryBound).isEqualTo(singleQueryBound).isLessThanOrEqualTo(12);
+            assertThat(selection.graph().edges()).hasSize(20);
+            if (i >= 2) selectionMeasurements.add(String.format(java.util.Locale.ROOT,
+                "directory_ms=%.2f chooser_ms=%.2f selected20_ms=%.2f selected_query_bound=%d directory_bytes=%d chooser_bytes=%d selected_bytes=%d",
+                directoryMs,chooserMs,selectionMs,selectionQueryBound,json.writeValueAsBytes(directory).length,
+                json.writeValueAsBytes(chooser).length,json.writeValueAsBytes(selection).length));
             if (i >= 2) measurements.add(String.format(java.util.Locale.ROOT,
                 "legacy_ms=%.2f overview_ms=%.2f focus_ms=%.2f search_ms=%.2f legacy_queries=%d overview_query_bound=%d focus_query_bound=%d legacy_bytes=%d overview_bytes=%d focus_bytes=%d",
                 legacyMs, overviewMs, focusMs, searchMs, legacyQueries, overviewQueries, focusQueries,
                 json.writeValueAsBytes(legacy).length, json.writeValueAsBytes(overview).length, json.writeValueAsBytes(focused).length));
         }
         statistics.setStatisticsEnabled(false);
+        System.out.println("GH416_SELECTION_198_EPISODES_3129_EDGES\n" + String.join("\n", selectionMeasurements));
         System.out.println("GH412_SYNTHETIC_198_EPISODES_3129_EDGES\n" + String.join("\n", measurements));
         String query = new org.springframework.core.io.ClassPathResource("queries/relationship/explorer.sql").getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
         var params = new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("workId",work()).addValue("cutoff",198);
-        var plan = explorerJdbc.queryForList("EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT) " + query + "SELECT * FROM people ORDER BY neighbor_count DESC,name,id LIMIT 8",params,String.class);
+        var plan = explorerJdbc.queryForList("EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT) " + query + "SELECT * FROM people ORDER BY edge_count DESC,name,id LIMIT 24",params,String.class);
         System.out.println("GH412_QUERY_PLAN\n" + String.join("\n",plan));
     }
 
@@ -250,6 +283,153 @@ class EpisodeRelationshipGraphPostgresIntegrationTest
         assertThat(smaller.selectionRequired()).isFalse();
     }
 
+    private void duplicatePair(UUID template, int copies) {
+        for (int n = 0; n < copies; n++) {
+            UUID edge = UUID.randomUUID();
+            jdbc.update("INSERT INTO relationship_graph_edges(id,work_id,source_node_id,target_node_id,axis,kind,canonical_key,version,suppressed,created_at,updated_at) SELECT ?,work_id,source_node_id,target_node_id,axis,kind,?,0,false,now(),now() FROM relationship_graph_edges WHERE id=?", edge, edge.toString(), template);
+            jdbc.update("INSERT INTO relationship_graph_events(id,work_id,analysis_id,edge_id,episode_id,episode_no,source_name,target_name,label,summary,direction,status,evidence,created_at,updated_at) SELECT ?,work_id,analysis_id,?,episode_id,episode_no,source_name,target_name,label,summary,direction,status,evidence,now(),now() FROM relationship_graph_events WHERE edge_id=?", UUID.randomUUID(), edge, template);
+        }
+    }
+
+    @Test @DisplayName("중심 관계 199개는 바로 표시하고 200개부터 상대를 선택한다")
+    void selectedExplorerBoundaryAndScopedDirectory() {
+        largeFixture = true;
+        UUID center = seedEdges(200);
+        var choice = explorer.exploreSelectedRelationships(owner(), work(), null, center, List.of(), 0);
+        assertThat(choice.counterpartSelectionRequired()).isTrue();
+        assertThat(choice.graph().edges()).isEmpty();
+        assertThat(choice.focusEdgeCount()).isEqualTo(200);
+        var people = explorer.searchRelationshipCounterparts(owner(), work(), null, center, "", 0, 24);
+        assertThat(people.totalElements()).isEqualTo(200);
+        assertThat(people.content()).hasSize(24).allSatisfy(p -> assertThat(p.edgeCount()).isEqualTo(1));
+        assertThat(people.content()).noneSatisfy(p -> assertThat(p.node().id()).isEqualTo(center));
+        var ids = people.content().subList(0, 20).stream().map(p -> p.node().id()).toList();
+        var selected = explorer.exploreSelectedRelationships(owner(), work(), null, center, ids, 0);
+        assertThat(selected.graph().edges()).hasSize(20);
+        assertThat(selected.graph().nodes()).hasSize(21);
+        assertThat(selected.selectedPeople()).hasSize(20);
+        assertThat(selected.graph().edges()).allSatisfy(e -> {
+            assertThat(List.of(e.sourceNodeId(), e.targetNodeId())).contains(center);
+            assertThat(ids).contains(e.sourceNodeId().equals(center) ? e.targetNodeId() : e.sourceNodeId());
+        });
+        jdbc.update("UPDATE relationship_graph_edges SET suppressed=true WHERE id=?", selected.graph().edges().getFirst().id());
+        var small = explorer.exploreSelectedRelationships(owner(), work(), null, center, List.of(), 0);
+        assertThat(small.counterpartSelectionRequired()).isFalse();
+        assertThat(small.graph().edges()).hasSize(199);
+        assertThat(small.hasNext()).isFalse();
+    }
+
+    @Test @DisplayName("전체 인물은 상대 수가 아닌 관계 수순이며 한 상대의 초과 관계도 누락 없이 조회한다")
+    void selectedExplorerSortAndOversizedSinglePair() {
+        largeFixture = true;
+        UUID center = seedEdges(30);
+        var original = explorer.exploreRelationships(owner(), work(), null, center, 0).graph().edges().getFirst();
+        UUID other = original.sourceNodeId().equals(center) ? original.targetNodeId() : original.sourceNodeId();
+        duplicatePair(original.id(), 205);
+        var global = explorer.searchRelationshipPeople(owner(), work(), null, "", 0, 24);
+        assertThat(global.content().get(0).node().id()).isEqualTo(center);
+        assertThat(global.content().get(1).node().id()).isEqualTo(other);
+        assertThat(global.content().get(1).edgeCount()).isEqualTo(206);
+        assertThat(global.content().get(1).neighborCount()).isEqualTo(1);
+        var peers = explorer.searchRelationshipCounterparts(owner(), work(), null, center, "", 0, 24);
+        assertThat(peers.content().getFirst().node().id()).isEqualTo(other);
+        assertThat(peers.content().getFirst().edgeCount()).isEqualTo(206);
+        var first = explorer.exploreSelectedRelationships(owner(), work(), null, center, List.of(other), 0);
+        var second = explorer.exploreSelectedRelationships(owner(), work(), null, center, List.of(other), 1);
+        assertThat(first.graph().edges()).hasSize(200);
+        assertThat(first.hasNext()).isTrue();
+        assertThat(second.graph().edges()).hasSize(6);
+        assertThat(second.hasNext()).isFalse();
+        Set<UUID> unique = new HashSet<>();
+        first.graph().edges().forEach(e -> assertThat(unique.add(e.id())).isTrue());
+        second.graph().edges().forEach(e -> assertThat(unique.add(e.id())).isTrue());
+        assertThat(unique).hasSize(206);
+        var otherPeer = peers.content().get(1).node().id();
+        assertThatThrownBy(() -> explorer.exploreSelectedRelationships(owner(),work(),null,center,List.of(other,otherPeer),0))
+                .isInstanceOfSatisfying(AppException.class, e -> assertThat(e.getResultCode()).isEqualTo(
+                    org.monitoring.catchholebackend.domain.relationship.exception.RelationshipGraphErrorCode.RELATIONSHIP_SELECTION_LIMIT_EXCEEDED));
+    }
+
+    @Test @DisplayName("복수 선택의 200개 경계·20명 제한과 잘못된 중심/상대를 서버가 검증한다")
+    void selectedExplorerRejectsInvalidSelectionsAndPreservesTwoHundred() {
+        largeFixture = true;
+        UUID center = seedEdges(30);
+        var edges = explorer.exploreRelationships(owner(),work(),null,center,0).graph().edges();
+        var first = edges.get(0); var second = edges.get(1);
+        UUID one = first.sourceNodeId().equals(center) ? first.targetNodeId() : first.sourceNodeId();
+        UUID two = second.sourceNodeId().equals(center) ? second.targetNodeId() : second.sourceNodeId();
+        duplicatePair(first.id(), 119); duplicatePair(second.id(), 79);
+        assertThat(explorer.exploreSelectedRelationships(owner(),work(),null,center,List.of(one,two),0).graph().edges()).hasSize(200);
+        duplicatePair(second.id(), 1);
+        var peers = explorer.searchRelationshipCounterparts(owner(),work(),null,center,"",0,24).content();
+        for (List<UUID> invalid : List.of(List.of(one,two), List.of(one,one), List.of(center), List.of(UUID.randomUUID()),
+                peers.subList(0,21).stream().map(p -> p.node().id()).toList()))
+            assertThatThrownBy(() -> explorer.exploreSelectedRelationships(owner(),work(),null,center,invalid,0)).isInstanceOf(AppException.class);
+        assertThatThrownBy(() -> explorer.exploreSelectedRelationships(owner(),work(),null,null,List.of(one),0)).isInstanceOf(AppException.class);
+        assertThatThrownBy(() -> explorer.exploreSelectedRelationships(owner(),work(),null,center,List.of(one),1)).isInstanceOf(AppException.class);
+        assertThatThrownBy(() -> explorer.exploreSelectedRelationships((Long)ReflectionTestUtils.getField(this,"other"),work(),null,center,List.of(one),0)).isInstanceOf(AppException.class);
+        assertThat(explorer.searchRelationshipCounterparts(owner(),work(),null,center,"%",0,24).totalElements()).isZero();
+        assertThat(explorer.searchRelationshipCounterparts(owner(),work(),null,center,"",10,24).totalElements()).isEqualTo(30);
+    }
+
+    @Test @DisplayName("실제 선택 API와 배열 입력·OpenAPI를 프론트 계약 검증으로 내보낸다")
+    @org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(named="GH416_FIXTURE_OUTPUT", matches="/tmp/gh416-selection-contract.json")
+    void exportSelectionHttpContract() throws Exception {
+        largeFixture = true;
+        UUID center = seedEdges(230);
+        var principal = tx.execute(t -> org.monitoring.catchholebackend.domain.auth.security.MemberPrincipal.from(
+                em.find(org.monitoring.catchholebackend.domain.member.entity.Member.class, owner())));
+        var auth = org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication(
+                new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(principal,"",principal.getAuthorities()));
+        var json = new com.fasterxml.jackson.databind.ObjectMapper();
+        var fixture = json.createObjectNode().put("workId", work().toString()).put("center", center.toString());
+        String base = "/api/v1/works/"+work()+"/relationship-graph";
+        var get = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(base+"/people").param("size","24").with(auth);
+        fixture.set("directory", json.readTree(mvc.perform(get).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk()).andReturn().getResponse().getContentAsByteArray()));
+        fixture.set("overview", json.readTree(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(base+"/explore/selection").with(auth)).andReturn().getResponse().getContentAsByteArray()));
+        fixture.set("focus", json.readTree(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(base+"/explore/selection").param("focusNodeId",center.toString()).with(auth)).andReturn().getResponse().getContentAsByteArray()));
+        fixture.set("counterparts", json.readTree(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(base+"/people").param("focusNodeId",center.toString()).param("size","24").with(auth)).andReturn().getResponse().getContentAsByteArray()));
+        String one = fixture.path("counterparts").path("data").path("content").get(0).path("node").path("id").asText();
+        String two = fixture.path("counterparts").path("data").path("content").get(1).path("node").path("id").asText();
+        fixture.set("selected", json.readTree(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(base+"/explore/selection").param("focusNodeId",center.toString()).param("counterpartNodeIds",one,two).with(auth)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk()).andReturn().getResponse().getContentAsByteArray()));
+        assertThat(fixture.path("selected").path("data").path("graph").path("edges").size()).isEqualTo(2);
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(base+"/explore/selection")).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isUnauthorized());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(base+"/explore/selection").param("counterpartNodeIds",one).with(auth)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isBadRequest());
+        java.nio.file.Files.writeString(java.nio.file.Path.of(System.getenv("GH416_FIXTURE_OUTPUT")),json.writeValueAsString(fixture));
+        var openapi = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/v3/api-docs")).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(json.readTree(openapi).path("paths").path(base.replace(work().toString(),"{workId}")+"/explore/selection").path("get").path("operationId").asText()).isEqualTo("exploreSelectedEpisodeRelationships");
+        java.nio.file.Files.writeString(java.nio.file.Path.of("/tmp/gh416-openapi.json"),openapi);
+        runSelectionBrowser(center);
+    }
+
+    private void runSelectionBrowser(UUID center) throws Exception {
+        String frontend = System.getenv("GH416_FRONT_CHECKOUT");
+        if (frontend == null || frontend.isBlank()) return;
+        var directory = java.nio.file.Files.createTempDirectory("gh416-relationship-browser-",
+                java.nio.file.attribute.PosixFilePermissions.asFileAttribute(java.nio.file.attribute.PosixFilePermissions.fromString("rwx------")));
+        var input = directory.resolve("fixture.json");
+        java.nio.file.Files.createFile(input, java.nio.file.attribute.PosixFilePermissions.asFileAttribute(
+                java.nio.file.attribute.PosixFilePermissions.fromString("rw-------")));
+        String token = tx.execute(t -> jwt.generateAccessToken(em.find(org.monitoring.catchholebackend.domain.member.entity.Member.class, owner())));
+        java.nio.file.Files.writeString(input, new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(Map.of(
+                "testOnly", true, "apiBaseUrl", "http://127.0.0.1:" + httpPort, "accessToken", token,
+                "workId", work(), "center", center)));
+        var builder = new ProcessBuilder("node", "scripts/verify-relationship-selection-live.mjs", input.toString())
+                .directory(java.nio.file.Path.of(frontend).toFile()).redirectErrorStream(true)
+                .redirectOutput(directory.resolve("browser.log").toFile());
+        for (String key : List.of("LLM_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "DATABASE_URL",
+                "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN")) builder.environment().remove(key);
+        Process process = null;
+        try {
+            process = builder.start();
+            assertThat(process.waitFor(120, java.util.concurrent.TimeUnit.SECONDS)).as("실제 선택 화면 시간 제한; 비공개 로그: %s", directory).isTrue();
+            assertThat(process.exitValue()).as("실제 선택 화면 실패; 비공개 로그: %s", directory).isZero();
+        } finally {
+            if (process != null) { process.descendants().forEach(ProcessHandle::destroyForcibly); process.destroyForcibly(); }
+            java.nio.file.Files.deleteIfExists(input);
+        }
+    }
+
     @Container
     static final GenericContainer<?> POSTGRES =
             new GenericContainer<>(DockerImageName.parse("pgvector/pgvector:0.8.2-pg16"))
@@ -263,6 +443,7 @@ class EpisodeRelationshipGraphPostgresIntegrationTest
 
     @DynamicPropertySource
     static void database(DynamicPropertyRegistry properties) {
+        properties.add("springdoc.paths-to-exclude", () -> "/test/**,/test");
         properties.add(
                 "spring.datasource.url",
                 () ->

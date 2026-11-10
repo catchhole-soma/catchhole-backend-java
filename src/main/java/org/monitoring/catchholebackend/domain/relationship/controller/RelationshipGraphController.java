@@ -27,6 +27,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
+import java.util.List;
 
 @RestController
 @RequiredArgsConstructor
@@ -44,6 +45,18 @@ public class RelationshipGraphController {
     private final RelationshipGraphService service;
     private final org.monitoring.catchholebackend.domain.relationship.service.RelationshipExplorerService explorer;
 
+    @GetMapping("/explore/selection")
+    @Operation(operationId = "exploreSelectedEpisodeRelationships", summary = "전체 인물 목록과 선택한 상대의 관계 탐색",
+            description = "중심 관계 200개 이상은 상대 선택부터 시작합니다. 최대 20명·200개를 함께 선택하며 한 상대만 200개를 넘는 경우 페이지로 나눕니다.")
+    public CommonResponse<org.monitoring.catchholebackend.domain.relationship.dto.RelationshipExplorerContract.SelectionExploration> selection(
+            @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
+            @PathVariable UUID workId, @RequestParam(required = false) Integer episodeNo,
+            @RequestParam(required = false) UUID focusNodeId,
+            @Parameter(description = "함께 볼 상대의 인물 ID. 중복 없이 최대 20명") @RequestParam(required = false) List<UUID> counterpartNodeIds,
+            @RequestParam(defaultValue = "0") int page) {
+        return CommonResponse.success(explorer.exploreSelectedRelationships(member.memberId(), workId, episodeNo, focusNodeId, counterpartNodeIds, page));
+    }
+
     @GetMapping("/explore")
     @Operation(operationId = "exploreEpisodeRelationships", summary = "관계 규모에 따른 개요 또는 중심 인물 탐색")
     public CommonResponse<org.monitoring.catchholebackend.domain.relationship.dto.RelationshipExplorerContract.Exploration> explore(
@@ -59,8 +72,11 @@ public class RelationshipGraphController {
             @Parameter(hidden = true) @AuthenticationPrincipal MemberPrincipal member,
             @PathVariable UUID workId, @RequestParam(required = false) Integer episodeNo,
             @RequestParam(defaultValue = "") String query, @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        return CommonResponse.success(explorer.searchRelationshipPeople(member.memberId(), workId, episodeNo, query, page, size));
+            @RequestParam(defaultValue = "20") int size,
+            @Parameter(description = "생략하면 전체 인물, 지정하면 해당 인물과 직접 연결된 상대만 관계 수순으로 조회") @RequestParam(required = false) UUID focusNodeId) {
+        return CommonResponse.success(focusNodeId == null
+                ? explorer.searchRelationshipPeople(member.memberId(), workId, episodeNo, query, page, size)
+                : explorer.searchRelationshipCounterparts(member.memberId(), workId, episodeNo, focusNodeId, query, page, size));
     }
 
     @GetMapping("/explore/edges/{edgeId}")

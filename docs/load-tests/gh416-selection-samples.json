@@ -1,0 +1,68 @@
+{
+  "date": "2026-11-10",
+  "fixture": {
+    "episodes": 198,
+    "nodes": 3130,
+    "edges": 3129,
+    "syntheticAnalysisPaddingChars": 40000
+  },
+  "warmup": 2,
+  "measured": 5,
+  "scope": "Local Spring service with PostgreSQL 16 Testcontainers; excludes HTTP, network and LLM; not production load results",
+  "samples": [
+    {
+      "directory_ms": 24.27,
+      "chooser_ms": 37.21,
+      "selected20_ms": 58.98,
+      "selected_query_bound": 9,
+      "directory_bytes": 3724,
+      "chooser_bytes": 16195,
+      "selected_bytes": 28710
+    },
+    {
+      "directory_ms": 27.56,
+      "chooser_ms": 39.47,
+      "selected20_ms": 60.05,
+      "selected_query_bound": 9,
+      "directory_bytes": 3724,
+      "chooser_bytes": 16195,
+      "selected_bytes": 28710
+    },
+    {
+      "directory_ms": 27.38,
+      "chooser_ms": 37.51,
+      "selected20_ms": 60.26,
+      "selected_query_bound": 9,
+      "directory_bytes": 3724,
+      "chooser_bytes": 16195,
+      "selected_bytes": 28710
+    },
+    {
+      "directory_ms": 26.17,
+      "chooser_ms": 38.15,
+      "selected20_ms": 57.51,
+      "selected_query_bound": 9,
+      "directory_bytes": 3724,
+      "chooser_bytes": 16195,
+      "selected_bytes": 28710
+    },
+    {
+      "directory_ms": 26.55,
+      "chooser_ms": 37.33,
+      "selected20_ms": 57.81,
+      "selected_query_bound": 9,
+      "directory_bytes": 3724,
+      "chooser_bytes": 16195,
+      "selected_bytes": 28710
+    }
+  ],
+  "means": {
+    "directory_ms": 26.39,
+    "chooser_ms": 37.93,
+    "selected20_ms": 58.92,
+    "selected_query_bound": 9,
+    "directory_bytes": 3724,
+    "chooser_bytes": 16195,
+    "selected_bytes": 28710
+  }
+}
