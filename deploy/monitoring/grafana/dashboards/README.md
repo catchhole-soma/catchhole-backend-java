@@ -1,26 +1,33 @@
 # 캐치홀 운영 대시보드
 
-운영 화면은 다음 세 JSON으로 관리한다. 수동 가져오기용이며 자동 dashboard provisioning은 사용하지 않는다. datasource UID는 `catchhole-prometheus`, 기본 최근 6시간/30초 새로고침, 브라우저 시간대다.
+운영 화면은 다음 네 JSON으로 관리한다. 수동 가져오기용이며 자동 dashboard provisioning은 사용하지 않는다. datasource UID는 `catchhole-prometheus`, 기존 세 화면은 기본 최근 6시간/30초 새로고침, 브라우저 시간대다. 제품 사용 상세는 한국 날짜 기준의 고정 집계 창과 1분 새로고침을 사용한다.
 
 | JSON | UID | 목적 | 데이터 패널 | 행 제목 | PromQL |
 | --- | --- | --- | ---: | ---: | ---: |
-| [catchhole-overview.json](catchhole-overview.json) | catlfln | HTTP·서비스 이용 추이·분석 핵심 요약과 수집 상태 | 24 | 2 | 26 |
+| [catchhole-overview.json](catchhole-overview.json) | catlfln | HTTP·서비스 이용 추이·제품 사용·분석 핵심 요약과 수집 상태 | 32 | 3 | 38 |
 | [catchhole-api.json](catchhole-api.json) | catchhole-api | 사용자·Worker API별 사용량/성능·주요 API 지연·EC2/JVM/Heap/GC/DB/Threads | 17 | 1 | 35 |
 | [catchhole-analysis.json](catchhole-analysis.json) | catchhole-analysis | 대기→실행→결과→LLM 원인 | 22 | 0 | 34 |
+| [catchhole-product-usage.json](catchhole-product-usage.json) | catchhole-product-usage | 완료 회원·반복 분석·작품 생성과 일별/월별 보존 합계 | 17 | 1 | 36 |
 
-합계는 데이터 패널 63개와 행 제목 3개, target expr 95개다. 변수·annotation 쿼리는 PromQL 개수에서 제외한다. 2026-11-11 운영 Export → JSON의 운영 현황 version 18, API·분석 상세 version 3을 비교해 반영했다. 저장소는 기존 UID·패널 ID·schemaVersion 42를 유지하고 운영 DB의 id/version 및 export가 생성한 기본값은 그대로 복사하지 않는다.
+합계는 데이터 패널 88개와 행 제목 5개, 설명 패널 1개, target expr 143개다. 변수·annotation 쿼리는 PromQL 개수에서 제외한다. 2026-11-11 운영 Export → JSON의 운영 현황 version 18, API·분석 상세 version 3을 비교해 반영했다. 저장소는 기존 UID·패널 ID·schemaVersion 42를 유지하고 운영 DB의 id/version 및 export가 생성한 기본값은 그대로 복사하지 않는다.
 
 모든 화면에 환경 필터와 시간 범위를 이어가는 화면 링크가 있다. API 상세는 API 인스턴스, 분석 상세는 Worker 종류/인스턴스를 선택한다. Worker 필터는 Python 패널에만 적용되며 DB·회차 결과는 전체 서비스 관측이다. DB Gauge는 API 인스턴스를 max로 중복 제거한 후 서로 다른 유형/모드를 합산한다. 세부 정의는 [분석 지표 문서](../../../../docs/analysis-metrics.md)를 따른다.
 
 ## 가져오기와 보존
 
-현재 GUI 대시보드 JSON을 먼저 export해 저장한다. API 상세와 분석 상세를 먼저 가져온 뒤 기존 UID catlfln의 overview를 덮어써 링크를 완성한다. 서버에 JSON을 복사하거나 Grafana를 재시작하는 것만으로 화면이 갱신되지는 않는다. 운영 Grafana 버전은 13.2.2이며 JSON schemaVersion은 기존 42를 유지한다.
+현재 GUI 대시보드 JSON을 먼저 export해 저장한다. API 상세·분석 상세·제품 사용 상세를 먼저 가져온 뒤 기존 UID catlfln의 overview를 덮어써 링크를 완성한다. 서버에 JSON을 복사하거나 Grafana를 재시작하는 것만으로 화면이 갱신되지는 않는다. 운영 Grafana 버전은 13.2.2이며 JSON schemaVersion은 기존 42를 유지한다.
 
 Grafana 화면에서 고친 뒤에는 JSON을 export해서 저장소의 해당 JSON과 패널 설명·개수·PromQL 검증에 반영한다. 화면 변경은 저장소에 자동으로 돌아오지 않는다.
 
 Prometheus 메트릭은 **60일(`60d`)** 보존한다. 2026-11-11 운영 실행 옵션이 30일임을 확인한 뒤 60일로 늘리고 `/api/v1/status/flags`의 `storage.tsdb.retention.time=60d`를 검증했다. 두 달은 달력 월이 아닌 60일 기준이며, 기존 5GiB 크기 제한에 먼저 도달하면 60일 전에도 과거 블록이 정리될 수 있다. 이미 삭제된 이력은 복원되지 않는다. 확인·변경 방법은 [운영 데이터와 업데이트](../../../MONITORING_DEPLOYMENT.md#운영-데이터와-업데이트)를 따른다. [Tempo의 336시간(14일)](../../../TRACING_DEPLOYMENT.md)은 별도 Trace 보존 기간이다.
 
 새 계측이 배포·수집되기 전에는 분석 패널이 데이터 없음일 수 있다. 배포된 모든 Worker의 `up`, Java snapshot success와 마지막 갱신 시각을 함께 확인한다. Worker 수집 정상 수는 현재 5개 분석+2개 비교=7개가 기준이다. scale을 바꾸면 이 설명과 수집 대상을 함께 갱신한다.
+
+## 제품 사용 지표
+
+운영 현황의 제품 사용 영역은 완료 기준 회원 수(오늘·최근 7일·최근 30일·이번 달)와 오늘/이번 달의 완료 요청·확정 반복·작품 생성·과거 이력 부족을 표시한다. 상세 화면에는 수집 시작 시각, 마지막 성공 이후 경과, 각 기간의 수집 범위, 최근 60일 일별 차트/표와 12개월 월별 표가 있다. 작품 삭제·탈퇴 뒤에도 합계가 유지되며 날짜별 회원 수를 합산해 월간 회원 수를 만들지 않는다.
+
+제품 지표는 최신 정상 수집의 같은 인스턴스 값을 연결하고 180초 이상 정체·실패·수집 전은 `관측 없음`으로 남긴다. 정상 수집된 빈 구간만 0이다. 수집 시작 이전의 사용량을 소급 계산하지 않으며 첫날·첫달 또는 충분히 지나지 않은 7일/30일은 `수집 시작 이후`로 표시한다. Grafana 시간 선택은 이 고정 집계 기간을 바꾸지 않는다. 활성화 순서와 정확한 정의는 [제품 사용 지표 문서](../../../../docs/product-usage-metrics.md)를 따른다.
 
 ## 결과 없음과 수집 장애
 
@@ -44,7 +51,7 @@ Stat은 Instant/Last를 사용하고 과거 유효값으로 현재 NaN을 채우
 
 HTTP 요약과 기존 4xx 상세 패널은 `/actuator.*`와 `/healthz`를 제외하고 내부 API 요청은 포함한다. API별 사용량·성능 표 2개의 경로 범위는 아래와 같이 따로 제한한다. 요청 없음의 0/0 오류율·p95는 계산 불가이며 RPS 0과 구분한다. API 상세의 GC 평균도 이벤트가 없으면 계산 불가다. 수집 자체가 없는 경우에는 up와 target 수부터 확인한다.
 
-현재 세 JSON의 95개 dashboard PromQL은 promtool 3.13.3으로 문법을 확인했고, [쿼리 검증 fixture](../../tests/dashboard-promql.test.json)의 29개 시나리오를 검증했다. 기존 23개는 snapshot 실패·정체·중복 API 관측·다른 mode 합산·부분 성공/취소의 성공률, 첫 완료의 0 기준값, 마지막 완료 선택과 5분 이후 유지·label 변경, 서비스 이용 snapshot의 최신 값 선택·빈 집계·불완전 이력과 HTTP 4xx의 환경·인스턴스·관리 경로 필터, 상태 코드/경로 집계·0/NaN/데이터 없음 구분을 검사한다. 추가 6개는 두 표의 A~E에 대해 사용자/Worker·환경/인스턴스·관리 경로/UNKNOWN 제외·메서드별 집계, 성공·실패를 합친 지연, 오류 지표 부재의 0%, 유휴 행 숨김, 지표 없음, 최근 5분이 유휴여도 선택 전체 기간의 요청·p95 유지, counter reset을 검사한다. JSON 변경 시 모든 target expr을 추출해 template 변수를 실제 값으로 치환한 후 promtool check rules를 다시 실행한다.
+현재 네 JSON의 143개 dashboard PromQL은 promtool 3.13.3으로 문법을 확인했고, [쿼리 검증 fixture](../../tests/dashboard-promql.test.json)의 36개 시나리오(142개 assertion)를 검증했다. 기존 23개는 snapshot 실패·정체·중복 API 관측·다른 mode 합산·부분 성공/취소의 성공률, 첫 완료의 0 기준값, 마지막 완료 선택과 5분 이후 유지·label 변경, 서비스 이용 snapshot의 최신 값 선택·빈 집계·불완전 이력과 HTTP 4xx의 환경·인스턴스·관리 경로 필터, 상태 코드/경로 집계·0/NaN/데이터 없음 구분을 검사한다. API 표의 6개는 두 표의 A~E에 대해 사용자/Worker·환경/인스턴스·관리 경로/UNKNOWN 제외·메서드별 집계, 성공·실패를 합친 지연, 오류 지표 부재의 0%, 유휴 행 숨김, 지표 없음, 최근 5분이 유휴여도 선택 전체 기간의 요청·p95 유지, counter reset을 검사한다. 제품 지표의 7개는 최신 정상 인스턴스 선택, 기간·날짜·월 label 연결, 실제 0/이력 부족/부분 기간, 실패·정체·미래 시각 숨김과 최신 snapshot의 지표 누락을 과거 값으로 채우지 않는 동작을 검사한다. JSON 변경 시 모든 target expr을 추출해 template 변수를 실제 값으로 치환한 후 promtool check rules를 다시 실행한다.
 
 ## API별 사용량 · 성능 표
 

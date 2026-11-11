@@ -10,6 +10,7 @@ import org.springframework.stereotype.Repository;
 public class MemberWithdrawalDataRepository {
 
     private final JdbcTemplate jdbcTemplate;
+    private final org.monitoring.catchholebackend.domain.productusage.service.ProductUsageService productUsage;
 
     /**
      * 회원 hard delete를 막는 직접 참조와 회원 소유 계정 데이터를 정리한다.
@@ -26,5 +27,6 @@ public class MemberWithdrawalDataRepository {
         jdbcTemplate.update("delete from ai_token_grants where member_id = ?", memberId);
         jdbcTemplate.update("delete from ai_token_accounts where member_id = ?", memberId);
         jdbcTemplate.update("delete from member_legal_records where member_id = ?", memberId);
+        productUsage.purgeMember(memberId);
     }
 }

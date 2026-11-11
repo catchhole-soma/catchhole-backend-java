@@ -1120,13 +1120,770 @@
       }
     },
     {
+      "id": 1001,
+      "type": "row",
+      "title": "제품 사용 · 결과 준비 기준",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 1002,
+      "type": "stat",
+      "title": "오늘 분석한 회원",
+      "description": "회차·설정집의 설정 추출 결과가 준비된 요청 기준입니다. 오류 검사와 내부 후속 작업은 제외합니다. 한국 시간의 달력 날짜를 사용하며 최근 7일·30일은 오늘을 포함합니다. 새 집계 시작 이후 최초 접수분부터 기록하고, 삭제·탈퇴 뒤에도 과거 합계를 보존합니다. 대시보드 시간 선택은 이 고정 집계 창을 바꾸지 않습니다. 집계 실패·3분 이상 갱신 없음은 관측 없음입니다. 첫날·첫 달 및 관측 기간이 짧은 창은 수집 시작 이후의 일부 값입니다. 같은 회원이 여러 번 완료해도 해당 기간에는 한 명으로 셉니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:명",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "관측 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "관측 없음"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "관측 없음"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "max(catchhole_product_analysis_members{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",period=\"1d\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) < 180))))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "last"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      },
+      "links": [
+        {
+          "title": "제품 사용 상세",
+          "url": "/d/catchhole-product-usage?var-environment=$environment",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 1003,
+      "type": "stat",
+      "title": "최근 7일 분석 회원",
+      "description": "회차·설정집의 설정 추출 결과가 준비된 요청 기준입니다. 오류 검사와 내부 후속 작업은 제외합니다. 한국 시간의 달력 날짜를 사용하며 최근 7일·30일은 오늘을 포함합니다. 새 집계 시작 이후 최초 접수분부터 기록하고, 삭제·탈퇴 뒤에도 과거 합계를 보존합니다. 대시보드 시간 선택은 이 고정 집계 창을 바꾸지 않습니다. 집계 실패·3분 이상 갱신 없음은 관측 없음입니다. 첫날·첫 달 및 관측 기간이 짧은 창은 수집 시작 이후의 일부 값입니다. 같은 회원이 여러 번 완료해도 해당 기간에는 한 명으로 셉니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 6,
+        "y": 20,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:명",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "관측 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "관측 없음"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "관측 없음"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "max(catchhole_product_analysis_members{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",period=\"7d\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) < 180))))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "last"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      },
+      "links": [
+        {
+          "title": "제품 사용 상세",
+          "url": "/d/catchhole-product-usage?var-environment=$environment",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 1004,
+      "type": "stat",
+      "title": "최근 30일 분석 회원",
+      "description": "회차·설정집의 설정 추출 결과가 준비된 요청 기준입니다. 오류 검사와 내부 후속 작업은 제외합니다. 한국 시간의 달력 날짜를 사용하며 최근 7일·30일은 오늘을 포함합니다. 새 집계 시작 이후 최초 접수분부터 기록하고, 삭제·탈퇴 뒤에도 과거 합계를 보존합니다. 대시보드 시간 선택은 이 고정 집계 창을 바꾸지 않습니다. 집계 실패·3분 이상 갱신 없음은 관측 없음입니다. 첫날·첫 달 및 관측 기간이 짧은 창은 수집 시작 이후의 일부 값입니다. 같은 회원이 여러 번 완료해도 해당 기간에는 한 명으로 셉니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:명",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "관측 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "관측 없음"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "관측 없음"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "max(catchhole_product_analysis_members{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",period=\"30d\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) < 180))))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "last"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      },
+      "links": [
+        {
+          "title": "제품 사용 상세",
+          "url": "/d/catchhole-product-usage?var-environment=$environment",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 1005,
+      "type": "stat",
+      "title": "이번 달 분석 회원",
+      "description": "회차·설정집의 설정 추출 결과가 준비된 요청 기준입니다. 오류 검사와 내부 후속 작업은 제외합니다. 한국 시간의 달력 날짜를 사용하며 최근 7일·30일은 오늘을 포함합니다. 새 집계 시작 이후 최초 접수분부터 기록하고, 삭제·탈퇴 뒤에도 과거 합계를 보존합니다. 대시보드 시간 선택은 이 고정 집계 창을 바꾸지 않습니다. 집계 실패·3분 이상 갱신 없음은 관측 없음입니다. 첫날·첫 달 및 관측 기간이 짧은 창은 수집 시작 이후의 일부 값입니다. 같은 회원이 여러 번 완료해도 해당 기간에는 한 명으로 셉니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 18,
+        "y": 20,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:명",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "관측 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "관측 없음"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "관측 없음"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "max(catchhole_product_analysis_members{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",period=\"month\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) < 180))))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "last"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      },
+      "links": [
+        {
+          "title": "제품 사용 상세",
+          "url": "/d/catchhole-product-usage?var-environment=$environment",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 1006,
+      "type": "stat",
+      "title": "완료한 분석 요청",
+      "description": "회차·설정집의 설정 추출 결과가 준비된 요청 기준입니다. 오류 검사와 내부 후속 작업은 제외합니다. 한국 시간의 달력 날짜를 사용하며 최근 7일·30일은 오늘을 포함합니다. 새 집계 시작 이후 최초 접수분부터 기록하고, 삭제·탈퇴 뒤에도 과거 합계를 보존합니다. 대시보드 시간 선택은 이 고정 집계 창을 바꾸지 않습니다. 집계 실패·3분 이상 갱신 없음은 관측 없음입니다. 첫날·첫 달 및 관측 기간이 짧은 창은 수집 시작 이후의 일부 값입니다. 여러 회차를 한 번에 요청하면 한 건입니다. 실패·취소는 제외하고 부분 성공은 포함합니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 0,
+        "y": 25,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:건",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "관측 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "관측 없음"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "관측 없음"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "max(catchhole_product_completed_requests{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",period=\"1d\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) < 180))))",
+          "legendFormat": "오늘",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "max(catchhole_product_completed_requests{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",period=\"month\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) < 180))))",
+          "legendFormat": "이번 달",
+          "range": false,
+          "instant": true,
+          "refId": "B"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "last"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      },
+      "links": [
+        {
+          "title": "제품 사용 상세",
+          "url": "/d/catchhole-product-usage?var-environment=$environment",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 1007,
+      "type": "stat",
+      "title": "확인된 반복 분석",
+      "description": "회차·설정집의 설정 추출 결과가 준비된 요청 기준입니다. 오류 검사와 내부 후속 작업은 제외합니다. 한국 시간의 달력 날짜를 사용하며 최근 7일·30일은 오늘을 포함합니다. 새 집계 시작 이후 최초 접수분부터 기록하고, 삭제·탈퇴 뒤에도 과거 합계를 보존합니다. 대시보드 시간 선택은 이 고정 집계 창을 바꾸지 않습니다. 집계 실패·3분 이상 갱신 없음은 관측 없음입니다. 첫날·첫 달 및 관측 기간이 짧은 창은 수집 시작 이후의 일부 값입니다. 회원의 첫 완료 이후 추가 완료한 요청입니다. 실패 재시도는 새 요청으로 세지 않습니다. 과거 첫 완료 여부가 불명인 건은 옆의 이력 불명에 따로 표시합니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 6,
+        "y": 25,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:건",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "관측 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "관측 없음"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "관측 없음"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "max(catchhole_product_repeat_requests{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",period=\"1d\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) < 180))))",
+          "legendFormat": "오늘",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "max(catchhole_product_repeat_requests{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",period=\"month\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) < 180))))",
+          "legendFormat": "이번 달",
+          "range": false,
+          "instant": true,
+          "refId": "B"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "last"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      },
+      "links": [
+        {
+          "title": "제품 사용 상세",
+          "url": "/d/catchhole-product-usage?var-environment=$environment",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 1008,
+      "type": "stat",
+      "title": "새로 만든 작품",
+      "description": "회차·설정집의 설정 추출 결과가 준비된 요청 기준입니다. 오류 검사와 내부 후속 작업은 제외합니다. 한국 시간의 달력 날짜를 사용하며 최근 7일·30일은 오늘을 포함합니다. 새 집계 시작 이후 최초 접수분부터 기록하고, 삭제·탈퇴 뒤에도 과거 합계를 보존합니다. 대시보드 시간 선택은 이 고정 집계 창을 바꾸지 않습니다. 집계 실패·3분 이상 갱신 없음은 관측 없음입니다. 첫날·첫 달 및 관측 기간이 짧은 창은 수집 시작 이후의 일부 값입니다. 현재 보유 작품 수와 별개인 생성 건수입니다. 삭제한 작품도 과거 생성 건수는 유지합니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 12,
+        "y": 25,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:건",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "관측 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "관측 없음"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "관측 없음"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "max(catchhole_product_works_created{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",period=\"1d\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) < 180))))",
+          "legendFormat": "오늘",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "max(catchhole_product_works_created{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",period=\"month\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) < 180))))",
+          "legendFormat": "이번 달",
+          "range": false,
+          "instant": true,
+          "refId": "B"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "last"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      },
+      "links": [
+        {
+          "title": "제품 사용 상세",
+          "url": "/d/catchhole-product-usage?var-environment=$environment",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
+      "id": 1009,
+      "type": "stat",
+      "title": "첫 완료 이력 불명",
+      "description": "회차·설정집의 설정 추출 결과가 준비된 요청 기준입니다. 오류 검사와 내부 후속 작업은 제외합니다. 한국 시간의 달력 날짜를 사용하며 최근 7일·30일은 오늘을 포함합니다. 새 집계 시작 이후 최초 접수분부터 기록하고, 삭제·탈퇴 뒤에도 과거 합계를 보존합니다. 대시보드 시간 선택은 이 고정 집계 창을 바꾸지 않습니다. 집계 실패·3분 이상 갱신 없음은 관측 없음입니다. 첫날·첫 달 및 관측 기간이 짧은 창은 수집 시작 이후의 일부 값입니다. 기존 회원의 과거 완료 기록이 없어 첫 완료인지 반복인지 확정할 수 없는 건수입니다. 전체 완료에는 포함하고 확정 반복에서는 제외합니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 18,
+        "y": 25,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:건",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "관측 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "관측 없음"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "관측 없음"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "max(catchhole_product_unknown_requests{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",period=\"1d\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) < 180))))",
+          "legendFormat": "오늘",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "max(catchhole_product_unknown_requests{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",period=\"month\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) < 180))))",
+          "legendFormat": "이번 달",
+          "range": false,
+          "instant": true,
+          "refId": "B"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "last"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      },
+      "links": [
+        {
+          "title": "제품 사용 상세",
+          "url": "/d/catchhole-product-usage?var-environment=$environment",
+          "targetBlank": false
+        }
+      ]
+    },
+    {
       "id": 37,
       "type": "row",
       "title": "분석 및 운영 지표",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 19,
+        "y": 30,
         "w": 24,
         "h": 1
       },
@@ -1144,7 +1901,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 20,
+        "y": 31,
         "w": 8,
         "h": 5
       },
@@ -1224,7 +1981,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 8,
-        "y": 20,
+        "y": 31,
         "w": 8,
         "h": 5
       },
@@ -1304,7 +2061,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 16,
-        "y": 20,
+        "y": 31,
         "w": 8,
         "h": 5
       },
@@ -1384,7 +2141,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 25,
+        "y": 36,
         "w": 8,
         "h": 5
       },
@@ -1464,7 +2221,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 8,
-        "y": 25,
+        "y": 36,
         "w": 8,
         "h": 5
       },
@@ -1544,7 +2301,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 16,
-        "y": 25,
+        "y": 36,
         "w": 8,
         "h": 5
       },
@@ -1624,7 +2381,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 30,
+        "y": 41,
         "w": 24,
         "h": 8
       },
@@ -1736,7 +2493,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 38,
+        "y": 49,
         "w": 12,
         "h": 8
       },
@@ -1848,7 +2605,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 12,
-        "y": 38,
+        "y": 49,
         "w": 12,
         "h": 8
       },
@@ -1984,7 +2741,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 46,
+        "y": 57,
         "w": 8,
         "h": 5
       },
@@ -2064,7 +2821,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 8,
-        "y": 46,
+        "y": 57,
         "w": 8,
         "h": 5
       },
@@ -2144,7 +2901,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 16,
-        "y": 46,
+        "y": 57,
         "w": 8,
         "h": 5
       },
@@ -2229,6 +2986,17 @@
       "title": "분석 · AI 상세",
       "type": "link",
       "url": "/d/catchhole-analysis?var-environment=$environment",
+      "icon": "dashboard",
+      "includeVars": true,
+      "keepTime": true,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": []
+    },
+    {
+      "title": "제품 사용 상세",
+      "type": "link",
+      "url": "/d/catchhole-product-usage?var-environment=$environment",
       "icon": "dashboard",
       "includeVars": true,
       "keepTime": true,

@@ -651,6 +651,7 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
     @Transactional
     public void invalidateRunsForEpisodeChangeForUpdate(UUID workId, UUID episodeId, int firstAffectedEpisodeNo, String reason) {
         requireInvalidationReason(reason);
+        eventPublisher.publishEvent(new org.monitoring.catchholebackend.domain.productusage.event.ProductUsageBeforeWorkChange(workId));
         eventPublisher.publishEvent(new org.monitoring.catchholebackend.domain.validation.event.ValidationStagingEvents.EpisodeSourceChanged(workId, episodeId));
         analysisJobRepository.findAffectedOrderedJobsForUpdate(workId, firstAffectedEpisodeNo).stream()
                 .filter(job -> !preservesCompletedSuccessor(job, episodeId))
@@ -661,6 +662,7 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
     @Transactional
     public void invalidateRunsForSettingBookChangeForUpdate(UUID workId, UUID bookId, String reason) {
         requireInvalidationReason(reason);
+        eventPublisher.publishEvent(new org.monitoring.catchholebackend.domain.productusage.event.ProductUsageBeforeWorkChange(workId));
         analysisJobRepository.findAllByWorkIdAndSourceSettingBookIdOrderByCreatedAtDescIdDesc(workId, bookId)
                 .stream().filter(job -> !(job.isOrderedProvisional() ? job.isCompletedOrderedAnalysis()
                         : job.getStatus() == AnalysisJobStatus.SUCCEEDED)).forEach(job -> invalidateMember(job, reason));
@@ -685,6 +687,7 @@ public class AnalysisRunStateServiceImpl implements AnalysisRunStateService {
 
     @Override @Transactional
     public void purgeSourceEvidenceForWorkForUpdate(UUID workId, UUID episodeId, int sourceEpisodeNo, String retainedContentKey) {
+        eventPublisher.publishEvent(new org.monitoring.catchholebackend.domain.productusage.event.ProductUsageBeforeWorkChange(workId));
         eventPublisher.publishEvent(new org.monitoring.catchholebackend.domain.validation.event.ValidationStagingEvents.EpisodeSourceChanged(workId, episodeId, retainedContentKey));
         analysisJobRepository.findOrderedJobsForSourcePurgeForUpdate(workId, sourceEpisodeNo).forEach(job -> {
             if (!preservesCompletedSuccessor(job, episodeId)) {

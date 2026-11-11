@@ -106,7 +106,9 @@
 - AnalysisJob은 사용자 접수 세대/대기 구간/결과 준비 latch를, 양쪽 후보는 최초 비교 종료 시각·결과·원본 접수 세대를 보존한다. 같은 Job의 사용자 재시도는 새 접수, lease 회수는 같은 접수의 새 대기 구간이다. 후속 비교 완료와 부분 실패를 raw SUCCEEDED로 대신하지 않는다. metric 오류가 분석 정책을 바꾸지 않으며 event delivery는 감사 원장 수준 exactly-once를 보장하지 않는다.
 - `analysis.metrics.scheduling-enabled=true`, `fixed-delay-ms=15000`은 base YAML, test에서는 비활성이다. snapshot은 집계 SQL로 갱신하고 scrape는 캐시를 읽는다. 실패는 success=0/마지막 성공 시각 유지, 빈 대기 age=0이며 대시보드는 45초 이상 오래된 값을 정상 0으로 채우지 않는다. DB Gauge는 전체 label 조합별 max로 API 중복 제거 뒤 다른 mode/type을 sum한다.
 - 서비스 이용 현황은 `global.monitoring`의 읽기 전용 DB snapshot과 캐시 Gauge를 사용한다. `service-usage.metrics.scheduling-enabled=true`, `fixed-delay-ms=60000`은 base YAML, test에서는 비활성이다. 요청 묶음은 최초 접수 기준으로 재시도를 중복 제거하고, 최근 24시간 원본 이력이 불완전하면 요청 수·평균을 NaN으로 표시한다. 조회 실패·180초 이상 갱신 없음은 정상 0으로 채우지 않는다. 여러 API 인스턴스에서는 최신 정상 snapshot과 같은 전체 label의 값을 선택하며 ID label은 추가하지 않는다. 삭제된 회원·작품은 기간 집계에서도 제외된다. 정의·설정·제약은 `docs/service-usage-metrics.md`를 따른다.
-- Grafana JSON은 운영 현황 catlfln / API·서버 상세 catchhole-api / 분석·AI 상세 catchhole-analysis 3개다. 설명/CPU 기준/peak thread를 API 상세에 보존하고 Python Worker는 개별 /metrics를 file_sd로 수집한다. 기본 localhost→운영 사설 bind 및 모니터링 SG 적용, actual port target 생성·원자 교체는 각 배포 안내를 따른다. 지표 정의는 `docs/analysis-metrics.md`가 담당한다.
+- #433의 영속 제품 사용 집계는 `domain.productusage`가 담당한다. 현재 상태/요청 기준 snapshot과 달리 날짜·월 합계를 삭제 후에도 보존하고, 탈퇴 시 회원별 중복 제거 기록은 제거한다. 사업 Entity FK 없이 singleton 집계 상태를 잠가 중복을 막으며, 기존 Member → Work → Job 뒤에 집계 잠금을 얻는다. 집계 잠금에서 사업 행 잠금으로 역행하지 않는다. 상세 기간·최초 완료 이력 부족·활성화 기준은 `docs/product-usage-metrics.md`와 승인한 설계를 따른다. `PRODUCT_USAGE_METRICS_ENABLED`는 기본 false이며 모든 writer 교체 후 켜고, 요청 수락 전 bootstrap이 시작 시각을 한 번 기록한다. 시작 후 설정을 꺼도 생성 기록·파기 정산은 계속하며 정기 수집만 멈춘다. Gauge는 원자적 캐시와 최근 60일·12개월 label만 내보내고 회원·작품·요청 식별값을 넣지 않는다.
+- #433 원문 무효화는 `ProductUsageBeforeWorkChange` 동기 이벤트로 변경 전 완료를 정산한다. 작품 파기도 `ProductUsageLifecycle`에서 Work와 Job을 먼저 잠근 뒤 같은 트랜잭션의 `AnalysisResultReadyTracker.reconcileLocked`로 비동기 관측 전 준비를 확인한다. 이미 적격 완료였던 SEALED 기록을 INVALIDATED 변경이나 원본 삭제로 놓치지 않기 위함이다. 정상 관측의 기존 비동기 REQUIRES_NEW 경로는 유지한다. Work 생성은 같은 트랜잭션에서 최소 receipt만 쓰고 합계 계산은 정기 수집이나 삭제 전 정산이 담당한다.
+- Grafana JSON은 운영 현황 catlfln / API·서버 상세 catchhole-api / 분석·AI 상세 catchhole-analysis / 제품 사용 catchhole-product-usage 4개다. 설명/CPU 기준/peak thread를 API 상세에 보존하고 Python Worker는 개별 /metrics를 file_sd로 수집한다. 기본 localhost→운영 사설 bind 및 모니터링 SG 적용, actual port target 생성·원자 교체는 각 배포 안내를 따른다. 지표 정의는 `docs/analysis-metrics.md`가 담당한다.
 - Grafana 화면을 수정하면 JSON을 export해 저장소 JSON과 설명·패널/쿼리 개수·PromQL 검증을 함께 갱신한다. 자동 dashboard provisioning과 화면 변경의 저장소 역동기화가 없기 때문이다. Prometheus 보존 기간은 확인한 실제 설정을 근거로 문서·예제에 반영하며 Tempo Trace 보존 기간과 구분한다.
 
 ### Local Tracing
@@ -178,6 +180,13 @@
 ```text
 org.monitoring.catchholebackend
 ├── domain
+│   ├── productusage
+│   │   ├── dto
+│   │   ├── entity
+│   │   ├── event
+│   │   ├── repository
+│   │   ├── service
+│   │   └── type
 │   ├── validation
 │   │   ├── controller
 │   │   ├── dto
