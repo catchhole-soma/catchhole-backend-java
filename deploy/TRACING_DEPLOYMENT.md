@@ -25,7 +25,9 @@ Spring HTTP/JDBC Span ── OTLP HTTP ────────────┤
   `-target=all`이며 S3 블록과 `/var/tempo` 전체 named volume을 사용한다.
   이 볼륨에는 `/var/tempo/wal`뿐 아니라 Tempo 3.1의 기본 live-store WAL 경로인
   `/var/tempo/live-store/traces`도 포함되어 컨테이너 재생성 시 보존된다.
-- 운영 저장 기간은 **336시간(14일)**이다. 로컬 실험의 local backend/24시간과 다르다.
+- Tempo의 운영 Trace 저장 기간은 **336시간(14일)**이다. 로컬 실험의 local backend/24시간과 다르다.
+  Prometheus 메트릭의 보존 기간과는 별개이며, 메트릭의 실제 설정 확인은
+  [모니터링 운영 안내](MONITORING_DEPLOYMENT.md#운영-데이터와-업데이트)를 따른다.
   block retention은 비동기 정리 기준이며 정확히 336시간이 되는 순간 모든 파일이 지워지거나
   디스크/비용이 일정 크기로 제한된다는 의미는 아니다.
 - 한 번의 검색 범위는 `query_frontend.search.max_duration: 72h`로 유지한다.
