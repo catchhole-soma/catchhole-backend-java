@@ -68,6 +68,21 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
 
     boolean existsByWork_Member_Id(Long memberId);
 
+    // 화면이 "분석 완료"로 보는 기준과 같다: 단일 분석은 성공, 순차 분석은 봉인과 자동 반영(또는 검수 보류)까지 끝난
+    // 설정 추출(회차·설정집). 조건을 바꾸면 AnalysisJob.isCompletedOrderedAnalysis와 V123 백필도 함께 맞춘다.
+    @Query("""
+            select count(job) > 0 from AnalysisJob job
+            where job.work.member.id = :memberId
+              and job.jobType = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION
+              and job.status = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobStatus.SUCCEEDED
+              and (job.analysisMode <> org.monitoring.catchholebackend.domain.analysis.type.AnalysisMode.ORDERED_PROVISIONAL
+                   or (job.journalStatus = org.monitoring.catchholebackend.domain.analysis.type.AnalysisJournalStatus.SEALED
+                       and (job.reviewMode <> org.monitoring.catchholebackend.domain.analysis.type.AnalysisReviewMode.AUTOMATIC
+                            or job.automaticAppliedAt is not null
+                            or job.reviewApplicationHeldAt is not null)))
+            """)
+    boolean existsCompletedSettingExtractionByMemberId(@Param("memberId") Long memberId);
+
     @Query("""
             select max(coalesce(sourceEpisode.episodeNo, candidateEpisode.episodeNo))
             from CharacterFact fact

@@ -62,6 +62,11 @@ public class Member extends BaseEntity {
     @Column(name = "first_analysis_started_at")
     private LocalDateTime firstAnalysisStartedAt;
 
+    // 첫 분석 완료 GA4 이벤트를 계정당 한 번만 보내기 위한 보고 선점 시각(#426).
+    // 완료 여부는 조회 때 분석 Job으로 판정하며, 작품을 삭제해도 이 기록은 남는다.
+    @Column(name = "first_analysis_completion_reported_at")
+    private LocalDateTime firstAnalysisCompletionReportedAt;
+
     //화면에서 보이는 닉네임
     @Column(name = "display_name", nullable = false, length = 50)
     private String displayName;
@@ -142,6 +147,10 @@ public class Member extends BaseEntity {
 
     public void markFirstAnalysisStarted(LocalDateTime startedAt) {
         if (firstAnalysisStartedAt == null) firstAnalysisStartedAt = startedAt;
+    }
+
+    public void markFirstAnalysisCompletionReported(LocalDateTime reportedAt) {
+        if (firstAnalysisCompletionReportedAt == null) firstAnalysisCompletionReportedAt = reportedAt;
     }
 
     public static Member registerEmailVerified(

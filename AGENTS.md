@@ -529,6 +529,7 @@ domain/<domain>
 
 - AnalysisJob은 작품에 속한 단일 회차 AI 분석 작업의 상태와 결과 메타데이터를 추적한다. `UploadBatch`는 업로드 출처 묶음이며 분석 실행 단위가 아니다.
 - 첫 분석 안내는 계정 전체 기준으로 V64의 `analysis_guide_shown_at`과 `first_analysis_started_at`을 사용한다. 조회는 비소비, 노출 선점은 회원 잠금 아래 한 번만 성공하며 Job 생성과 최초 분석 시각을 같은 트랜잭션에 저장한다. 작품 삭제 후에도 경험 기록을 유지한다. 예시 확정은 실제 분석·설정 변경을 호출하지 않는다. 상세 API·이관 범위는 `docs/analysis-mode-guide.md`를 따른다.
+- 첫 분석 완료 GA4 보고(#426)는 V123의 `members.first_analysis_completion_reported_at`과 `AnalysisJobRepository.existsCompletedSettingExtractionByMemberId`를 사용한다. 완료는 조회 때 남아 있는 설정 추출 Job으로 판정하며(단일은 `SUCCEEDED`, 순차는 `SEALED`와 자동 반영 또는 검수 보류), 보고 선점은 회원 행 잠금 아래 한 번만 성공한다. Worker 완료 경로에 회원 쓰기를 넣지 않는 것은 완료(Work → Job)와 분석 생성(회원 → Work)의 잠금 순서가 엇갈리기 때문이다. 완료 조건을 바꾸면 `AnalysisJob.isCompletedOrderedAnalysis`, V123 백필, Front 완료 판정을 함께 맞춘다. 상세는 `docs/first-analysis-completion.md`를 따른다.
 - 원문 텍스트는 `Episode`의 S3 저장 구조를 재사용한다. `analysis_jobs`에는 작업 메타데이터, 수동 누적의 고정 S0, 자동 누적의 회차별 claim 입력(`automatic_input_state`), 검증 변경 기록을 저장하며 원문 전문이나 raw LLM 응답을 중복 저장하지 않는다.
 - 분석 실패 이력은 `analysis_jobs.error_message`에 누적하지 않는다. Discord 발송 이력은 원시 오류 없이 `analysis_failure_notifications`에 식별자·고정 실패 코드·안전한 진단 snapshot·전송 상태로 따로 기록한다.
 - 새 회차 분석으로 대체된 legacy 캐릭터·세계관 비교 Job은 `cancelForSourceChange`로 `CANCELED` 마감한다. 토큰 예약 해제·후보 unlink·flush 순서는 유지하며 정상적인 교체를 `FAILED` 장애로 기록하거나 Discord 실패 알림으로 보내지 않는다.
