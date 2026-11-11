@@ -11,5 +11,7 @@ public class ProductUsageState extends BaseEntity {
     private LocalDateTime startedAt;
     private LocalDateTime collectedAt;
     public void initialize(LocalDateTime start) { if (startedAt == null) startedAt = start; }
-    public void collected(LocalDateTime at) { collectedAt = at; }
+    public void collected(LocalDateTime at) {
+        if (collectedAt == null || at.isAfter(collectedAt)) collectedAt = at;
+    }
 }
