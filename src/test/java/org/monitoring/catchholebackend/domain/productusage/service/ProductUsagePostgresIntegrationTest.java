@@ -54,6 +54,7 @@ class ProductUsagePostgresIntegrationTest {
     @Autowired jakarta.persistence.EntityManager em;
     @Autowired org.monitoring.catchholebackend.domain.work.service.WorkService works;
     @Autowired org.monitoring.catchholebackend.domain.work.repository.WorkPurgeDataRepository workPurge;
+    @Autowired org.monitoring.catchholebackend.global.monitoring.ProductUsageSnapshotRepository snapshots;
     final LocalDateTime start = LocalDateTime.of(2026, 11, 11, 0, 0);
 
     @BeforeEach void initialize() {
@@ -83,6 +84,23 @@ class ProductUsagePostgresIntegrationTest {
         assertThat(jdbc.queryForObject("select count(*) from product_usage_analysis_receipts", Long.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("select completed_requests from product_usage_monthly", Long.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("select analysis_members from product_usage_monthly", Long.class)).isEqualTo(1);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {123456789, 999999999})
+    @DisplayName("PostgreSQL 시간 정밀도 때문에 성공한 집계가 미래 snapshot으로 바뀌지 않는다")
+    void collectionCutoffSurvivesPostgresPrecision(int nanos) {
+        LocalDateTime asOf = start.withHour(23).withMinute(59).withSecond(59).withNano(nanos);
+        service.collect(asOf);
+        var snapshot = snapshots.read(asOf);
+        assertThat(snapshot.collectedAt()).isBeforeOrEqualTo(asOf);
+        var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        try {
+            new org.monitoring.catchholebackend.global.monitoring.ProductUsageMetrics(registry).updateSnapshot(snapshot);
+            assertThat(registry.get("catchhole.product.usage.snapshot.success").gauge().value()).isEqualTo(1);
+        } finally {
+            registry.close();
+        }
     }
 
     @Test @DisplayName("집계 도중 rollback되면 receipt와 익명 합계가 함께 사라지고 재처리할 수 있다")
