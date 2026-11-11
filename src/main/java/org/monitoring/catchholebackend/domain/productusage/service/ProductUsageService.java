@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.productusage.dto.ProductUsageCompletion;
 import org.monitoring.catchholebackend.domain.productusage.entity.ProductUsageMember;
 import org.monitoring.catchholebackend.domain.productusage.repository.ProductUsageRepository;
+import org.monitoring.catchholebackend.domain.productusage.repository.ProductUsageSourceRepository;
 import org.monitoring.catchholebackend.domain.productusage.type.ProductUsageFirstKind;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,8 +16,16 @@ import org.springframework.transaction.annotation.Transactional;
 @Service @RequiredArgsConstructor @Transactional
 public class ProductUsageService {
     private final ProductUsageRepository repository;
+    private final ProductUsageSourceRepository source;
 
     public void initialize(LocalDateTime start) { repository.lockState().initialize(start); }
+
+    public void collect(LocalDateTime asOf) {
+        var state = repository.lockState();
+        if (state.getStartedAt() == null) throw new IllegalStateException("제품 사용 집계가 아직 시작되지 않았습니다.");
+        source.completedRequests(asOf, null).forEach(this::accept);
+        state.collected(asOf);
+    }
 
     public void accept(ProductUsageCompletion event) {
         LocalDateTime start = repository.lockState().getStartedAt();
