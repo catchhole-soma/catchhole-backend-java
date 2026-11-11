@@ -429,9 +429,9 @@
     },
     {
       "id": 33,
-      "type": "stat",
+      "type": "timeseries",
       "title": "전체 회원 수",
-      "description": "현재 회원 계정 수입니다. 이용 정지 회원은 포함하고 탈퇴 처리 중·탈퇴 완료 회원은 제외합니다. 1분마다 갱신하며 조회 실패 또는 3분 이상 갱신 없음은 관측 없음으로 표시합니다. 대시보드의 시간 선택과 별개인 현재 집계입니다.",
+      "description": "현재 회원 계정 수입니다. 이용 정지 회원은 포함하고 탈퇴 처리 중·탈퇴 완료 회원은 제외합니다. 선택한 조회 기간의 각 시점에 관측한 총수를 표시합니다. 1분마다 집계하며 조회 실패 또는 3분 이상 갱신 없음은 그래프의 빈 구간으로 남깁니다. 아래 Last는 선택 기간의 마지막 관측값입니다. 수집 시작 전 이력은 복원하지 않습니다.",
       "datasource": {
         "type": "prometheus",
         "uid": "catchhole-prometheus"
@@ -440,14 +440,13 @@
       "gridPos": {
         "x": 0,
         "y": 6,
-        "w": 6,
-        "h": 5
+        "w": 8,
+        "h": 8
       },
       "fieldConfig": {
         "defaults": {
           "unit": "suffix:명",
           "decimals": 0,
-          "min": 0,
           "noValue": "관측 없음",
           "color": {
             "mode": "fixed",
@@ -472,9 +471,55 @@
                 }
               }
             }
-          ]
-        },
-        "overrides": []
+          ],
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        }
       },
       "targets": [
         {
@@ -484,27 +529,274 @@
           },
           "editorMode": "code",
           "expr": "max(catchhole_service_members{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} and topk(1, (catchhole_service_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} > 0) and (catchhole_service_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and ((time() - catchhole_service_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) < 180)))",
-          "legendFormat": "",
-          "range": false,
-          "instant": true,
+          "legendFormat": "회원 수",
+          "range": true,
+          "instant": false,
           "refId": "A"
         }
       ],
       "options": {
-        "reduceOptions": {
-          "values": false,
+        "legend": {
           "calcs": [
             "last"
           ],
-          "fields": ""
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
         },
-        "orientation": "auto",
-        "textMode": "value",
-        "wideLayout": true,
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "center",
-        "showPercentChange": false
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 39,
+      "type": "timeseries",
+      "title": "등록 작품 수",
+      "description": "현재 ACTIVE 작품 수입니다. 회차가 아직 없는 작품과 이용 정지 회원의 작품은 포함하고 삭제 중 작품·탈퇴 처리 중·완료 회원의 작품은 제외합니다. 선택한 조회 기간의 각 시점에 관측한 총수를 표시합니다. 1분마다 집계하며 조회 실패 또는 3분 이상 갱신 없음은 그래프의 빈 구간으로 남깁니다. 아래 Last는 선택 기간의 마지막 관측값입니다. 수집 시작 전 이력은 복원하지 않습니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 8,
+        "y": 6,
+        "w": 8,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:작품",
+          "decimals": 0,
+          "noValue": "관측 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "관측 없음"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "관측 없음"
+                }
+              }
+            }
+          ],
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "max(catchhole_service_works{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} and topk(1, (catchhole_service_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} > 0) and (catchhole_service_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and ((time() - catchhole_service_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) < 180)))",
+          "legendFormat": "작품 수",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": {
+          "calcs": [
+            "last"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 40,
+      "type": "timeseries",
+      "title": "등록 회차 수",
+      "description": "현재 ACTIVE 작품에 등록된 ARCHIVED가 아닌 회차 수입니다. 분석 상태·성공 여부와 관계없이 원고가 등록된 회차를 포함하고 삭제 중 작품·탈퇴 처리 중·완료 회원의 회차는 제외합니다. 선택한 조회 기간의 각 시점에 관측한 총수를 표시합니다. 1분마다 집계하며 조회 실패 또는 3분 이상 갱신 없음은 그래프의 빈 구간으로 남깁니다. 아래 Last는 선택 기간의 마지막 관측값입니다. 수집 시작 전 이력은 복원하지 않습니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "pluginVersion": "13.2.2",
+      "gridPos": {
+        "x": 16,
+        "y": 6,
+        "w": 8,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:회차",
+          "decimals": 0,
+          "noValue": "관측 없음",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "orange"
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "관측 없음"
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "관측 없음"
+                }
+              }
+            }
+          ],
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "max(catchhole_service_episodes{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} and topk(1, (catchhole_service_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} > 0) and (catchhole_service_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and ((time() - catchhole_service_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) < 180)))",
+          "legendFormat": "회차 수",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": {
+          "calcs": [
+            "last"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
       }
     },
     {
@@ -518,8 +810,8 @@
       },
       "pluginVersion": "13.2.2",
       "gridPos": {
-        "x": 6,
-        "y": 6,
+        "x": 0,
+        "y": 14,
         "w": 6,
         "h": 5
       },
@@ -598,8 +890,8 @@
       },
       "pluginVersion": "13.2.2",
       "gridPos": {
-        "x": 12,
-        "y": 6,
+        "x": 6,
+        "y": 14,
         "w": 6,
         "h": 5
       },
@@ -678,8 +970,8 @@
       },
       "pluginVersion": "13.2.2",
       "gridPos": {
-        "x": 18,
-        "y": 6,
+        "x": 12,
+        "y": 14,
         "w": 6,
         "h": 5
       },
@@ -758,9 +1050,9 @@
       },
       "pluginVersion": "13.2.2",
       "gridPos": {
-        "x": 0,
-        "y": 11,
-        "w": 8,
+        "x": 18,
+        "y": 14,
+        "w": 6,
         "h": 5
       },
       "fieldConfig": {
@@ -828,173 +1120,13 @@
       }
     },
     {
-      "id": 39,
-      "type": "stat",
-      "title": "등록 작품 수",
-      "description": "현재 ACTIVE 작품 수입니다. 회차가 아직 없는 작품과 이용 정지 회원의 작품은 포함하고 삭제 중 작품·탈퇴 처리 중·완료 회원의 작품은 제외합니다. 1분마다 갱신하며 조회 실패 또는 3분 이상 갱신 없음은 관측 없음으로 표시합니다. 대시보드 시간 선택과 별개인 현재 집계입니다.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "catchhole-prometheus"
-      },
-      "pluginVersion": "13.2.2",
-      "gridPos": {
-        "x": 8,
-        "y": 11,
-        "w": 8,
-        "h": 5
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "suffix:작품",
-          "decimals": 0,
-          "min": 0,
-          "noValue": "관측 없음",
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "blue"
-          },
-          "mappings": [
-            {
-              "type": "special",
-              "options": {
-                "match": "nan",
-                "result": {
-                  "text": "관측 없음"
-                }
-              }
-            },
-            {
-              "type": "special",
-              "options": {
-                "match": "null",
-                "result": {
-                  "text": "관측 없음"
-                }
-              }
-            }
-          ]
-        },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "catchhole-prometheus"
-          },
-          "editorMode": "code",
-          "expr": "max(catchhole_service_works{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} and topk(1, (catchhole_service_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} > 0) and (catchhole_service_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and ((time() - catchhole_service_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) < 180)))",
-          "legendFormat": "",
-          "range": false,
-          "instant": true,
-          "refId": "A"
-        }
-      ],
-      "options": {
-        "reduceOptions": {
-          "values": false,
-          "calcs": [
-            "last"
-          ],
-          "fields": ""
-        },
-        "orientation": "auto",
-        "textMode": "value",
-        "wideLayout": true,
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "center",
-        "showPercentChange": false
-      }
-    },
-    {
-      "id": 40,
-      "type": "stat",
-      "title": "등록 회차 수",
-      "description": "현재 ACTIVE 작품에 등록된 ARCHIVED가 아닌 회차 수입니다. 분석 상태·성공 여부와 관계없이 원고가 등록된 회차를 포함하고 삭제 중 작품·탈퇴 처리 중·완료 회원의 회차는 제외합니다. 1분마다 갱신하며 조회 실패 또는 3분 이상 갱신 없음은 관측 없음으로 표시합니다. 대시보드 시간 선택과 별개인 현재 집계입니다.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "catchhole-prometheus"
-      },
-      "pluginVersion": "13.2.2",
-      "gridPos": {
-        "x": 16,
-        "y": 11,
-        "w": 8,
-        "h": 5
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "suffix:회차",
-          "decimals": 0,
-          "min": 0,
-          "noValue": "관측 없음",
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "blue"
-          },
-          "mappings": [
-            {
-              "type": "special",
-              "options": {
-                "match": "nan",
-                "result": {
-                  "text": "관측 없음"
-                }
-              }
-            },
-            {
-              "type": "special",
-              "options": {
-                "match": "null",
-                "result": {
-                  "text": "관측 없음"
-                }
-              }
-            }
-          ]
-        },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "catchhole-prometheus"
-          },
-          "editorMode": "code",
-          "expr": "max(catchhole_service_episodes{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} and topk(1, (catchhole_service_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} > 0) and (catchhole_service_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and ((time() - catchhole_service_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) < 180)))",
-          "legendFormat": "",
-          "range": false,
-          "instant": true,
-          "refId": "A"
-        }
-      ],
-      "options": {
-        "reduceOptions": {
-          "values": false,
-          "calcs": [
-            "last"
-          ],
-          "fields": ""
-        },
-        "orientation": "auto",
-        "textMode": "value",
-        "wideLayout": true,
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "center",
-        "showPercentChange": false
-      }
-    },
-    {
       "id": 37,
       "type": "row",
       "title": "분석 및 운영 지표",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 16,
+        "y": 19,
         "w": 24,
         "h": 1
       },
@@ -1012,7 +1144,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 17,
+        "y": 20,
         "w": 8,
         "h": 5
       },
@@ -1092,7 +1224,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 8,
-        "y": 17,
+        "y": 20,
         "w": 8,
         "h": 5
       },
@@ -1172,7 +1304,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 16,
-        "y": 17,
+        "y": 20,
         "w": 8,
         "h": 5
       },
@@ -1252,7 +1384,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 22,
+        "y": 25,
         "w": 8,
         "h": 5
       },
@@ -1332,7 +1464,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 8,
-        "y": 22,
+        "y": 25,
         "w": 8,
         "h": 5
       },
@@ -1412,7 +1544,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 16,
-        "y": 22,
+        "y": 25,
         "w": 8,
         "h": 5
       },
@@ -1492,7 +1624,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 27,
+        "y": 30,
         "w": 24,
         "h": 8
       },
@@ -1604,7 +1736,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 35,
+        "y": 38,
         "w": 12,
         "h": 8
       },
@@ -1716,7 +1848,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 12,
-        "y": 35,
+        "y": 38,
         "w": 12,
         "h": 8
       },
@@ -1852,7 +1984,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 43,
+        "y": 46,
         "w": 8,
         "h": 5
       },
@@ -1932,7 +2064,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 8,
-        "y": 43,
+        "y": 46,
         "w": 8,
         "h": 5
       },
@@ -2012,7 +2144,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 16,
-        "y": 43,
+        "y": 46,
         "w": 8,
         "h": 5
       },

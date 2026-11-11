@@ -415,6 +415,478 @@
       }
     },
     {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "description": "사용자용 /api/v숫자/ 경로를 집계하며 /admin 경로는 제외합니다. 모든 열은 선택한 전체 기간·환경·API 인스턴스 기준입니다. 메서드와 route template별로 호출 수, 평균·p95 응답 시간, 4xx 응답률, 5xx 서버 오류율을 비교합니다. 호출 수 내림차순이며 열 제목을 눌러 정렬할 수 있습니다. 호출 수는 Prometheus increase의 수집 간격 보간을 포함한 추정 건수입니다. 응답 시간은 성공·실패 응답을 모두 포함하며 비동기 분석 완료 시간은 아닙니다. 4xx에는 검증·인증·권한 거절도 포함됩니다. 경로가 UNKNOWN인 요청과 관리 경로는 두 표에서 제외하며 기존 4xx 상세에서 확인합니다. 요청이 없는 행은 숨기고 빈 결과를 정상 0으로 채우지 않습니다. 표본이 적을 때 p95 해석에 주의하고 수집 상태도 함께 확인합니다.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "decimals": 2,
+          "mappings": [
+            {
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              },
+              "type": "special"
+            }
+          ],
+          "noValue": "계산 불가",
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "메서드"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 85
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "호출 수"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 115
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "평균 응답 시간"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "custom.width",
+                "value": 140
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p95 응답 시간"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "custom.width",
+                "value": 140
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "4xx 응답률"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.width",
+                "value": 115
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "5xx 오류율"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.width",
+                "value": 115
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "id": 17,
+      "options": {
+        "cellHeight": "sm",
+        "enablePagination": true,
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "호출 수"
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (method,uri) (increase(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",instance=~\"$api_instance\",uri=~\"/api/v[0-9]+/.*\",uri!~\"/api/v[0-9]+/admin(/.*)?\"}[$__range])) > 0",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "1000 * sum by (method,uri) (increase(http_server_requests_seconds_sum{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",instance=~\"$api_instance\",uri=~\"/api/v[0-9]+/.*\",uri!~\"/api/v[0-9]+/admin(/.*)?\"}[$__range])) / (sum by (method,uri) (increase(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",instance=~\"$api_instance\",uri=~\"/api/v[0-9]+/.*\",uri!~\"/api/v[0-9]+/admin(/.*)?\"}[$__range])) > 0)",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "1000 * histogram_quantile(0.95, sum by (le,method,uri) (increase(http_server_requests_seconds_bucket{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",instance=~\"$api_instance\",uri=~\"/api/v[0-9]+/.*\",uri!~\"/api/v[0-9]+/admin(/.*)?\"}[$__range]))) and on (method,uri) (sum by (method,uri) (increase(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",instance=~\"$api_instance\",uri=~\"/api/v[0-9]+/.*\",uri!~\"/api/v[0-9]+/admin(/.*)?\"}[$__range])) > 0)",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "100 * (sum by (method,uri) (increase(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",instance=~\"$api_instance\",uri=~\"/api/v[0-9]+/.*\",uri!~\"/api/v[0-9]+/admin(/.*)?\",status=~\"4..\"}[$__range])) or on (method,uri) (0 * sum by (method,uri) (increase(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",instance=~\"$api_instance\",uri=~\"/api/v[0-9]+/.*\",uri!~\"/api/v[0-9]+/admin(/.*)?\"}[$__range])))) / (sum by (method,uri) (increase(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",instance=~\"$api_instance\",uri=~\"/api/v[0-9]+/.*\",uri!~\"/api/v[0-9]+/admin(/.*)?\"}[$__range])) > 0)",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "100 * (sum by (method,uri) (increase(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",instance=~\"$api_instance\",uri=~\"/api/v[0-9]+/.*\",uri!~\"/api/v[0-9]+/admin(/.*)?\",status=~\"5..\"}[$__range])) or on (method,uri) (0 * sum by (method,uri) (increase(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",instance=~\"$api_instance\",uri=~\"/api/v[0-9]+/.*\",uri!~\"/api/v[0-9]+/admin(/.*)?\"}[$__range])))) / (sum by (method,uri) (increase(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",instance=~\"$api_instance\",uri=~\"/api/v[0-9]+/.*\",uri!~\"/api/v[0-9]+/admin(/.*)?\"}[$__range])) > 0)",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "E"
+        }
+      ],
+      "title": "사용자 API별 사용량 · 성능",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "Value #A": 2,
+              "Value #B": 3,
+              "Value #C": 4,
+              "Value #D": 5,
+              "Value #E": 6,
+              "method": 0,
+              "uri": 1
+            },
+            "renameByName": {
+              "Value #A": "호출 수",
+              "Value #B": "평균 응답 시간",
+              "Value #C": "p95 응답 시간",
+              "Value #D": "4xx 응답률",
+              "Value #E": "5xx 오류율",
+              "method": "메서드",
+              "uri": "API 경로"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "catchhole-prometheus"
+      },
+      "description": "Worker가 Backend에 호출하는 /api/internal/ 경로를 집계합니다. 모든 열은 선택한 전체 기간·환경·API 인스턴스 기준입니다. 메서드와 route template별로 호출 수, 평균·p95 응답 시간, 4xx 응답률, 5xx 서버 오류율을 비교합니다. 호출 수 내림차순이며 열 제목을 눌러 정렬할 수 있습니다. 호출 수는 Prometheus increase의 수집 간격 보간을 포함한 추정 건수입니다. 응답 시간은 성공·실패 응답을 모두 포함하며 비동기 분석 완료 시간은 아닙니다. 4xx에는 검증·인증·권한 거절도 포함됩니다. 경로가 UNKNOWN인 요청과 관리 경로는 두 표에서 제외하며 기존 4xx 상세에서 확인합니다. 요청이 없는 행은 숨기고 빈 결과를 정상 0으로 채우지 않습니다. 표본이 적을 때 p95 해석에 주의하고 수집 상태도 함께 확인합니다.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "decimals": 2,
+          "mappings": [
+            {
+              "options": {
+                "match": "nan",
+                "result": {
+                  "text": "계산 불가"
+                }
+              },
+              "type": "special"
+            }
+          ],
+          "noValue": "계산 불가",
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "메서드"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 85
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "호출 수"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 115
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "평균 응답 시간"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "custom.width",
+                "value": 140
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p95 응답 시간"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "custom.width",
+                "value": 140
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "4xx 응답률"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.width",
+                "value": 115
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "5xx 오류율"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.width",
+                "value": 115
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      },
+      "id": 18,
+      "options": {
+        "cellHeight": "sm",
+        "enablePagination": true,
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "호출 수"
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (method,uri) (increase(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",instance=~\"$api_instance\",uri=~\"/api/internal/.*\"}[$__range])) > 0",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "1000 * sum by (method,uri) (increase(http_server_requests_seconds_sum{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",instance=~\"$api_instance\",uri=~\"/api/internal/.*\"}[$__range])) / (sum by (method,uri) (increase(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",instance=~\"$api_instance\",uri=~\"/api/internal/.*\"}[$__range])) > 0)",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "1000 * histogram_quantile(0.95, sum by (le,method,uri) (increase(http_server_requests_seconds_bucket{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",instance=~\"$api_instance\",uri=~\"/api/internal/.*\"}[$__range]))) and on (method,uri) (sum by (method,uri) (increase(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",instance=~\"$api_instance\",uri=~\"/api/internal/.*\"}[$__range])) > 0)",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "100 * (sum by (method,uri) (increase(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",instance=~\"$api_instance\",uri=~\"/api/internal/.*\",status=~\"4..\"}[$__range])) or on (method,uri) (0 * sum by (method,uri) (increase(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",instance=~\"$api_instance\",uri=~\"/api/internal/.*\"}[$__range])))) / (sum by (method,uri) (increase(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",instance=~\"$api_instance\",uri=~\"/api/internal/.*\"}[$__range])) > 0)",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "catchhole-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "100 * (sum by (method,uri) (increase(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",instance=~\"$api_instance\",uri=~\"/api/internal/.*\",status=~\"5..\"}[$__range])) or on (method,uri) (0 * sum by (method,uri) (increase(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",instance=~\"$api_instance\",uri=~\"/api/internal/.*\"}[$__range])))) / (sum by (method,uri) (increase(http_server_requests_seconds_count{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\",instance=~\"$api_instance\",uri=~\"/api/internal/.*\"}[$__range])) > 0)",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "E"
+        }
+      ],
+      "title": "Worker 내부 API별 사용량 · 성능",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "Value #A": 2,
+              "Value #B": 3,
+              "Value #C": 4,
+              "Value #D": 5,
+              "Value #E": 6,
+              "method": 0,
+              "uri": 1
+            },
+            "renameByName": {
+              "Value #A": "호출 수",
+              "Value #B": "평균 응답 시간",
+              "Value #C": "p95 응답 시간",
+              "Value #D": "4xx 응답률",
+              "Value #E": "5xx 오류율",
+              "method": "메서드",
+              "uri": "API 경로"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
       "id": 12,
       "type": "timeseries",
       "title": "주요 API별 응답 시간 p95",
@@ -426,7 +898,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 5,
+        "y": 24,
         "w": 24,
         "h": 8
       },
@@ -587,7 +1059,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 13,
+        "y": 32,
         "w": 12,
         "h": 8
       },
@@ -699,7 +1171,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 13,
+        "y": 32,
         "w": 12,
         "h": 8
       },
@@ -816,7 +1288,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 21,
+        "y": 40,
         "w": 24,
         "h": 1
       },
@@ -834,7 +1306,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 22,
+        "y": 41,
         "w": 24,
         "h": 7
       },
@@ -928,7 +1400,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 29,
+        "y": 48,
         "w": 12,
         "h": 7
       },
@@ -1021,7 +1493,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 12,
-        "y": 29,
+        "y": 48,
         "w": 12,
         "h": 7
       },
@@ -1155,7 +1627,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 36,
+        "y": 55,
         "w": 12,
         "h": 7
       },
@@ -1279,7 +1751,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 12,
-        "y": 36,
+        "y": 55,
         "w": 12,
         "h": 7
       },
@@ -1425,7 +1897,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 0,
-        "y": 43,
+        "y": 62,
         "w": 12,
         "h": 9
       },
@@ -1541,7 +2013,7 @@
       "pluginVersion": "13.2.2",
       "gridPos": {
         "x": 12,
-        "y": 43,
+        "y": 62,
         "w": 12,
         "h": 9
       },
