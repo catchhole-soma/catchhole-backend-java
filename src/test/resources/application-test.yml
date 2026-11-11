@@ -60,3 +60,7 @@ chat:
 relationship:
   processing:
     scheduling-enabled: false
+
+retrieval:
+  index-lag-alert:
+    scheduling-enabled: false

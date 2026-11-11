@@ -166,7 +166,7 @@
 - base package: `org.monitoring.catchholebackend`
 - 도메인별 기능 코드는 `domain` 아래에 둔다.
 - 전역 공통 코드는 `global` 아래에 둔다.
-- `global.notification`은 Discord HTTP 전송만 담당한다. 분석 실패 발송 흐름은 `domain.analysis.processor`, payload 조립은 `mapper`, outbox 접근은 `repository`, 설정은 `global.config.analysisnotification`에 둔다.
+- `global.notification`은 Discord HTTP 전송만 담당한다. 분석 실패 발송 흐름은 `domain.analysis.processor`, payload 조립은 `mapper`, outbox 접근은 `repository`, 설정은 `global.config.analysisnotification`에 둔다. 검색 색인 지연 알림(#422)도 같은 나눔으로 `domain.retrieval`의 `processor`·`mapper`·`repository`, 설정은 `global.config.retrievalalert`에 둔다.
 - 공통 응답 코드는 `global.common.response` 아래에 둔다.
 - 전역 예외 코드는 `global.exception` 아래에 둔다.
 - 전역 `@Configuration` 클래스는 `global.config.<영역>` 아래에 둔다.
@@ -222,7 +222,10 @@ org.monitoring.catchholebackend
 │   │   └── type
 │   ├── retrieval
 │   │   ├── entity
-│   │   └── processor
+│   │   ├── mapper
+│   │   ├── processor
+│   │   ├── repository
+│   │   └── type
 │   ├── relationship
 │   │   ├── controller
 │   │   ├── dto
@@ -325,6 +328,7 @@ org.monitoring.catchholebackend
     │   ├── emaildelivery
 │   ├── emailverification
 │   ├── phoneverification
+    │   ├── retrievalalert
     │   ├── security
     │   ├── validation
     │   └── swagger
@@ -1144,6 +1148,7 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - 검색용 `retrieval_sources`/`retrieval_chunks`를 기존 분석 `episode_chunks`와 분리한다. 회차/작품 purge에서 검색 텍스트·벡터·manifest도 삭제하며, 파기 요청이 남으면 물리 데이터가 있어도 `retrieval_current_chunks`에서 제외한다.
 - 운영 실행기는 기존 OPERATIONAL_BACKFILL 원장과 RETRIEVAL_INDEX_SERVICE_PAID_V1 정책을 사용해 사용자 토큰을 예약·차감하지 않는다. provider 호출 전·저장 전 원문 검증은 기존 Work row 잠금과 직렬화한다. Java V76/파기 코드 배포 후 AI를 배포한다.
 - #240의 모든 검색 경로는 현재 출처 일치/보관·파기/서버 작품·회차 범위와 policy/model/version을 재검증한다. 원문 회차 번호를 사건 시점으로 해석하지 않으며 설정집·과거 원문은 지원 전 준비 완료로 집계하지 않는다.
+- #422 검색 색인 지연 알림: `RetrievalIndexLagAlertScheduler`가 `RETRIEVAL_INDEX_LAG_ALERT_FIXED_DELAY_MS`(기본 600000)마다 `RetrievalIndexLagRepository`의 읽기 전용 SQL 한 번으로, AI 백필이 색인해야 하는데 원고 시각(`episodes.content_updated_at`)부터 `RETRIEVAL_INDEX_LAG_ALERT_THRESHOLD`(기본 60m)가 지나도 READY가 아닌 회차를 세어 분석 실패 알림과 같은 Discord 웹훅으로 보낸다. AI 백필이 5분마다 돌면서 닷새 동안 멈춰도 아무도 몰랐고(1,294회차), 백필 쪽 상태가 아니라 결과로 알아야 timer 중단·예산 소진·불확실 사용량 차단·반복 제외를 모두 잡기 때문이다. 대상 조건은 AI `RetrievalStore`의 `SOURCE_SQL` AVAILABLE, 완료는 `inspect` READY와 같고(조각 원문 hash 재계산만 생략) Python 쪽 조건이 바뀌면 이 SQL도 같이 바꾼다. `RETRIEVAL_INDEX_LAG_ALERT_SCHEDULING_ENABLED`(기본 true)·`CHAT_OPERATIONS_ENABLED`(백필이 도는 조건)·웹훅 URL이 모두 있어야 동작하고 test 프로파일은 끈다. 0→N, 늘었고 `RETRIEVAL_INDEX_LAG_ALERT_REPEAT_INTERVAL`(기본 1h) 지남, 24시간 지남, N→0(해소)일 때만 보내며 발송이 성공한 경우에만 마지막 알림(개수·시각)을 Redis key 하나에 쓴다. API 재배포가 하루 여러 번이라 메모리에 두면 배포마다 다시 보내기 때문이며, Redis 재시작 뒤에는 지연 알림이 한 번 다시 갈 수 있다. 상세는 `docs/analysis-failure-notifications.md`의 #422 절이다.
 
 ### RDB·원문 결합 답변 (#240)
 
