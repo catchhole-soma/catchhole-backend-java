@@ -47,7 +47,7 @@ services:
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
-      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-7d}
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-60d}
       - --storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-5GB}
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro

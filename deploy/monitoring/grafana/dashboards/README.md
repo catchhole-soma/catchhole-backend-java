@@ -2,11 +2,13 @@
 
 운영 화면은 다음 세 JSON으로 관리한다. 수동 가져오기용이며 자동 dashboard provisioning은 사용하지 않는다. datasource UID는 `catchhole-prometheus`, 기본 최근 6시간/30초 새로고침, 브라우저 시간대다.
 
-| JSON | UID | 목적 |
-| --- | --- | --- |
-| [catchhole-overview.json](catchhole-overview.json) | catlfln | HTTP·서비스 이용·분석 핵심 요약과 수집 상태 |
-| [catchhole-api.json](catchhole-api.json) | catchhole-api | 주요 API 지연·EC2/JVM/Heap/GC/DB/Threads |
-| [catchhole-analysis.json](catchhole-analysis.json) | catchhole-analysis | 대기→실행→결과→LLM 원인 |
+| JSON | UID | 목적 | 데이터 패널 | 행 제목 | PromQL |
+| --- | --- | --- | ---: | ---: | ---: |
+| [catchhole-overview.json](catchhole-overview.json) | catlfln | HTTP·서비스 이용 추이·분석 핵심 요약과 수집 상태 | 24 | 2 | 26 |
+| [catchhole-api.json](catchhole-api.json) | catchhole-api | 사용자·Worker API별 사용량/성능·주요 API 지연·EC2/JVM/Heap/GC/DB/Threads | 17 | 1 | 35 |
+| [catchhole-analysis.json](catchhole-analysis.json) | catchhole-analysis | 대기→실행→결과→LLM 원인 | 22 | 0 | 34 |
+
+합계는 데이터 패널 63개와 행 제목 3개, target expr 95개다. 변수·annotation 쿼리는 PromQL 개수에서 제외한다. 2026-11-11 운영 Export → JSON의 운영 현황 version 18, API·분석 상세 version 3을 비교해 반영했다. 저장소는 기존 UID·패널 ID·schemaVersion 42를 유지하고 운영 DB의 id/version 및 export가 생성한 기본값은 그대로 복사하지 않는다.
 
 모든 화면에 환경 필터와 시간 범위를 이어가는 화면 링크가 있다. API 상세는 API 인스턴스, 분석 상세는 Worker 종류/인스턴스를 선택한다. Worker 필터는 Python 패널에만 적용되며 DB·회차 결과는 전체 서비스 관측이다. DB Gauge는 API 인스턴스를 max로 중복 제거한 후 서로 다른 유형/모드를 합산한다. 세부 정의는 [분석 지표 문서](../../../../docs/analysis-metrics.md)를 따른다.
 
@@ -14,13 +16,17 @@
 
 현재 GUI 대시보드 JSON을 먼저 export해 저장한다. API 상세와 분석 상세를 먼저 가져온 뒤 기존 UID catlfln의 overview를 덮어써 링크를 완성한다. 서버에 JSON을 복사하거나 Grafana를 재시작하는 것만으로 화면이 갱신되지는 않는다. 운영 Grafana 버전은 13.2.2이며 JSON schemaVersion은 기존 42를 유지한다.
 
+Grafana 화면에서 고친 뒤에는 JSON을 export해서 저장소의 해당 JSON과 패널 설명·개수·PromQL 검증에 반영한다. 화면 변경은 저장소에 자동으로 돌아오지 않는다.
+
+Prometheus 메트릭은 **60일(`60d`)** 보존한다. 2026-11-11 운영 실행 옵션이 30일임을 확인한 뒤 60일로 늘리고 `/api/v1/status/flags`의 `storage.tsdb.retention.time=60d`를 검증했다. 두 달은 달력 월이 아닌 60일 기준이며, 기존 5GiB 크기 제한에 먼저 도달하면 60일 전에도 과거 블록이 정리될 수 있다. 이미 삭제된 이력은 복원되지 않는다. 확인·변경 방법은 [운영 데이터와 업데이트](../../../MONITORING_DEPLOYMENT.md#운영-데이터와-업데이트)를 따른다. [Tempo의 336시간(14일)](../../../TRACING_DEPLOYMENT.md)은 별도 Trace 보존 기간이다.
+
 새 계측이 배포·수집되기 전에는 분석 패널이 데이터 없음일 수 있다. 배포된 모든 Worker의 `up`, Java snapshot success와 마지막 갱신 시각을 함께 확인한다. Worker 수집 정상 수는 현재 5개 분석+2개 비교=7개가 기준이다. scale을 바꾸면 이 설명과 수집 대상을 함께 갱신한다.
 
 ## 결과 없음과 수집 장애
 
-운영 현황의 `서비스 이용 현황`은 전체 회원 수, 남은 피드백 개수, 등록 작품·회차 수, 최근 7일 분석 이용자 수, 최근 24시간 분석 요청 수·요청당 평균 회차 수를 표시한다. 1분마다 DB에서 갱신한 현재 값이므로 대시보드 시간 선택은 고정 7일·24시간 창을 바꾸지 않는다. 여러 회차의 최초 접수를 1건으로 세고 사용자 재시도와 내부 후속 비교는 요청 수에서 제외한다. 탈퇴·작품 삭제로 사라진 기록은 기간 집계에서도 제외된다. 정확한 정의·과거 기록 제한은 [서비스 이용 지표 문서](../../../../docs/service-usage-metrics.md)를 따른다.
+운영 현황의 `서비스 이용 현황`은 전체 회원 수, 남은 피드백 개수, 등록 작품·회차 수, 최근 7일 분석 이용자 수, 최근 24시간 분석 요청 수·요청당 평균 회차 수를 표시한다. 전체 회원 수·등록 작품 수·등록 회차 수는 **선택 기간의 각 시점에 관측한 총수**를 그리는 추이 그래프 3개다. 1분마다 DB에서 갱신하며 조회 실패·180초 이상 갱신 없음은 빈 구간으로 남긴다. 범례 Last는 선택 기간의 마지막 관측값이며 수집 시작 전 이력은 복원하지 않는다. 나머지 4개는 현재 값을 표시하는 Stat이고, 시간 선택으로 고정 7일·24시간 집계 창이 바뀌지는 않는다. 여러 회차의 최초 접수를 1건으로 세고 사용자 재시도와 내부 후속 비교는 요청 수에서 제외한다. 탈퇴·작품 삭제로 사라진 기록은 기간 집계에서도 제외된다. 정확한 정의·과거 기록 제한은 [서비스 이용 지표 문서](../../../../docs/service-usage-metrics.md)를 따른다.
 
-서비스 이용 Stat은 최신 정상 snapshot을 선택하고 같은 전체 label의 값을 연결한다. 조회 실패·180초 이상 갱신 없음은 `관측 없음`이다. 과거 원본 요청의 묶음 기록이 불완전하면 요청 수는 `기록 부족`, 평균은 `계산 불가`로 표시한다. 정상 조회에서 요청이 없으면 요청 수 0과 계산할 수 없는 평균을 구분한다. 기존 16개 운영 패널을 보존하고 HTTP 요약 아래의 서비스 이용 영역에 기존 네 개와 신규 세 개의 Stat을 표시한다. 남은 피드백 개수는 일반 의견 전체가 아닌 기존 토큰 요청의 PENDING 건수이며, 등록 작품·회차는 삭제 중 작품·탈퇴 계정·ARCHIVED 회차를 제외한다.
+서비스 이용 쿼리는 각 평가 시점의 최신 정상 snapshot을 선택하고 같은 전체 label의 값을 연결한다. Stat의 조회 실패·180초 이상 갱신 없음은 `관측 없음`이다. 과거 원본 요청의 묶음 기록이 불완전하면 요청 수는 `기록 부족`, 평균은 `계산 불가`로 표시한다. 정상 조회에서 요청이 없으면 요청 수 0과 계산할 수 없는 평균을 구분한다. HTTP 요약 아래의 서비스 이용 영역에 추이 그래프 3개와 Stat 4개를 배치한다. 남은 피드백 개수는 일반 의견 전체가 아닌 기존 토큰 요청의 PENDING 건수이며, 등록 작품·회차는 삭제 중 작품·탈퇴 계정·ARCHIVED 회차를 제외한다.
 
 Stat은 Instant/Last를 사용하고 과거 유효값으로 현재 NaN을 채우지 않는다. 분석 결과 준비 p95는 성공·부분 성공만, 완전 성공률은 success/(success+partial_success+failure)이며 취소 제외다. 최근 종료 결과가 없으면 계산 불가다. LLM 호출이 없는 유휴 구간의 p95도 계산 불가다.
 
@@ -36,9 +42,26 @@ Stat은 Instant/Last를 사용하고 과거 유효값으로 현재 NaN을 채우
 
 외부 LLM 오류는 캐치홀 API 응답과 별도다. 분석 상세의 `LLM 호출 실패 원인`은 400·401·403·429·기타 4xx·5xx를 구분하고 408은 timeout으로 유지한다. 429만으로 요청 제한과 API 사용 한도 원인을 확정하지 않는다. 새 분류는 Worker 배포 후 호출부터 적용하며 과거 `other` 데이터는 재분류하지 않는다.
 
-HTTP 패널은 `/actuator.*`와 `/healthz`를 제외하고 내부 API 요청은 포함한다. 요청 없음의 0/0 오류율·p95는 계산 불가이며 RPS 0과 구분한다. API 상세의 GC 평균도 이벤트가 없으면 계산 불가다. 수집 자체가 없는 경우에는 up와 target 수부터 확인한다.
+HTTP 요약과 기존 4xx 상세 패널은 `/actuator.*`와 `/healthz`를 제외하고 내부 API 요청은 포함한다. API별 사용량·성능 표 2개의 경로 범위는 아래와 같이 따로 제한한다. 요청 없음의 0/0 오류율·p95는 계산 불가이며 RPS 0과 구분한다. API 상세의 GC 평균도 이벤트가 없으면 계산 불가다. 수집 자체가 없는 경우에는 up와 target 수부터 확인한다.
 
-현재 세 JSON의 85개 dashboard PromQL은 promtool 3.13.3으로 문법을 확인했고, [쿼리 검증 fixture](../../tests/dashboard-promql.test.json)의 23개 시나리오는 snapshot 실패·정체·중복 API 관측·다른 mode 합산·부분 성공/취소의 성공률, 첫 완료의 0 기준값, 마지막 완료 선택과 5분 이후 유지·label 변경, 서비스 이용 snapshot의 최신 값 선택·빈 집계·불완전 이력과 HTTP 4xx의 환경·인스턴스·관리 경로 필터, 상태 코드/경로 집계·0/NaN/데이터 없음 구분을 검증한다. JSON 변경 시 모든 target expr을 추출해 template 변수를 실제 값으로 치환한 후 promtool check rules를 다시 실행한다.
+현재 세 JSON의 95개 dashboard PromQL은 promtool 3.13.3으로 문법을 확인했고, [쿼리 검증 fixture](../../tests/dashboard-promql.test.json)의 29개 시나리오를 검증했다. 기존 23개는 snapshot 실패·정체·중복 API 관측·다른 mode 합산·부분 성공/취소의 성공률, 첫 완료의 0 기준값, 마지막 완료 선택과 5분 이후 유지·label 변경, 서비스 이용 snapshot의 최신 값 선택·빈 집계·불완전 이력과 HTTP 4xx의 환경·인스턴스·관리 경로 필터, 상태 코드/경로 집계·0/NaN/데이터 없음 구분을 검사한다. 추가 6개는 두 표의 A~E에 대해 사용자/Worker·환경/인스턴스·관리 경로/UNKNOWN 제외·메서드별 집계, 성공·실패를 합친 지연, 오류 지표 부재의 0%, 유휴 행 숨김, 지표 없음, 최근 5분이 유휴여도 선택 전체 기간의 요청·p95 유지, counter reset을 검사한다. JSON 변경 시 모든 target expr을 추출해 template 변수를 실제 값으로 치환한 후 promtool check rules를 다시 실행한다.
+
+## API별 사용량 · 성능 표
+
+`사용자 API별 사용량 · 성능`은 `/api/v[0-9]+/.*`에서 `/api/v[0-9]+/admin(/.*)?`를 제외한다. `Worker 내부 API별 사용량 · 성능`은 Worker가 Backend에 호출하는 `/api/internal/.*`를 집계한다. 두 표 모두 선택한 환경·**Backend API 인스턴스** 기준이며 Worker 인스턴스 필터가 아니다. `UNKNOWN`과 관리 경로는 두 표에서 제외하고 기존 4xx 상세에서 확인한다.
+
+| 열 | 쿼리 | 의미 |
+| --- | --- | --- |
+| 메서드·API 경로 | 공통 label | HTTP method와 실제 ID를 포함하지 않는 route template |
+| 호출 수 | A | 선택 기간의 count increase 합계. 수집 간격 보간을 포함한 추정 건수 |
+| 평균 응답 시간 | B | 같은 기간의 sum increase / count increase × 1000, 단위 ms |
+| p95 응답 시간 | C | 같은 기간의 bucket increase를 method·uri·le별로 합산한 histogram p95 × 1000, 단위 ms |
+| 4xx 응답률 | D | 같은 기간의 4xx count increase / 전체 count increase × 100. 검증·인증·권한 거절 포함 |
+| 5xx 오류율 | E | 같은 기간의 5xx count increase / 전체 count increase × 100 |
+
+모든 열은 `$__range`를 사용한 **선택 전체 기간**의 Instant 조회다. 표의 p95는 아래 주요 API 그래프의 최근 5분 p95와 다르며, 시점별 p95를 평균내지 않는다. 응답 시간은 성공·실패를 모두 포함하고 비동기 분석·LLM 완료 시간이 아니다. 호출 수 내림차순으로 표시하며 열 제목으로 정렬할 수 있다.
+
+요청이 있는 경로에서 해당 오류 지표만 없으면 4xx·5xx는 0%다. 요청이 없는 행은 숨기고 지표가 없는 빈 결과를 정상 0으로 채우지 않는다. 호출 수는 보간 때문에 소수일 수 있고, 적은 표본의 p95는 수집 상태와 함께 해석한다.
 
 ## JVM CPU와 EC2 CPU
 

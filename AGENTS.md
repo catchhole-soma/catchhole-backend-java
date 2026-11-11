@@ -88,7 +88,7 @@
 - 로컬 Prometheus는 `compose.monitoring.yml`의 `catchhole-monitoring` 프로젝트로 관리한다. `-f compose.monitoring.yml`을 명시해 실행하며, Spring이 관리하는 기존 `compose.yaml`의 PostgreSQL·Redis와 실행 수명을 분리한다.
 - 수집 설정은 `monitoring/prometheus.yml`에서 관리한다. Docker Desktop의 `host.docker.internal:8080`을 통해 Mac에서 실행 중인 Spring의 `/actuator/prometheus`를 15초마다 수집하고, 수집 timeout은 5초로 둔다. `job` label은 `catchhole-backend`이며 초기 구성에는 지표 제외 규칙을 두지 않는다.
 - 로컬 Prometheus 이미지는 `prom/prometheus:v3.13.3`으로 고정하고, UI/API는 `127.0.0.1:9090`에만 공개한다. 데이터는 전용 `prometheus_data` named volume에 저장하고 보존 기간은 7일로 둔다.
-- 운영 모니터링은 `deploy/compose.monitoring.prod.yml`과 `deploy/monitoring/`에서 관리한다. Prometheus `v3.13.3`·Grafana `13.2.2`, 15초 수집·5초 timeout, 기본 7일·5GB TSDB 블록 보존 제한과 전용 영속 볼륨을 사용한다. WAL·head 등은 별도 여유 공간이 필요하므로 5GB를 전체 디스크 상한으로 해석하지 않는다.
+- 운영 모니터링은 `deploy/compose.monitoring.prod.yml`과 `deploy/monitoring/`에서 관리한다. Prometheus `v3.13.3`·Grafana `13.2.2`, 15초 수집·5초 timeout, 기본 60일·5GB TSDB 보존 제한과 전용 영속 볼륨을 사용한다. 두 달의 추이를 비교하기 위한 60d이며 2026-11-11 운영 실행 옵션으로 확인했다. 시간·크기 중 먼저 도달한 제한을 적용하고 WAL·head·compaction 등은 별도 여유 공간이 필요하므로 5GB를 전체 디스크 상한으로 해석하지 않는다. 로컬 개발의 7일 보존과 Tempo Trace의 14일 보존은 별개다.
 - 운영 수집 대상은 `deploy/monitoring/targets/catchhole-backend.json.example`을 실제 JSON으로 복사해 API 사설 IP:8081을 입력한다. Prometheus YAML의 환경변수 치환을 가정하지 않고 `file_sd_configs`로 읽는다. 실제 targets JSON과 `deploy/monitoring.env`는 커밋하지 않는다.
 - CPU 패널은 Spring Boot JVM의 `process_cpu_usage`와 실행 환경 전체의 `system_cpu_usage`를 구분하며 모두 기존 Actuator 지표에 100을 곱한 최근 관측값이다. 현재 운영 컨테이너는 CPU quota·cpuset 제한 없이 EC2의 2 vCPU를 인식하므로 전체 패널은 현재 EC2 기준이고 CPU 1개 최대 사용은 약 50%, 2개는 약 100%다. Docker CPU 제한·cpuset·JVM CPU 설정을 바꾸면 `system_cpu_usage`가 컨테이너 기준이 될 수 있으므로 패널 설명을 다시 확인한다. 5분 평균이나 CloudWatch CPUUtilization과 정확히 같은 측정값으로 설명하지 않는다. 별도 exporter·9100 포트·새 Prometheus job은 사용하지 않는다.
 - Grafana 데이터 소스 UID는 `catchhole-prometheus`, 주소는 같은 Compose 네트워크의 `http://prometheus:9090`으로 고정한다. 팀원은 `https://monitoring.catchhole.com`에서 기존 Grafana 계정으로 로그인한다. 모니터링 EC2의 Nginx가 HTTPS를 종료하고 Docker 내부 `grafana:3000`으로 전달하며 API Caddy는 경유하지 않는다. 익명 접속·회원가입은 계속 끄고 초기 관리자 비밀번호를 필수로 주입한다.
@@ -107,6 +107,7 @@
 - `analysis.metrics.scheduling-enabled=true`, `fixed-delay-ms=15000`은 base YAML, test에서는 비활성이다. snapshot은 집계 SQL로 갱신하고 scrape는 캐시를 읽는다. 실패는 success=0/마지막 성공 시각 유지, 빈 대기 age=0이며 대시보드는 45초 이상 오래된 값을 정상 0으로 채우지 않는다. DB Gauge는 전체 label 조합별 max로 API 중복 제거 뒤 다른 mode/type을 sum한다.
 - 서비스 이용 현황은 `global.monitoring`의 읽기 전용 DB snapshot과 캐시 Gauge를 사용한다. `service-usage.metrics.scheduling-enabled=true`, `fixed-delay-ms=60000`은 base YAML, test에서는 비활성이다. 요청 묶음은 최초 접수 기준으로 재시도를 중복 제거하고, 최근 24시간 원본 이력이 불완전하면 요청 수·평균을 NaN으로 표시한다. 조회 실패·180초 이상 갱신 없음은 정상 0으로 채우지 않는다. 여러 API 인스턴스에서는 최신 정상 snapshot과 같은 전체 label의 값을 선택하며 ID label은 추가하지 않는다. 삭제된 회원·작품은 기간 집계에서도 제외된다. 정의·설정·제약은 `docs/service-usage-metrics.md`를 따른다.
 - Grafana JSON은 운영 현황 catlfln / API·서버 상세 catchhole-api / 분석·AI 상세 catchhole-analysis 3개다. 설명/CPU 기준/peak thread를 API 상세에 보존하고 Python Worker는 개별 /metrics를 file_sd로 수집한다. 기본 localhost→운영 사설 bind 및 모니터링 SG 적용, actual port target 생성·원자 교체는 각 배포 안내를 따른다. 지표 정의는 `docs/analysis-metrics.md`가 담당한다.
+- Grafana 화면을 수정하면 JSON을 export해 저장소 JSON과 설명·패널/쿼리 개수·PromQL 검증을 함께 갱신한다. 자동 dashboard provisioning과 화면 변경의 저장소 역동기화가 없기 때문이다. Prometheus 보존 기간은 확인한 실제 설정을 근거로 문서·예제에 반영하며 Tempo Trace 보존 기간과 구분한다.
 
 ### Local Tracing
 
