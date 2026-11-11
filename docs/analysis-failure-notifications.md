@@ -282,3 +282,101 @@ reason별 미완료 인물 쌍 개수와 정상 관계 반영·후속 분석 계
 두 관계 사건 모두 DB가 관리하는 `failure_notification_attempt_id`로 기존 발송 묶음에
 연결한다. V111 정제 함수는 V109의 검사·제한된 발췌·세계관 원인 허용목록을 유지한다.
 인물 쌍 사건 자체는 고정 reason·개수·안전한 식별자만 생성하며 원문·인물 이름을 넣지 않는다.
+
+## #422 검색 색인 지연 알림
+
+챗봇 원문 검색 색인은 AI 서버의 백필(`catchhole-retrieval-backfill.timer`, 5분 주기)이 채운다. 이 백필이
+닷새 동안 멈춰 분석된 회차 2,428개 중 1,294개(38작품)에 색인이 없었지만 아무 알림도 없었다. 백필은 timer 중단,
+누적 예산 소진, 불확실 사용량 차단(`BLOCKED / UNKNOWN_USAGE`), 순회마다 반복되는 제외처럼 여러 이유로 멈출 수 있으므로
+Backend가 그 원인 대신 **결과**를 센다. 색인돼야 하는데 기준 시간보다 오래 색인되지 않은 회차다.
+
+### 무엇을 세나
+
+`RetrievalIndexLagRepository.read`의 읽기 전용 SQL 한 번이 지연 회차 수, 그 회차의 작품 수, 가장 오래된 원고 시각,
+지연 회차가 많은 작품 ID 최대 3개를 돌려준다. 조건은 AI `app/retrieval/store.py`와 같다.
+
+| 조건 | AI 기준 |
+| --- | --- |
+| 작품 `lifecycle_status='ACTIVE'`, 회원 `status='ACTIVE'` | `backfill_snapshot`, `SOURCE_SQL`의 `UNAVAILABLE` |
+| 회차 `status <> 'ARCHIVED'` | `backfill_sources`, `ARCHIVED` |
+| 파기 요청(`episode_source_purge_requests`)이 없음 | `PURGE_PENDING` |
+| 원문 key가 비어 있지 않고 hash가 소문자 16진수 64자 | `SOURCE_UNIDENTIFIED` |
+| 색인 완료: work/key/version(NULL 포함 일치)/hash/`cl100k-800-100-boundary-v1`이 같은 `retrieval_sources`가 있고, 저장 조각 수와 READY 조각 수가 모두 `chunk_count`와 같다 | `inspect`의 `_matches`와 `READY` |
+| READY 조각: `status='READY'`, 벡터 있음, `text-embedding-3-small`, `CHAT_RETRIEVAL_EMBEDDING_VERSION` | `chunk_state` |
+
+`inspect`가 하는 조각 원문 SHA-256 재계산(`CHUNK_MISMATCH`)만 하지 않는다. 확인마다 모든 조각 원문을 읽어야 하고,
+조각은 같은 저장 경로가 hash와 함께 쓰므로 어긋날 일이 사실상 없기 때문이다. 백필의 작품 allowlist·순회 상한은
+운영 campaign이 활성 작품 전체이므로 반영하지 않는다. 설정집 색인은 대상이 아니다.
+
+지연 시간은 `episodes.content_updated_at`부터 잰다. 업로드와 원문 교체(key/hash가 바뀌는 모든 경로)에서만 갱신되고 제목·분석
+상태 변경으로는 바뀌지 않아, 지금 원문이 색인 대상이 된 시각에 가장 가깝다. `updated_at`은 분석 상태가 바뀔 때마다,
+`created_at`은 교체해도 그대로라 쓰지 않는다. 교체 직후 잠깐(보통 10초) 있는 파기 요청 동안은 대상에서 빠지므로,
+파기가 기준 시간보다 오래 막혔다가 풀리면 그 회차는 풀리자마자 지연으로 셀 수 있다.
+
+### 실행 계획
+
+기존 인덱스만 쓴다(새 migration 없음). `episodes`는 원문 열만 걸러 전체 순차 조회하고, `retrieval_sources`는 기본 키
+(`episode_id`), 파기 요청은 `uk_episode_source_purge_episode`, `works`·`members`는 기본 키로 붙는다. `retrieval_chunks`는
+상태·모델·버전 열만 읽어 `episode_id`별로 한 번 묶으며 원문·벡터는 읽지 않는다. 2026-11-11 로컬 pgvector 0.8.2-pg16에서
+운영의 10배(회차 26,000개, 조각 124,000개, 지연 2,507개) 합성 데이터로 잰 결과 실행 약 53ms, 공유 버퍼 약 8만 페이지(전부 캐시)였고
+조각 heap은 22MB였다(합성 원문·벡터는 TOAST로 빠짐). 실제 원문이 압축돼 heap에 남으면 조각 heap이 커져 순차 조회가 가장 큰 비용이 되지만
+10분에 한 번이라 허용하며, 쿼리 timeout은 5초다.
+
+### 켜는 조건과 설정
+
+세 조건이 모두 맞아야 동작한다.
+
+1. `RETRIEVAL_INDEX_LAG_ALERT_SCHEDULING_ENABLED=true`(기본 true). test 프로파일은 false.
+2. `CHAT_OPERATIONS_ENABLED=true`. AI 백필은 이 게이트가 켜져 있을 때만 돈다. 꺼진 환경에서 세면 영원히 지연으로 알리게 된다.
+   local·e2e 기본값은 false라 따로 켜지 않으면 동작하지 않는다.
+3. `ANALYSIS_FAILURE_DISCORD_WEBHOOK_URL`이 있다. 분석 실패 알림과 같은 채널로 가며 `ANALYSIS_FAILURE_NOTIFICATIONS_ENABLED`와는 별개다.
+   비어 있거나 형식이 틀리면 기동은 막지 않고 이 알림만 끈다(로그에 URL을 남기지 않는다).
+
+| 환경변수 | 기본값 | 뜻 |
+| --- | --- | --- |
+| `RETRIEVAL_INDEX_LAG_ALERT_FIXED_DELAY_MS` | `600000` | 확인 주기(직전 확인이 끝난 뒤) |
+| `RETRIEVAL_INDEX_LAG_ALERT_THRESHOLD` | `60m` | 원고 시각부터 이 시간이 지나도 READY가 아니면 지연 |
+| `RETRIEVAL_INDEX_LAG_ALERT_REPEAT_INTERVAL` | `1h` | 지연이 늘었을 때 다시 보내기 위한 최소 간격 |
+
+### 언제 보내나
+
+마지막으로 보낸 알림의 지연 회차 수와 시각을 기준으로 판단한다.
+
+- 지연 0개 → 1개 이상: `검색 색인 지연`
+- 직전 알림보다 늘었고 직전 알림 뒤 1시간(`REPEAT_INTERVAL`) 지남: `검색 색인 지연 증가`
+- 지연이 이어지고 직전 알림 뒤 24시간 지남(늘지 않아도): `검색 색인 지연 계속`
+- 지연 알림 뒤 0개: `검색 색인 지연 해소`(한 번)
+- 그 밖에는 보내지 않는다. 줄었다가 다시 늘어도 직전 알림 개수보다 많아야 `증가`다.
+
+Discord가 성공 응답을 줄 때만 기록한다. 실패하면 기록이 그대로라 다음 확인에서 다시 판단해 보내며,
+429·잘못된 웹훅이 요구한 대기 시간 동안은 조회도 발송도 쉰다. DB·Redis·Discord 오류는 WARN 로그 한 줄로 남기고 스케줄러 밖으로 던지지 않는다.
+발송은 성공했는데 기록 쓰기만 실패하면 다음 확인에서 한 번 더 갈 수 있다.
+
+마지막 알림은 Redis key `retrieval-index-lag-alert:last-notified`(값 `회차수:epoch밀리초`, 만료 7일) 하나에 둔다.
+API는 하루에도 여러 번 재배포되므로 메모리에 두면 배포마다 다시 보낸다. Redis는 운영에 이미 있고 API 컨테이너와 따로 살아남는다.
+운영 Redis는 비영속이라 Redis가 재시작되면 기록 없음(0개)으로 읽혀 지연 알림이 한 번 다시 가거나, 그 사이 해소됐다면 해소 알림이 빠진다.
+값 하나를 통째로 쓰므로 API가 둘이어도 기록이 깨지지 않지만 같은 알림이 두 번 갈 수는 있다.
+
+### 알림 내용
+
+```text
+⚠️ [운영] 검색 색인 지연 · 작품 38개 / 회차 1294개
+원고가 올라온 뒤 1시간이 넘도록 검색 색인이 없는 회차입니다. 가장 오래 기다린 회차: 5일 3시간
+지연 회차가 많은 작품 ID: <작품 UUID>, <작품 UUID>, <작품 UUID>
+AI 서버의 검색 색인 작업(catchhole-retrieval-backfill timer, manage-ai-runtime.py status) 상태를 확인하세요.
+```
+
+`증가`는 `직전 알림보다 늘었습니다: N개 → M개` 줄이 붙고, 해소는 `기준 1시간을 넘겨 검색 색인이 없는 회차가 이제 없습니다.` 한 줄이다.
+기존 분석 실패 알림처럼 작품 ID는 넣되 원고·회차 제목·회원 정보·S3 key는 넣지 않는다. 받으면 AI 서버에서
+`manage-ai-runtime.py status`의 `state`·`reason`·`excludedOrUnavailableSources`와 journald를 확인한다(AI `docs/chat-runtime-operations.md`).
+
+### 검증
+
+```sh
+./gradlew test --tests '*RetrievalIndexLag*'
+```
+
+`RetrievalIndexLagAlertSchedulerTest`가 가짜 시계·가짜 웹훅으로 위 규칙과 발송 실패·오류 격리를, `RetrievalIndexLagAlertConfigTest`가
+세 조건을, `RetrievalIndexLagRepositoryPostgresIntegrationTest`가 Testcontainers PostgreSQL에서 대상·완료 조건을,
+`RetrievalIndexLagAlertStateStoreRedisIntegrationTest`가 Testcontainers Redis 기록을 확인한다. 두 Testcontainers 테스트는 Docker가 없으면 건너뛴다.
+실제 Discord 채널 수신과 운영 적용은 아직 확인하지 않았다.
