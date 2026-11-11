@@ -176,7 +176,7 @@ report 자체가 없는 기존 분석 회차의 새 진단 입구는 이번 범�
 현재 report를 선택하는 소비자는 `ValidationReportRepository.findByEpisodeIdAndCurrentTrue`,
 `findStatesByEpisodeIdIn`(Episode 목록), `AnalysisBatchSummaryRepository.readValidations`(배치 요약),
 `ValidationDataServiceImpl.requireCurrentReport`(읽기 전후 scalar 검증)다.
-호환 `findByEpisodeId`도 현재 report만 반환한다. 배치 요청 이력의 min/max 시각 SQL은 모든 접수를 집계하고,
+호환 `findByEpisodeId`도 현재 report만 반환한다. 배치 요약과 배치 목록의 검수 노출 판정은 삭제(`ARCHIVED`)된 회차의 현재 report를 빼며(#429), 배치 요청 이력의 min/max 시각 SQL은 모든 접수를 집계하고,
 `AnalysisJobEligibility`·`AnalysisJobRepository.existsValidationStagingForEpisodes`의 추출 차단은 현재 report에 검토 종료 receipt가 없으면 막는다(GH312 S2).
 퇴역 report와 그 receipt는 판단에 쓰지 않으며, 공개 생성은 현재 report가 있으면 receipt가 있어도 계속 막는다.
 이력 수를 현재 검수 수로 합치거나 기존 Job 성공 수로 가장하지 않는다.

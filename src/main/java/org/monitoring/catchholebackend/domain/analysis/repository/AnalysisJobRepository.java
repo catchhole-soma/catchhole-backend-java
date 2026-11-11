@@ -266,20 +266,33 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             """)
     List<AnalysisJob> findAllWithTargetsByWorkIdOrderByCreatedAtDesc(@Param("workId") UUID workId);
 
-    /** 분석 기록을 지운 batch는 지운 시각 뒤의 새 분석 요청·검수 접수가 있을 때만 목록에 다시 나온다(alias b = upload_batches). */
+    /**
+     * 목록에 올리는 현재 검수 report(alias b = upload_batches). 삭제(ARCHIVED)된 회차의 report는 퇴역하지 않아도 보지 않는다(#429).
+     * 회차를 지우면 그 검수 카드와 원고 목록 위 안내도 사라져야 하고, 검수 요약({@code AnalysisBatchSummaryRepository.readValidations})도 같은 조건이다.
+     */
+    String LISTED_VALIDATION = """
+            (exists (select 1 from validation_reports v join episodes ve on ve.id = v.episode_id
+                where v.batch_id = b.id and v.is_current = true and ve.status <> 'ARCHIVED'))
+            """;
+
+    /**
+     * 분석 기록을 지운 batch는 지운 시각 뒤의 새 분석 요청·검수 접수가 있을 때만 목록에 다시 나온다(alias b = upload_batches).
+     * 그 뒤 회차를 삭제한 검수 접수는 볼 카드가 없으므로 지운 batch를 되살리지 않는다(#429).
+     */
     String VISIBLE_ANALYSIS_HISTORY = """
             (b.analysis_history_deleted_at is null
                or exists (select 1 from analysis_jobs dj where dj.batch_id = b.id
                    and dj.job_type in ('SETTING_EXTRACTION','EPISODE_VALIDATION') and dj.created_at > b.analysis_history_deleted_at)
-               or exists (select 1 from validation_reports dv where dv.batch_id = b.id and dv.created_at > b.analysis_history_deleted_at))
+               or exists (select 1 from validation_reports dv join episodes de on de.id = dv.episode_id
+                   where dv.batch_id = b.id and dv.created_at > b.analysis_history_deleted_at and de.status <> 'ARCHIVED'))
             """;
 
     /**
      * GH312: 파일 교체 뒤 재검수 report는 회차의 새 업로드 batch에 묶이므로 퇴역 report만 남은 옛 batch는 목록에 올리지 않는다.
-     * 표시되는 batch의 최초·최근 요청 시각은 계속 모든 접수 이력을 집계한다.
+     * 표시되는 batch의 최초·최근 요청 시각은 계속 모든 접수 이력(퇴역·삭제 회차 report 포함)을 집계한다.
      * kind는 {@link org.monitoring.catchholebackend.domain.analysis.type.AnalysisBatchKind} 이름이며,
-     * ANALYSIS는 분석 Job이 있는 batch, VALIDATION은 현재 검수 report가 있는 batch라서 검토를 마쳐 설정 추출이
-     * 시작된 검수 batch는 두 목록에 모두 나온다.
+     * ANALYSIS는 분석 Job이 있는 batch, VALIDATION은 현재 검수 report({@link #LISTED_VALIDATION})가 있는 batch라서 검토를 마쳐 설정 추출이
+     * 시작된 검수 batch는 두 목록에 모두 나온다. 삭제한 회차의 검수만 있던 batch는 어느 kind에도 나오지 않는다(#429).
      * 작가가 분석 기록을 지운 batch는 지운 시각 뒤에 새 분석 요청이나 검수 접수가 생길 때까지 모든 kind에서 뺀다.
      */
     @Query(value = """
@@ -290,18 +303,22 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
             ) select cast(b.id as varchar) as batchId, b.upload_type as uploadType, min(r.created_at) as firstRequestedAt,
                 max(r.created_at) as lastRequestedAt from upload_batches b join requests r on r.batch_id = b.id
                 where (exists (select 1 from analysis_jobs j where j.batch_id = b.id and j.job_type in ('SETTING_EXTRACTION','EPISODE_VALIDATION'))
-                   or exists (select 1 from validation_reports v where v.batch_id = b.id and v.is_current = true))
+                   or """ + LISTED_VALIDATION + """
+                  )
                   and (:kind = 'ALL'
-                   or (:kind = 'VALIDATION' and exists (select 1 from validation_reports v where v.batch_id = b.id and v.is_current = true))
+                   or (:kind = 'VALIDATION' and """ + LISTED_VALIDATION + """
+                  )
                    or (:kind = 'ANALYSIS' and exists (select 1 from analysis_jobs j where j.batch_id = b.id and j.job_type in ('SETTING_EXTRACTION','EPISODE_VALIDATION'))))
                   and """ + VISIBLE_ANALYSIS_HISTORY + """
                 group by b.id, b.upload_type order by max(r.created_at) desc, b.id desc
             """, countQuery = """
             select count(*) from upload_batches b where b.work_id = :workId and (
                 exists (select 1 from analysis_jobs j where j.batch_id = b.id and j.job_type in ('SETTING_EXTRACTION','EPISODE_VALIDATION'))
-                or exists (select 1 from validation_reports r where r.batch_id = b.id and r.is_current = true))
+                or """ + LISTED_VALIDATION + """
+              )
               and (:kind = 'ALL'
-                or (:kind = 'VALIDATION' and exists (select 1 from validation_reports r where r.batch_id = b.id and r.is_current = true))
+                or (:kind = 'VALIDATION' and """ + LISTED_VALIDATION + """
+              )
                 or (:kind = 'ANALYSIS' and exists (select 1 from analysis_jobs j where j.batch_id = b.id and j.job_type in ('SETTING_EXTRACTION','EPISODE_VALIDATION'))))
               and """ + VISIBLE_ANALYSIS_HISTORY + """
             """, nativeQuery = true)

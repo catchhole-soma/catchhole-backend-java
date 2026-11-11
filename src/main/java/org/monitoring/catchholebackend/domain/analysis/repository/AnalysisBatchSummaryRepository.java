@@ -101,6 +101,8 @@ public class AnalysisBatchSummaryRepository {
     /**
      * 현재 검수 report와 검수 단계 계산에 필요한 실행·검토 종료·release Job·회차 전체 확정 상태를 한 SQL로 읽는다(GH312 S4).
      * 단계 계산은 원고 목록·단건 조회와 같은 {@code ValidationReviewStages.resolve}다.
+     * 삭제(ARCHIVED)된 회차의 report는 퇴역하지 않아도 빼며(#429), 배치 목록의 검수 노출 조건({@code AnalysisJobRepository.LISTED_VALIDATION})과 같다.
+     * 그래서 카드·원고 목록 위 안내·기록 삭제 가능 여부가 지운 회차의 검수를 보지 않는다.
      */
     public List<ValidationRow> readValidations(UUID workId, List<UUID> batchIds) {
         if (batchIds.isEmpty()) return List.of();
@@ -109,11 +111,12 @@ public class AnalysisBatchSummaryRepository {
                 select r.batch_id, r.id, r.episode_id, r.source_episode_no, r.status, r.baseline_status, r.hold_reason, r.updated_at,
                        vj.status, c.id, aj.status, aj.journal_status, a.status
                 from validation_reports r
+                join episodes e on e.id = r.episode_id
                 left join validation_jobs vj on vj.report_id = r.id
                 left join validation_review_completions c on c.report_id = r.id
                 left join analysis_jobs aj on aj.id = c.extraction_job_id
                 left join validation_settings_applications a on a.report_id = r.id
-                where r.is_current = true and r.work_id = :workId and r.batch_id in (:batchIds)
+                where r.is_current = true and r.work_id = :workId and r.batch_id in (:batchIds) and e.status <> 'ARCHIVED'
                 order by r.created_at desc, r.id desc
                 """, workId, batchIds)) {
             var status = org.monitoring.catchholebackend.domain.validation.type.ValidationReportStatus.valueOf((String) row[4]);

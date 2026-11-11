@@ -504,6 +504,7 @@ GET /api/v1/works/{workId}/analysis-jobs/batches?page=0&size=10&kind=ANALYSIS
 ```
 
 - `kind`는 배치 종류입니다. `ALL`(기본)은 모든 배치, `ANALYSIS`는 공개 분석 Job(`SETTING_EXTRACTION`·`EPISODE_VALIDATION`)이 있는 배치, `VALIDATION`은 현재 신규 회차 검수 report가 있는 배치입니다. 화면의 분석 목록과 오류 리포트 목록이 따로 페이지를 넘기므로 화면 필터 대신 서버 페이지 단위로 나눕니다. 검토를 마쳐 설정 추출 Job이 생긴 검수 배치는 `ANALYSIS`와 `VALIDATION` 양쪽에 나오고, 그 전의 Job 없는 검수 배치는 `VALIDATION`에만 나옵니다. 알 수 없는 값은 400입니다.
+- 삭제(`ARCHIVED`)한 회차의 현재 검수 report는 세지 않습니다(#429). 예를 들어 15화를 신규 회차 검수로 올린 뒤 원고에서 지우면 그 검수만 있던 배치는 `ALL`·`VALIDATION`에서 빠지고, 같은 배치에 살아 있는 회차의 검수나 분석 Job이 있으면 배치는 남되 15화 report만 `validationReports`에서 빠집니다. 페이지·count 쿼리는 같은 조건(`LISTED_VALIDATION`)을, `validationReports`는 `readValidations`의 같은 회차 상태 조건을 씁니다. report는 지우지 않으며, 최초·최근 요청 시각은 계속 모든 접수를 집계합니다.
 - `content` 한 항목은 업로드 배치 하나입니다.
 - `jobGroups`는 같은 배치에서 수행한 `SETTING_EXTRACTION`, `EPISODE_VALIDATION`을 각각 집계합니다.
 - 각 그룹은 성공·실패 건수와 별도로 작품 삭제나 순차 입력 무효화 등으로 취소로 집계된 `canceledJobCount`를 제공합니다.
@@ -529,7 +530,8 @@ GET /api/v1/works/{workId}/analysis-jobs/batches?page=0&size=10&kind=ANALYSIS
 분석 목록에서 업로드 배치 하나의 기록을 지웁니다. 예를 들어 101화를 원고에서 지운 뒤 남은 101화 실패 카드와 원고 목록 위 "일부 분석에 실패했습니다" 알림을 없애는 데 씁니다.
 
 - 목록에서만 숨깁니다. `upload_batches.analysis_history_deleted_at`(V120)에 지운 시각을 쓰고 분석 Job·설정 후보·확정 설정·검수 report는 그대로 둡니다.
-- 지운 시각 뒤에 같은 배치에 공개 분석 요청(`SETTING_EXTRACTION`·`EPISODE_VALIDATION`)이나 검수 접수가 생기면 배치는 다시 목록에 나옵니다. 판정은 `findBatchPage`의 페이지·count 쿼리가 같은 조건(`VISIBLE_ANALYSIS_HISTORY`)으로 합니다.
+- 지운 시각 뒤에 같은 배치에 공개 분석 요청(`SETTING_EXTRACTION`·`EPISODE_VALIDATION`)이나 검수 접수가 생기면 배치는 다시 목록에 나옵니다. 판정은 `findBatchPage`의 페이지·count 쿼리가 같은 조건(`VISIBLE_ANALYSIS_HISTORY`)으로 합니다. 그 뒤 회차를 삭제한 검수 접수는 볼 카드가 없으므로 배치를 되살리지 않습니다(#429).
+- 오류 리포트 목록(`kind=VALIDATION`) 카드도 같은 API로 지웁니다. 숨김은 배치 단위라 같은 배치의 분석 목록 카드도 함께 사라집니다. 삭제한 회차의 검수는 판정에서 빠지므로(#429) 그 회차의 검토가 남아 있어도 삭제를 막지 않습니다.
 - 숨기면 작가가 돌아갈 길이 끊기는 배치는 409 `ANALYSIS_HISTORY_DELETE_NOT_ALLOWED`로 거절합니다. 진행·대기 중인 Job(내부 비교 Job 포함), 검토 대기 후보, 사용량 중단 세계관 비교, 재개해야 할 순차 분석, 대기·진행·중단되거나 검토가 남은 설정집, `reviewStage`가 `APPLIED`·`INVALIDATED`가 아닌 검수 report입니다. 회차를 삭제한 실패 순차 분석은 재개 대상이 아니라 지울 수 있습니다.
 - 판정은 목록 카드와 같은 요약 계산(`summarizeBatches`)을 쓰고, 분석 생성·검수 접수와 같은 Work 잠금 아래에서 합니다. 판정과 숨김 사이에 새 요청이 끼지 않게 하기 위함입니다.
 - 다른 작품의 배치는 404 `ANALYSIS_JOB_TARGET_NOT_FOUND`입니다.
