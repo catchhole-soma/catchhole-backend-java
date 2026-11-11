@@ -36,40 +36,40 @@
 
 ### Task 1: 영속 집계와 중복 제거
 **Interfaces:** ProductUsageService.initialize(LocalDateTime); recordWorkCreated(Work); collect(LocalDateTime); settleWork(UUID); purgeWork(UUID); purgeMember(Long). Repository는 singleton 상태를 pessimistic lock하고 사업 Entity의 FK 없이 receipt/요약을 다룬다.
-- [ ] 실패 테스트: 같은 회원 3회 완료 → 완료 3, 반복 2, 회원 1; 다른 날짜/월 → 월별 중복 제거.
-- [ ] 실패 테스트: 과거 회원의 첫 관측 → 불명 1, 다음 → 반복 1; 늦은 최초 완료 → 이전 날짜 반복 증가/불명 감소.
-- [ ] 실패 테스트: 활동 D의 투영은 D..D+6/D+29에만 회원 1; 탈퇴 후 식별 행 0, 모든 익명 합계 동일.
-- [ ] 최소 JPA 구조와 V124, 원자 집계 구현. timestamp+request UUID tie-break로 최초 완료를 결정한다.
-- [ ] 대상 테스트 실행, PostgreSQL migration/validate 및 두 인스턴스 동시 멱등성 검증.
-- [ ] 기능과 최소 테스트, 별도 설계/문서 커밋 규칙 준수.
+- [x] 실패 테스트: 같은 회원 3회 완료 → 완료 3, 반복 2, 회원 1; 다른 날짜/월 → 월별 중복 제거.
+- [x] 실패 테스트: 과거 회원의 첫 관측 → 불명 1, 다음 → 반복 1; 늦은 최초 완료 → 이전 날짜 반복 증가/불명 감소.
+- [x] 실패 테스트: 활동 D의 투영은 D..D+6/D+29에만 회원 1; 탈퇴 후 식별 행 0, 모든 익명 합계 동일.
+- [x] 최소 JPA 구조와 V124, 원자 집계 구현. timestamp+request UUID tie-break로 최초 완료를 결정한다.
+- [x] 대상 테스트 실행, PostgreSQL migration/validate 및 두 인스턴스 동시 멱등성 검증.
+- [x] 기능과 최소 테스트, 별도 설계/문서 커밋 규칙 준수.
 
 ### Task 2: 요청 완료 원천과 수집
 **Interfaces:** ProductUsageSourceRepository.completedRequests(LocalDateTime asOf, UUID nullableWorkId) → List<CompletedRequest>(requestId, memberId, memberCreatedAt, workId, requestedAt, completedAt). 모든 적격 미처리 요청을 시간순으로 반환한다.
-- [ ] 실패 테스트: 여러 회차 전체 완료, 부분 성공 허용, 자동 반영 대기/INVALIDATED/INCOMPLETE/실패 제외.
-- [ ] 실패 테스트: 최신 재시도 선택, 설정집 source 식별, 중복/불일치 metadata 제외, 시작 전 접수는 회원 baseline만 갱신.
-- [ ] 완료 SQL과 receipt 기반 멱등 수집 구현. 생성 receipt도 같은 집계 실행에서 반영한다.
-- [ ] H2/실제 PostgreSQL 테스트로 검증하고 커밋.
+- [x] 실패 테스트: 여러 회차 전체 완료, 부분 성공 허용, 자동 반영 대기/INVALIDATED/INCOMPLETE/실패 제외.
+- [x] 실패 테스트: 최신 재시도 선택, 설정집 source 식별, 중복/불일치 metadata 제외, 시작 전 접수는 회원 baseline만 갱신.
+- [x] 완료 SQL과 receipt 기반 멱등 수집 구현. 생성 receipt도 같은 집계 실행에서 반영한다.
+- [x] H2/실제 PostgreSQL 테스트로 검증하고 커밋.
 
 ### Task 3: 생성·무효화·파기 경계
 **Interfaces:** recordWorkCreated는 생성 tx 참가. settleWork는 기존 Job 잠금 이후 현재 tx에서 준비 판정 후 collect(workId). purgeWork/Member는 소유 식별 기록만 삭제.
-- [ ] 실패 테스트: Work 생성 rollback, 수집 전 삭제, 완료 직후 원문 변경, 결과 관측과 삭제 경합.
-- [ ] AnalysisResultReadyTracker의 판정을 현재 tx에서도 호출하도록 분리하되 기존 REQUIRES_NEW 비동기 진입을 유지한다.
-- [ ] 기존 lifecycle entry에 생성 기록/변경 전 정산/파기 정산과 식별 기록 삭제를 연결한다.
-- [ ] 단위/통합 회귀와 PostgreSQL 잠금 경합 테스트를 실행한다.
-- [ ] 개인정보 삭제 규약/패키지 AGENTS 변경은 해당 구현과 함께 기록한다.
+- [x] 실패 테스트: Work 생성 rollback, 수집 전 삭제, 완료 직후 원문 변경, 결과 관측과 삭제 경합.
+- [x] AnalysisResultReadyTracker의 판정을 현재 tx에서도 호출하도록 분리하되 기존 REQUIRES_NEW 비동기 진입을 유지한다.
+- [x] 기존 lifecycle entry에 생성 기록/변경 전 정산/파기 정산과 식별 기록 삭제를 연결한다.
+- [x] 단위/통합 회귀와 PostgreSQL 잠금 경합 테스트를 실행한다.
+- [x] 개인정보 삭제 규약/패키지 AGENTS 변경은 해당 구현과 함께 기록한다.
 
 ### Task 4: Gauge와 Grafana
 **Interfaces:** 새 snapshot은 today active1/7/30, currentMonth active, 오늘/이번달 completed/repeat/unknown/works, 최근 60일·12개월 aggregate rows, collection success/time/start를 제공한다.
-- [ ] 실패 테스트: 시작 전 NaN, 집계 실패와 읽기 성공 구분, stale snapshot, 재시작, 날짜/월 label 순환 및 미래 날짜 비노출.
-- [ ] 60초 scheduler와 bounded Gauge 등록. scrape는 atomic cache만 읽는다.
-- [ ] overview 제품 Stat과 product usage 상세 JSON, 기존 datasource catchhole-prometheus 사용.
-- [ ] PromQL 전체 문법/fixture(신선도, NaN, 다중 인스턴스, 기록 부족) 검증.
-- [ ] 대시보드/문서 커밋을 앱 코드와 분리한다.
+- [x] 실패 테스트: 시작 전 NaN, 집계 실패와 읽기 성공 구분, stale snapshot, 재시작, 날짜/월 label 순환 및 미래 날짜 비노출.
+- [x] 60초 scheduler와 bounded Gauge 등록. scrape는 atomic cache만 읽는다.
+- [x] overview 제품 Stat과 product usage 상세 JSON, 기존 datasource catchhole-prometheus 사용.
+- [x] PromQL 전체 문법/fixture(신선도, NaN, 다중 인스턴스, 기록 부족) 검증.
+- [x] 대시보드/문서 커밋을 앱 코드와 분리한다.
 
 ### Task 5: 전체 검증과 운영 연결
 - [ ] 전체 ./gradlew test bootJar, 빈 PostgreSQL migration/validate, diff 검사.
-- [ ] 전체 변경을 별도 fresh reviewer가 검토하고 중대한 문제를 수정한다.
-- [ ] issue에 기준/검증 반영, draft PR 생성. 기존 #423/#425/#426은 유지.
+- [x] 전체 변경을 별도 fresh reviewer가 검토하고 중대한 문제를 수정한다.
+- [x] issue에 기준/검증 반영, draft PR 생성. 기존 #423/#425/#426은 유지.
 - [ ] 리뷰 가능한 실제 변경과 검증을 제시한 뒤 사용자 지시에 맞춰 배포한다. 기존 단일 API 교체가 구 writer 중단 → 신규 초기화 순서를 보장하는지 확인한다.
 - [ ] API 지표 수집 확인 후 기존 Grafana JSON 백업/가져오기/재조회. 로그인은 사용자에게 맡긴다.
 - [ ] 새 대시보드 URL, 실제 수치/수집 시작 시각/남은 제약을 결과에 포함한다.

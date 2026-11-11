@@ -7,7 +7,6 @@
 | [catchhole-overview.json](catchhole-overview.json) | catlfln | HTTP·서비스 이용 추이·제품 사용·분석 핵심 요약과 수집 상태 | 32 | 3 | 38 |
 | [catchhole-api.json](catchhole-api.json) | catchhole-api | 사용자·Worker API별 사용량/성능·주요 API 지연·EC2/JVM/Heap/GC/DB/Threads | 17 | 1 | 35 |
 | [catchhole-analysis.json](catchhole-analysis.json) | catchhole-analysis | 대기→실행→결과→LLM 원인 | 22 | 0 | 34 |
-
 | [catchhole-product-usage.json](catchhole-product-usage.json) | catchhole-product-usage | 완료 회원·반복 분석·작품 생성과 일별/월별 보존 합계 | 17 | 1 | 36 |
 
 합계는 데이터 패널 88개와 행 제목 5개, 설명 패널 1개, target expr 143개다. 변수·annotation 쿼리는 PromQL 개수에서 제외한다. 2026-11-11 운영 Export → JSON의 운영 현황 version 18, API·분석 상세 version 3을 비교해 반영했다. 저장소는 기존 UID·패널 ID·schemaVersion 42를 유지하고 운영 DB의 id/version 및 export가 생성한 기본값은 그대로 복사하지 않는다.
