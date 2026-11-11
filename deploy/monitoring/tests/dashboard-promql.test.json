@@ -2494,6 +2494,317 @@
           ]
         }
       ]
+    },
+    {
+      "name": "Product usage: latest healthy instance wins rather than largest count; period labels match",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"old\"}",
+          "values": "580+0x10"
+        },
+        {
+          "series": "catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"old\"}",
+          "values": "1+0x10"
+        },
+        {
+          "series": "catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"new\"}",
+          "values": "590+0x10"
+        },
+        {
+          "series": "catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"new\"}",
+          "values": "1+0x10"
+        },
+        {
+          "series": "catchhole_product_analysis_members{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"old\",period=\"1d\"}",
+          "values": "100+0x10"
+        },
+        {
+          "series": "catchhole_product_analysis_members{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"new\",period=\"1d\"}",
+          "values": "3+0x10"
+        },
+        {
+          "series": "catchhole_product_analysis_members{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"new\",period=\"month\"}",
+          "values": "7+0x10"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "max(catchhole_product_analysis_members{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",period=\"1d\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) < 180))))",
+          "eval_time": "10m",
+          "exp_samples": [
+            {
+              "labels": "{}",
+              "value": 3
+            }
+          ]
+        },
+        {
+          "expr": "max(catchhole_product_analysis_members{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",period=\"month\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) < 180))))",
+          "eval_time": "10m",
+          "exp_samples": [
+            {
+              "labels": "{}",
+              "value": 7
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Product usage: observed zero and uncertain first completion remain distinct",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"new\"}",
+          "values": "590+0x10"
+        },
+        {
+          "series": "catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"new\"}",
+          "values": "1+0x10"
+        },
+        {
+          "series": "catchhole_product_analysis_members{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"new\",period=\"1d\"}",
+          "values": "0+0x10"
+        },
+        {
+          "series": "catchhole_product_repeat_requests{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"new\",period=\"1d\"}",
+          "values": "0+0x10"
+        },
+        {
+          "series": "catchhole_product_unknown_requests{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"new\",period=\"1d\"}",
+          "values": "1+0x10"
+        },
+        {
+          "series": "catchhole_product_period_complete{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"new\",period=\"1d\"}",
+          "values": "0+0x10"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "max(catchhole_product_analysis_members{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",period=\"1d\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) < 180))))",
+          "eval_time": "10m",
+          "exp_samples": [
+            {
+              "labels": "{}",
+              "value": 0
+            }
+          ]
+        },
+        {
+          "expr": "max(catchhole_product_repeat_requests{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",period=\"1d\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) < 180))))",
+          "eval_time": "10m",
+          "exp_samples": [
+            {
+              "labels": "{}",
+              "value": 0
+            }
+          ]
+        },
+        {
+          "expr": "max(catchhole_product_unknown_requests{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",period=\"1d\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) < 180))))",
+          "eval_time": "10m",
+          "exp_samples": [
+            {
+              "labels": "{}",
+              "value": 1
+            }
+          ]
+        },
+        {
+          "expr": "max(catchhole_product_period_complete{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",period=\"1d\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) < 180))))",
+          "eval_time": "10m",
+          "exp_samples": [
+            {
+              "labels": "{}",
+              "value": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Product usage: failed does not become normal zero",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"new\"}",
+          "values": "590+0x10"
+        },
+        {
+          "series": "catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"new\"}",
+          "values": "0+0x10"
+        },
+        {
+          "series": "catchhole_product_analysis_members{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"new\",period=\"1d\"}",
+          "values": "9+0x10"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "max(catchhole_product_analysis_members{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",period=\"1d\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) < 180))))",
+          "eval_time": "10m",
+          "exp_samples": []
+        }
+      ]
+    },
+    {
+      "name": "Product usage: stale at 180 seconds does not become normal zero",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"new\"}",
+          "values": "420+0x10"
+        },
+        {
+          "series": "catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"new\"}",
+          "values": "1+0x10"
+        },
+        {
+          "series": "catchhole_product_analysis_members{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"new\",period=\"1d\"}",
+          "values": "9+0x10"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "max(catchhole_product_analysis_members{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",period=\"1d\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) < 180))))",
+          "eval_time": "10m",
+          "exp_samples": []
+        }
+      ]
+    },
+    {
+      "name": "Product usage: future clock does not become normal zero",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"new\"}",
+          "values": "601+0x10"
+        },
+        {
+          "series": "catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"new\"}",
+          "values": "1+0x10"
+        },
+        {
+          "series": "catchhole_product_analysis_members{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"new\",period=\"1d\"}",
+          "values": "9+0x10"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "max(catchhole_product_analysis_members{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",period=\"1d\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) < 180))))",
+          "eval_time": "10m",
+          "exp_samples": []
+        }
+      ]
+    },
+    {
+      "name": "Product usage: missing source or missing metric on newest snapshot does not borrow older values",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"old\"}",
+          "values": "580+0x10"
+        },
+        {
+          "series": "catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"old\"}",
+          "values": "1+0x10"
+        },
+        {
+          "series": "catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"new\"}",
+          "values": "590+0x10"
+        },
+        {
+          "series": "catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"new\"}",
+          "values": "1+0x10"
+        },
+        {
+          "series": "catchhole_product_analysis_members{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"old\",period=\"1d\"}",
+          "values": "100+0x10"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "max(catchhole_product_analysis_members{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",period=\"1d\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) < 180))))",
+          "eval_time": "10m",
+          "exp_samples": []
+        },
+        {
+          "expr": "max(catchhole_product_works_created{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",period=\"1d\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) < 180))))",
+          "eval_time": "10m",
+          "exp_samples": []
+        }
+      ]
+    },
+    {
+      "name": "Product usage: monthly and daily history keep only date or month after instance selection",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"old\"}",
+          "values": "580+0x10"
+        },
+        {
+          "series": "catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"old\"}",
+          "values": "1+0x10"
+        },
+        {
+          "series": "catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"new\"}",
+          "values": "590+0x10"
+        },
+        {
+          "series": "catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"new\"}",
+          "values": "1+0x10"
+        },
+        {
+          "series": "catchhole_product_monthly_analysis_members{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"old\",month=\"2026-11\"}",
+          "values": "99+0x10"
+        },
+        {
+          "series": "catchhole_product_monthly_analysis_members{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"new\",month=\"2026-11\"}",
+          "values": "4+0x10"
+        },
+        {
+          "series": "catchhole_product_monthly_unknown_requests{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"new\",month=\"2026-11\"}",
+          "values": "1+0x10"
+        },
+        {
+          "series": "catchhole_product_daily_analysis_members{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",instance=\"new\",date=\"2026-11-11\"}",
+          "values": "2+0x10"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "max by (month) (catchhole_product_monthly_analysis_members{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) < 180))))",
+          "eval_time": "10m",
+          "exp_samples": [
+            {
+              "labels": "{month=\"2026-11\"}",
+              "value": 4
+            }
+          ]
+        },
+        {
+          "expr": "max by (month) (catchhole_product_monthly_unknown_requests{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) < 180))))",
+          "eval_time": "10m",
+          "exp_samples": [
+            {
+              "labels": "{month=\"2026-11\"}",
+              "value": 1
+            }
+          ]
+        },
+        {
+          "expr": "max by (date) (catchhole_product_daily_analysis_members{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) < 180))))",
+          "eval_time": "10m",
+          "exp_samples": [
+            {
+              "labels": "{date=\"2026-11-11\"}",
+              "value": 2
+            }
+          ]
+        }
+      ]
     }
   ],
   "fuzzy_compare": true
