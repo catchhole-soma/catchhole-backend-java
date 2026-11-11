@@ -2730,7 +2730,7 @@
           "exp_samples": []
         },
         {
-          "expr": "max(catchhole_product_works_created{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",period=\"1d\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) < 180))))",
+          "expr": "max(catchhole_product_work_creations{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\",period=\"1d\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"prod\"}) < 180))))",
           "eval_time": "10m",
           "exp_samples": []
         }

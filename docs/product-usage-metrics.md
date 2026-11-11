@@ -41,13 +41,17 @@
 | 메트릭 | label / 의미 |
 | --- | --- |
 | `catchhole_product_analysis_members` | `period=1d,7d,30d,month` |
-| `catchhole_product_completed_requests`, `repeat_requests`, `unknown_requests`, `works_created` | 각 이름에 `catchhole_product_` 접두사, `period=1d,month` |
+| `catchhole_product_completed_requests`, `repeat_requests`, `unknown_requests`, `work_creations` | 각 이름에 `catchhole_product_` 접두사, `period=1d,month` |
 | `catchhole_product_period_complete` | 각 기간 전체를 수집했으면 1, 시작 이후 일부면 0 |
 | `catchhole_product_daily_*` | 최근 60개 날짜 `date=YYYY-MM-DD`의 회원·완료·반복·이력 부족·생성·범위 상태 |
 | `catchhole_product_monthly_*` | 최근 12개 달 `month=YYYY-MM`의 합계·범위 상태 |
 | `catchhole_product_usage_snapshot_success` | 마지막 집계 및 snapshot 조회 성공 여부 |
 | `catchhole_product_usage_snapshot_last_success_timestamp_seconds` | DB에 기록한 마지막 집계 시각 |
 | `catchhole_product_usage_collection_started_timestamp_seconds` | 최초 수집 시작 시각 |
+
+메트릭의 작품 생성 이름은 `work_creations`를 사용한다. Micrometer의 Prometheus 출력에서 예약 접미사 `_created`가 제거되므로 `works_created`를 사용하지 않는다. 두 Grafana JSON에 쓰인 모든 제품 지표 이름을 실제 exporter 출력과 대조하는 테스트를 유지한다. [Micrometer 접미사 규칙](https://github.com/micrometer-metrics/micrometer/wiki/1.13-Migration-Guide#invalid-meter-suffixes)을 따른다.
+
+집계 cutoff는 PostgreSQL `timestamp(6)`과 같은 마이크로초로 내림해 저장한다. 나노초 반올림으로 정상 집계가 읽기 시각보다 미래로 판정되는 것을 막으며, 실제 미래 snapshot을 숨기는 검사는 유지한다.
 
 ## 배포와 활성화
 

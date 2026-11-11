@@ -2,6 +2,7 @@ package org.monitoring.catchholebackend.domain.productusage.service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +36,8 @@ public class ProductUsageService {
     }
 
     public void collect(LocalDateTime asOf) {
+        // PostgreSQL timestamp(6)이 반올림해 읽기 기준보다 미래가 되지 않도록 접수 cutoff도 같은 정밀도로 맞춘다.
+        asOf = asOf.truncatedTo(ChronoUnit.MICROS);
         var state = repository.lockState();
         if (state.getStartedAt() == null) throw new IllegalStateException("제품 사용 집계가 아직 시작되지 않았습니다.");
         source.completedRequests(asOf, null).forEach(this::accept);

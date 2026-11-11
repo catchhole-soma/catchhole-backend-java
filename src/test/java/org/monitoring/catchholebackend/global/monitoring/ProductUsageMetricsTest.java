@@ -33,6 +33,13 @@ class ProductUsageMetricsTest {
                 .isEqualTo(collected.atZone(zone).toEpochSecond());
     }
 
+    @Test @DisplayName("실제로 읽기 시각보다 미래인 집계는 계속 숨긴다")
+    void futureCollectionRemainsUnavailable() {
+        metrics.updateSnapshot(snapshot(now, now.minusHours(1), now.plusSeconds(1)));
+        assertThat(value("catchhole.product.usage.snapshot.success")).isZero();
+        assertThat(value("catchhole.product.analysis.members", "period", "1d")).isNaN();
+    }
+
     @Test @DisplayName("집계 실패 뒤 읽기로 성공을 덮지 않고 이전 성공 시각을 보존한다")
     void collectionFailureStopsSnapshotRead() {
         metrics.updateSnapshot(snapshot(now, now.minusDays(40), now.minusSeconds(30)));
@@ -82,6 +89,31 @@ class ProductUsageMetricsTest {
             assertThat(text).contains("catchhole_product_analysis_members{period=\"1d\"} 2.0");
             assertThat(text).contains("catchhole_product_usage_snapshot_last_success_timestamp_seconds ");
             assertThat(text).contains("catchhole_product_monthly_completed_requests{month=\"2026-11\"} 6.0");
+            assertThat(text).contains("catchhole_product_work_creations{period=\"1d\"} 3.0");
+            assertThat(text).contains("catchhole_product_daily_work_creations{date=\"2026-11-11\"} 3.0");
+            assertThat(text).contains("catchhole_product_monthly_work_creations{month=\"2026-11\"} 4.0");
+        } finally {
+            prometheus.close();
+        }
+    }
+
+    @Test @DisplayName("두 Grafana 화면의 모든 제품 지표 이름이 실제 exporter에 존재한다")
+    void dashboardMetricNamesExistInPrometheusOutput() throws java.io.IOException {
+        var prometheus = new io.micrometer.prometheusmetrics.PrometheusMeterRegistry(
+                io.micrometer.prometheusmetrics.PrometheusConfig.DEFAULT);
+        try {
+            new ProductUsageMetrics(prometheus, clock).updateSnapshot(snapshot(now, now.minusDays(40), now));
+            var metricName = java.util.regex.Pattern.compile("catchhole_product_[a-z0-9_]+");
+            var required = new java.util.HashSet<String>();
+            for (String dashboard : List.of("catchhole-overview.json", "catchhole-product-usage.json")) {
+                String json = java.nio.file.Files.readString(java.nio.file.Path.of(
+                        "deploy/monitoring/grafana/dashboards", dashboard));
+                metricName.matcher(json).results().forEach(match -> required.add(match.group()));
+            }
+            var exported = java.util.regex.Pattern.compile("(?m)^(catchhole_product_[a-z0-9_]+)[{ ]")
+                    .matcher(prometheus.scrape()).results().map(match -> match.group(1)).collect(java.util.stream.Collectors.toSet());
+            assertThat(required).isNotEmpty();
+            assertThat(exported).containsAll(required);
         } finally {
             prometheus.close();
         }

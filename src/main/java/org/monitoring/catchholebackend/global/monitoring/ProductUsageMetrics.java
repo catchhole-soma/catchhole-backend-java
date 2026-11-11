@@ -34,7 +34,7 @@ public class ProductUsageMetrics {
             fixed.add(key("period.complete", "period", period));
         }
         for (String period : List.of("1d", "month")) {
-            for (String metric : List.of("completed.requests", "repeat.requests", "unknown.requests", "works.created")) {
+            for (String metric : List.of("completed.requests", "repeat.requests", "unknown.requests", "work.creations")) {
                 fixed.add(key(metric, "period", period));
             }
         }
@@ -108,7 +108,7 @@ public class ProductUsageMetrics {
         put(data, prefix + "completed.requests", tag, label, completed);
         put(data, prefix + "repeat.requests", tag, label, repeated);
         put(data, prefix + "unknown.requests", tag, label, unknown);
-        put(data, prefix + "works.created", tag, label, works);
+        put(data, prefix + "work.creations", tag, label, works);
     }
     private long covered(ProductUsageSnapshot snapshot, LocalDate from) {
         return snapshot.startedAt().isAfter(from.atStartOfDay()) ? 0 : 1;
