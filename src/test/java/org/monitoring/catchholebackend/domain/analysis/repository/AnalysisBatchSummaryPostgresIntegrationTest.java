@@ -30,6 +30,7 @@ import org.monitoring.catchholebackend.domain.upload.entity.SettingBookRevision;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadBatch;
 import org.monitoring.catchholebackend.domain.upload.entity.UploadFile;
 import org.monitoring.catchholebackend.domain.upload.type.*;
+import org.monitoring.catchholebackend.domain.validation.entity.ValidationReport;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
 import org.monitoring.catchholebackend.global.exception.AppException;
@@ -340,6 +341,31 @@ class AnalysisBatchSummaryPostgresIntegrationTest {
         em.clear(); var page = service.getAnalysisBatches(member.getId(), work.getId(), 1, 1);
         assertThat(page.content()).hasSize(1); assertThat(page.content().getFirst().batchId()).isEqualTo(firstBatch.getId());
         assertThat(page.content().getFirst().settingBooks()).extracting(card -> card.sourceAnalysisJobId()).containsExactly(first.getId());
+    }
+
+    @Test
+    @DisplayName("삭제한 회차의 현재 검수 report는 목록 본문·전체 개수·검수 요약에서 함께 빠진다")
+    void excludesArchivedEpisodeValidationReports() {
+        Episode archived = episode(1); Episode live = episode(2);
+        validationReport(archived, batch); ValidationReport kept = validationReport(live, batch);
+        UploadBatch archivedOnly = UploadBatch.create(work, member, UploadType.SINGLE_EPISODE, UploadSourceType.FILE); em.persist(archivedOnly);
+        Episode third = episode(3); validationReport(third, archivedOnly);
+        archived.archive(); third.archive();
+        em.flush(); em.clear();
+        for (AnalysisBatchKind kind : List.of(AnalysisBatchKind.VALIDATION, AnalysisBatchKind.ALL)) {
+            // size=1로 첫 페이지가 차므로 count 쿼리도 실행된다.
+            var page = service.getAnalysisBatches(member.getId(), work.getId(), 0, 1, kind);
+            assertThat(page.totalElements()).isEqualTo(1);
+            assertThat(page.content()).singleElement().satisfies(card -> {
+                assertThat(card.batchId()).isEqualTo(batch.getId());
+                assertThat(card.validationReports()).extracting(report -> report.reportId()).containsExactly(kept.getId());
+            });
+        }
+        assertThat(service.getAnalysisBatches(member.getId(), work.getId(), 0, 1, AnalysisBatchKind.ANALYSIS).totalElements()).isZero();
+    }
+
+    private ValidationReport validationReport(Episode episode, UploadBatch uploadBatch) {
+        ValidationReport report = ValidationReport.create(work, episode, uploadBatch, "e".repeat(64)); em.persist(report); return report;
     }
 
     private void candidate(AnalysisJob origin, boolean world, String review, String comparison) {

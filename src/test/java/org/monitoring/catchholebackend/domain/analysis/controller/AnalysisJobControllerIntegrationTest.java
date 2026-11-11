@@ -58,6 +58,8 @@ import org.monitoring.catchholebackend.domain.upload.repository.UploadFileReposi
 import org.monitoring.catchholebackend.domain.upload.type.UploadFileRole;
 import org.monitoring.catchholebackend.domain.upload.type.UploadSourceType;
 import org.monitoring.catchholebackend.domain.upload.type.UploadType;
+import org.monitoring.catchholebackend.domain.validation.entity.ValidationReport;
+import org.monitoring.catchholebackend.domain.validation.repository.ValidationReportRepository;
 import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.monitoring.catchholebackend.domain.work.repository.WorkRepository;
 import org.monitoring.catchholebackend.domain.work.type.WorkGenre;
@@ -121,6 +123,9 @@ class AnalysisJobControllerIntegrationTest {
     private EpisodeRepository episodeRepository;
 
     @Autowired
+    private ValidationReportRepository validationReportRepository;
+
+    @Autowired
     private JwtTokenProvider jwtTokenProvider;
 
     private Member member;
@@ -138,6 +143,7 @@ class AnalysisJobControllerIntegrationTest {
         aiTokenUsageRepository.deleteAll();
         aiTokenGrantRepository.deleteAll();
         aiTokenAccountRepository.deleteAll();
+        validationReportRepository.deleteAll();
         List<AnalysisJob> existingJobs = analysisJobRepository.findAll();
         existingJobs.forEach(job -> {
             job.unlinkWorldSettingCandidate();
@@ -1518,6 +1524,135 @@ class AnalysisJobControllerIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("ANALYSIS_JOB_TARGET_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("신규 회차 검수를 올린 회차를 삭제하면 그 검수만 있던 묶음은 오류 리포트·전체·분석 목록에서 빠지고 report는 남는다")
+    void archivedEpisodeValidationOnlyBatchLeavesEveryList() throws Exception {
+        ValidationReport report = waitingValidationReport(firstEpisode, uploadBatch);
+        assertBatchTotal("VALIDATION", 1);
+        assertBatchTotal("ALL", 1);
+
+        firstEpisode.archive();
+        episodeRepository.saveAndFlush(firstEpisode);
+
+        for (String kind : List.of("VALIDATION", "ALL", "ANALYSIS")) {
+            assertBatchTotal(kind, 0);
+        }
+        ValidationReport kept = validationReportRepository.findById(report.getId()).orElseThrow();
+        assertThat(kept.isCurrent()).isTrue();
+        assertThat(kept.getStatus().name()).isEqualTo("WAITING_FOR_ERROR_REVIEW");
+    }
+
+    @Test
+    @DisplayName("같은 묶음에 살아 있는 회차의 검수가 있으면 묶음은 남고 삭제한 회차의 report만 검수 요약에서 빠진다")
+    void archivedEpisodeReportLeavesBatchSummaryButLiveReportKeepsBatch() throws Exception {
+        waitingValidationReport(firstEpisode, uploadBatch);
+        ValidationReport live = waitingValidationReport(secondEpisode, uploadBatch);
+        firstEpisode.archive();
+        episodeRepository.saveAndFlush(firstEpisode);
+
+        for (String kind : List.of("VALIDATION", "ALL")) {
+            mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                            .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                            .queryParam("kind", kind))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.content", hasSize(1)))
+                    .andExpect(jsonPath("$.data.content[0].batchId").value(uploadBatch.getId().toString()))
+                    .andExpect(jsonPath("$.data.content[0].status").value("ERROR_REVIEW_PENDING"))
+                    .andExpect(jsonPath("$.data.content[0].validationReports", hasSize(1)))
+                    .andExpect(jsonPath("$.data.content[0].validationReports[0].reportId").value(live.getId().toString()))
+                    .andExpect(jsonPath("$.data.content[0].validationReports[0].sourceEpisodeNo").value(4))
+                    // 살아 있는 회차의 검수는 아직 검토가 남아 지금처럼 지울 수 없다.
+                    .andExpect(jsonPath("$.data.content[0].historyDeletable").value(false));
+            assertBatchTotal(kind, 1);
+        }
+        assertBatchTotal("ANALYSIS", 0);
+    }
+
+    @Test
+    @DisplayName("삭제한 회차의 검수는 페이지 본문과 전체 개수 쿼리에서 같이 빠지고 분석 Job이 있는 묶음은 분석 카드로 남는다")
+    void archivedEpisodeReportsAreExcludedFromBatchPageAndCountAlike() throws Exception {
+        waitingValidationReport(firstEpisode, uploadBatch);
+        firstEpisode.archive();
+        episodeRepository.saveAndFlush(firstEpisode);
+
+        UploadBatch liveBatch = uploadBatchRepository.save(UploadBatch.create(work, member, UploadType.SINGLE_EPISODE, UploadSourceType.FILE));
+        Episode liveEpisode = episodeRepository.save(Episode.create(
+                work, null, 7, "일곱째 회차", "episodes/7.txt", null, "c".repeat(64), 10));
+        waitingValidationReport(liveEpisode, liveBatch);
+
+        UploadBatch extractedBatch = uploadBatchRepository.save(UploadBatch.create(work, member, UploadType.SINGLE_EPISODE, UploadSourceType.FILE));
+        Episode extractedEpisode = episodeRepository.save(Episode.create(
+                work, null, 8, "여덟째 회차", "episodes/8.txt", null, "d".repeat(64), 10));
+        waitingValidationReport(extractedEpisode, extractedBatch);
+        AnalysisJob extraction = AnalysisJob.create(work, extractedBatch, extractedEpisode, AnalysisJobType.SETTING_EXTRACTION);
+        extraction.succeed("{}", 0, 0);
+        analysisJobRepository.save(extraction);
+        extractedEpisode.archive();
+        episodeRepository.saveAndFlush(extractedEpisode);
+
+        assertBatchTotal("VALIDATION", 1);
+        assertBatchTotal("ALL", 2);
+        assertBatchTotal("ANALYSIS", 1);
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("kind", "VALIDATION"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].batchId").value(liveBatch.getId().toString()));
+        mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .queryParam("kind", "ANALYSIS"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].batchId").value(extractedBatch.getId().toString()))
+                .andExpect(jsonPath("$.data.content[0].validationReports", hasSize(0)))
+                .andExpect(jsonPath("$.data.content[0].episodeStatus").value("COMPLETED"));
+    }
+
+    @Test
+    @DisplayName("기록을 지운 묶음은 그 뒤 접수한 검수의 회차를 삭제하면 다시 숨는다")
+    void archivedEpisodeReportDoesNotRevealDeletedHistory() throws Exception {
+        AnalysisJob failedJob = AnalysisJob.create(work, uploadBatch, secondEpisode, AnalysisJobType.SETTING_EXTRACTION);
+        failedJob.fail("분석 실패");
+        analysisJobRepository.save(failedJob);
+        mockMvc.perform(delete("/api/v1/works/{workId}/analysis-jobs/batches/{batchId}", work.getId(), uploadBatch.getId())
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk());
+        Thread.sleep(10);
+        waitingValidationReport(firstEpisode, uploadBatch);
+        assertBatchTotal("ALL", 1);
+        assertBatchTotal("VALIDATION", 1);
+
+        firstEpisode.archive();
+        episodeRepository.saveAndFlush(firstEpisode);
+
+        for (String kind : List.of("VALIDATION", "ALL", "ANALYSIS")) {
+            assertBatchTotal(kind, 0);
+        }
+    }
+
+    /** 오류 검토를 기다리는 현재 검수 report. 실행·검토 종료 없이 접수 직후 단계로 둔다. */
+    private ValidationReport waitingValidationReport(Episode episode, UploadBatch batch) {
+        ValidationReport report = ValidationReport.create(work, episode, batch, "e".repeat(64));
+        report.readyWithoutSeed("f".repeat(64));
+        return validationReportRepository.saveAndFlush(report);
+    }
+
+    /**
+     * 페이지 본문 쿼리와 count 쿼리가 같은 묶음 수를 내는지 본다. size=1로 첫 페이지가 차거나 둘째 페이지를 읽으면
+     * Spring Data가 count 쿼리를 실행하므로 두 쿼리의 조건이 어긋나면 totalElements가 달라진다.
+     */
+    private void assertBatchTotal(String kind, int expected) throws Exception {
+        for (int page : List.of(0, 1)) {
+            mockMvc.perform(get("/api/v1/works/{workId}/analysis-jobs/batches", work.getId())
+                            .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                            .queryParam("kind", kind)
+                            .queryParam("page", String.valueOf(page))
+                            .queryParam("size", "1"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.content", hasSize(expected > page ? 1 : 0)))
+                    .andExpect(jsonPath("$.data.totalElements").value(expected));
+        }
     }
 
     private AnalysisJob orderedListJob(Episode episode, UUID runId, int sequence, UUID predecessorId) {
