@@ -2,7 +2,7 @@
 
 - 이슈: https://github.com/catchhole-soma/catchhole-backend-java/issues/433
 - 작성일: 2026-11-11
-- 상태: 검토 초안 — 사용자 최종 확인 전
+- 상태: 2026-11-11 사용자 승인 — 이 설계대로 구현·검증 진행
 - 작업 경로: `feat/gh-433-product-usage-metrics`, 별도 worktree
 - 운영 대시보드 동기화 PR #432가 병합된 main `9dc87576`을 포함한다.
 
