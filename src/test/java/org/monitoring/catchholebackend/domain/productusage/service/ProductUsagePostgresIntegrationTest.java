@@ -51,10 +51,13 @@ class ProductUsagePostgresIntegrationTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired Flyway flyway;
     @Autowired TransactionTemplate tx;
+    @Autowired jakarta.persistence.EntityManager em;
+    @Autowired org.monitoring.catchholebackend.domain.work.service.WorkService works;
+    @Autowired org.monitoring.catchholebackend.domain.work.repository.WorkPurgeDataRepository workPurge;
     final LocalDateTime start = LocalDateTime.of(2026, 11, 11, 0, 0);
 
     @BeforeEach void initialize() {
-        jdbc.execute("truncate product_usage_analysis_receipts, product_usage_member_days, product_usage_members, "
+        jdbc.execute("truncate product_usage_work_receipts, product_usage_analysis_receipts, product_usage_member_days, product_usage_members, "
                 + "product_usage_daily, product_usage_monthly");
         jdbc.update("update product_usage_state set started_at = null, collected_at = null");
         service.initialize(start);
@@ -98,5 +101,35 @@ class ProductUsagePostgresIntegrationTest {
     private ProductUsageCompletion event() {
         return new ProductUsageCompletion(UUID.randomUUID(), UUID.randomUUID(), 1L,
                 start.plusMinutes(1), start.plusMinutes(2), start.plusHours(1));
+    }
+
+    @Test @DisplayName("정기 수집과 실제 작품 파기가 경합해도 완료를 한 번 보존하고 식별 행을 남기지 않는다")
+    void collectionRacingWithPurgeKeepsOneCompletion() {
+        UUID workId = tx.execute(status -> {
+            var member = org.monitoring.catchholebackend.domain.member.entity.Member.register(
+                    UUID.randomUUID() + "@example.com", "password", "01098765432", "writer");
+            em.persist(member);
+            UUID id = works.createWork(member.getId(), new org.monitoring.catchholebackend.domain.work.dto.request.WorkCreateRequest(
+                    "test", org.monitoring.catchholebackend.domain.work.type.WorkGenre.FANTASY, null)).id();
+            var work = em.find(org.monitoring.catchholebackend.domain.work.entity.Work.class, id);
+            var episode = org.monitoring.catchholebackend.domain.episode.entity.Episode.create(work, null, 1,
+                    "test", "test/source", "v1", "a".repeat(64), 100);
+            em.persist(episode);
+            var job = org.monitoring.catchholebackend.domain.analysis.entity.AnalysisJob.create(work, null, episode,
+                    org.monitoring.catchholebackend.domain.analysis.type.AnalysisJobType.SETTING_EXTRACTION);
+            job.configureMetricsRequest(UUID.randomUUID(), start.plusMinutes(1), 1);
+            job.succeed(null, 0, 0);
+            em.persist(job);
+            work.startPurging();
+            return id;
+        });
+        var collect = CompletableFuture.runAsync(() -> service.collect(LocalDateTime.now()));
+        var purge = CompletableFuture.runAsync(() -> tx.executeWithoutResult(status -> workPurge.purgeWorkData(workId)));
+        CompletableFuture.allOf(collect, purge).orTimeout(20, java.util.concurrent.TimeUnit.SECONDS).join();
+        assertThat(jdbc.queryForObject("select completed_requests from product_usage_monthly", Long.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select works_created from product_usage_monthly", Long.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from product_usage_analysis_receipts", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from product_usage_work_receipts", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from works where id = ?", Long.class, workId)).isZero();
     }
 }

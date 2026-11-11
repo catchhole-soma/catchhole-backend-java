@@ -20,6 +20,13 @@ public class AnalysisResultReadyTracker {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void reconcile(UUID id, int attempt) {
         AnalysisJob job = em.find(AnalysisJob.class, id, LockModeType.PESSIMISTIC_WRITE);
+        recordReady(job, attempt);
+    }
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void reconcileLocked(AnalysisJob job) {
+        recordReady(job, job.getMetricsAttemptNo());
+    }
+    private void recordReady(AnalysisJob job, int attempt) {
         if (job == null || job.getMetricsAttemptNo() != attempt || job.getAttemptRequestedAt() == null
                 || job.getResultReadyAt() != null || job.getStatus() != AnalysisJobStatus.SUCCEEDED) return;
         // INCOMPLETE 자동 분석은 반영을 건너뛰므로 종료된 비교 결과만 관측한다.
@@ -32,7 +39,7 @@ public class AnalysisResultReadyTracker {
                     + "c.comparisonStatus in ('PENDING','PROCESSING') then 1 else 0 end), "
                     + "sum(case when c.comparisonTerminalOutcome = 'failure' or (c.comparisonTerminalAt is null and c.comparisonStatus = 'FAILED') then 1 else 0 end), "
                     + "max(c.comparisonTerminalAt) from " + entity + " c where c.analysisJob.id = :id", Object[].class)
-                    .setParameter("id", id).getSingleResult();
+                    .setParameter("id", job.getId()).getSingleResult();
             if (row[1] != null && ((Number)row[1]).longValue() > 0) return;
             failure |= row[2] != null && ((Number)row[2]).longValue() > 0;
             if (row[3] instanceof LocalDateTime terminal && terminal.isAfter(ready)) ready = terminal;

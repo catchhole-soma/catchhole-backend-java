@@ -26,13 +26,16 @@ public class WorkServiceImpl implements WorkService {
     private final WorkMapper workMapper;
     private final AutomaticImageService automaticImages;
     private final WorldSettingRepository worldSettings;
+    private final org.monitoring.catchholebackend.domain.productusage.service.ProductUsageService productUsage;
 
     @Override
     @Transactional
     public WorkResponse createWork(Long memberId, WorkCreateRequest request) {
         Member member = memberRepository.getByIdOrThrow(memberId);
         Work work = workMapper.toEntity(request, member);
-        return workMapper.toResponse(workRepository.save(work));
+        workRepository.save(work);
+        productUsage.recordWorkCreated(work);
+        return workMapper.toResponse(work);
     }
 
     @Override

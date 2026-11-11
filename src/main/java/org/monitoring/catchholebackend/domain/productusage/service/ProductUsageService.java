@@ -10,6 +10,7 @@ import org.monitoring.catchholebackend.domain.productusage.entity.ProductUsageMe
 import org.monitoring.catchholebackend.domain.productusage.repository.ProductUsageRepository;
 import org.monitoring.catchholebackend.domain.productusage.repository.ProductUsageSourceRepository;
 import org.monitoring.catchholebackend.domain.productusage.type.ProductUsageFirstKind;
+import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,11 +21,41 @@ public class ProductUsageService {
 
     public void initialize(LocalDateTime start) { repository.lockState().initialize(start); }
 
+    @Transactional(readOnly = true)
+    public boolean isActive() {
+        var state = repository.state();
+        return state != null && state.getStartedAt() != null;
+    }
+
+    public void recordWorkCreated(Work work) {
+        var state = repository.state();
+        if (state != null && state.getStartedAt() != null && !work.getCreatedAt().isBefore(state.getStartedAt())) {
+            repository.recordWork(work);
+        }
+    }
+
     public void collect(LocalDateTime asOf) {
         var state = repository.lockState();
         if (state.getStartedAt() == null) throw new IllegalStateException("제품 사용 집계가 아직 시작되지 않았습니다.");
         source.completedRequests(asOf, null).forEach(this::accept);
+        collectWorks(null);
         state.collected(asOf);
+    }
+
+    public void settleWork(UUID workId) {
+        var state = repository.lockState();
+        if (state.getStartedAt() == null) return;
+        source.completedRequests(LocalDateTime.now(), workId).forEach(this::accept);
+        collectWorks(workId);
+    }
+
+    private void collectWorks(UUID workId) {
+        for (var receipt : repository.pendingWorks(workId)) {
+            LocalDate day = receipt.getOccurredAt().toLocalDate();
+            repository.daily(day).workCreated();
+            repository.monthly(day).workCreated();
+            receipt.processed();
+        }
     }
 
     public void accept(ProductUsageCompletion event) {

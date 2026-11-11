@@ -8,11 +8,22 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.monitoring.catchholebackend.domain.productusage.dto.ProductUsageCompletion;
 import org.monitoring.catchholebackend.domain.productusage.entity.*;
+import org.monitoring.catchholebackend.domain.work.entity.Work;
 import org.springframework.stereotype.Repository;
 
 @Repository @RequiredArgsConstructor
 public class ProductUsageRepository {
     private final EntityManager em;
+    public ProductUsageState state() { return em.find(ProductUsageState.class, 1); }
+    public void recordWork(Work work) {
+        if (em.find(ProductUsageWorkReceipt.class, work.getId()) == null) em.persist(new ProductUsageWorkReceipt(work));
+    }
+    public List<ProductUsageWorkReceipt> pendingWorks(UUID workId) {
+        var query = em.createQuery("select r from ProductUsageWorkReceipt r where r.processed = false"
+                + (workId == null ? "" : " and r.workId = :work"), ProductUsageWorkReceipt.class);
+        if (workId != null) query.setParameter("work", workId);
+        return query.getResultList();
+    }
     public ProductUsageState lockState() {
         ProductUsageState state = em.find(ProductUsageState.class, 1, LockModeType.PESSIMISTIC_WRITE);
         if (state == null) {
@@ -55,10 +66,12 @@ public class ProductUsageRepository {
         em.flush();
         em.createQuery("delete from ProductUsageAnalysisReceipt r where r.workId = :id")
                 .setParameter("id", workId).executeUpdate();
+        em.createQuery("delete from ProductUsageWorkReceipt r where r.workId = :id")
+                .setParameter("id", workId).executeUpdate();
     }
     public void purgeMember(Long memberId) {
         em.flush();
-        for (String entity : List.of("ProductUsageAnalysisReceipt", "ProductUsageMemberDay", "ProductUsageMember")) {
+        for (String entity : List.of("ProductUsageWorkReceipt", "ProductUsageAnalysisReceipt", "ProductUsageMemberDay", "ProductUsageMember")) {
             em.createQuery("delete from " + entity + " r where r.memberId = :id")
                     .setParameter("id", memberId).executeUpdate();
         }

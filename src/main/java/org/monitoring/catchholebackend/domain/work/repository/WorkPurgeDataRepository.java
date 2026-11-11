@@ -11,6 +11,7 @@ import org.springframework.stereotype.Repository;
 public class WorkPurgeDataRepository {
 
     private final JdbcTemplate jdbcTemplate;
+    private final org.monitoring.catchholebackend.domain.productusage.service.ProductUsageLifecycle productUsage;
 
     public List<UUID> findUploadBatchIds(UUID workId) {
         return jdbcTemplate.queryForList(
@@ -24,6 +25,7 @@ public class WorkPurgeDataRepository {
      * 작품 FK 그래프를 자식부터 명시적으로 삭제한다. 이 메서드는 반드시 하나의 트랜잭션 안에서 호출한다.
      */
     public WorkPurgeDatabaseResult purgeWorkData(UUID workId) {
+        productUsage.beforeWorkPurge(workId);
         int deletedCount = 0;
         deletedCount += update("delete from relationship_backfill_items where work_id = ?", workId);
         deletedCount += update("delete from relationship_backfill_works where work_id = ?", workId);
