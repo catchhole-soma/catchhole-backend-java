@@ -82,6 +82,7 @@ erDiagram
         datetime feedback_prompt_shown_at
         datetime analysis_guide_shown_at
         datetime first_analysis_started_at
+        datetime first_analysis_completion_reported_at
         varchar display_name
         varchar profile_image_url
         varchar status
@@ -781,6 +782,10 @@ V61/V62: `world_image_recommendations`는 `(catalog_id, theme)` PK로 공용 도
 ### V64 최초 분석 안내
 
 `members.analysis_guide_shown_at`은 계정당 1회 자동 안내 선점 시각, `first_analysis_started_at`은 최초 분석 Job 생성 시각이다. 둘 다 nullable이며 한 번 기록된 값은 작품 삭제·재분석으로 초기화하지 않는다. V64는 기존 Job의 최초 시각을 이관한다. 상세 계약은 [첫 분석 안내](analysis-mode-guide.md)를 참고한다.
+
+### V123 첫 분석 완료 보고
+
+`members.first_analysis_completion_reported_at`은 GA4 첫 분석 완료 이벤트를 계정당 한 번만 보내기 위한 nullable 보고 선점 시각이다. 완료 여부는 저장하지 않고 남아 있는 설정 추출 Job으로 조회 때 판정한다. V123은 이미 완료한 회원을 가장 이른 완료 시각으로 채워 보고 대상에서 뺀다. 상세 계약은 [첫 분석 완료 보고](first-analysis-completion.md)를 참고한다.
 
 ## 가족 관계 (V84)
 

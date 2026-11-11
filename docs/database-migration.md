@@ -603,3 +603,9 @@ Backend를 먼저 적용한 뒤 Front를 배포합니다. `CLOSED` 저장 후에
 #381부터 검수 접수는 확정 설정을 `validation_reports.baseline_seed`·`baseline_entries`에 복사하지 않습니다. V119는 READY report에 두 열을 요구하던 `ck_validation_reports_ready_baseline`을 지우고 `baseline_hash`만 요구하는 `ck_validation_reports_ready_baseline_v2`로 바꿉니다. `validation_findings.quoted_subjects` JSONB(nullable, 근거 문장의 대상·설정 이름표, 값 없음)도 추가합니다.
 
 기존 report의 seed·entries는 이관하거나 지우지 않습니다. seed가 있는 report는 애플리케이션이 저장 기준을 그대로 읽으며, 두 열은 마지막 legacy report가 정리된 뒤 별도 migration에서 지웁니다. V118은 main의 #382가 먼저 사용해 이 기능은 V119입니다. 결정과 배포 순서는 [ADR-0004](adr/0004-validation-live-settings-lock.md)를 따르고, migration 계약은 `ValidationLiveSettingsMigrationContractTest`와 `ErrorFirstValidationPostgresIntegrationTest`(Flyway·JPA validate·새 CHECK)로 검증합니다.
+
+## V123: 첫 분석 완료 보고
+
+`members.first_analysis_completion_reported_at` nullable timestamp를 추가합니다(#426). GA4 `first_analysis_complete`를 계정당 한 번만 보내기 위한 보고 선점 시각입니다. 배포 전에 이미 첫 설정 추출을 완료한 회원은 남아 있는 Job의 가장 이른 완료 시각(`completed_at`, 없으면 `updated_at`)으로 채워 보고 대상에서 뺍니다. 배포 직후 과거의 첫 분석이 GA4에 한꺼번에 기록되지 않게 하기 위함입니다. 완료 조건은 `AnalysisJobRepository.existsCompletedSettingExtractionByMemberId`와 같으며, 작품 삭제로 이력이 이미 지워진 회원은 복원할 수 없습니다.
+
+Job·작품·설정은 바꾸지 않습니다. V122에서 올리는 이관과 PostgreSQL 판정은 `FirstAnalysisCompletionReportPostgresIntegrationTest`(Flyway·JPA validate)로 검증합니다. Backend를 먼저 배포한 뒤 Front를 배포하며, 상세는 [첫 분석 완료 보고](first-analysis-completion.md)를 따릅니다.
