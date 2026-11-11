@@ -1464,7 +1464,7 @@
       "id": 1021,
       "type": "table",
       "title": "일별 상세 · 최근 60일",
-      "description": "회차·설정집의 설정 추출 결과가 준비된 요청 기준입니다. 오류 검사와 내부 후속 작업은 제외합니다. 한국 시간의 달력 날짜를 사용하며 최근 7일·30일은 오늘을 포함합니다. 새 집계 시작 이후 최초 접수분부터 기록하고, 삭제·탈퇴 뒤에도 과거 합계를 보존합니다. 대시보드 시간 선택은 이 고정 집계 창을 바꾸지 않습니다. 집계 실패·3분 이상 갱신 없음은 관측 없음입니다. 첫날·첫 달 및 관측 기간이 짧은 창은 수집 시작 이후의 일부 값입니다.",
+      "description": "회차·설정집의 설정 추출 결과가 준비된 요청 기준입니다. 오류 검사와 내부 후속 작업은 제외합니다. 한국 시간의 달력 날짜를 사용하며 최근 7일·30일은 오늘을 포함합니다. 새 집계 시작 이후 최초 접수분부터 기록하고, 삭제·탈퇴 뒤에도 과거 합계를 보존합니다. 대시보드 시간 선택은 이 고정 집계 창을 바꾸지 않습니다. 집계 실패·3분 이상 갱신 없음은 관측 없음입니다. 첫날·첫 달 및 관측 기간이 짧은 창은 수집 시작 이후의 일부 값입니다. 이 표의 당일 관측 범위는 해당 날짜의 1일 집계 범위만 뜻합니다. 7일·30일 회원은 수집 시작일에 따라 일부 기간일 수 있습니다.",
       "datasource": {
         "type": "prometheus",
         "uid": "catchhole-prometheus"
@@ -1575,7 +1575,7 @@
           },
           "editorMode": "code",
           "expr": "max by (date) (catchhole_product_daily_coverage_complete{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} and ignoring(period,date,month) (topk(1, (catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} > 0) and (catchhole_product_usage_snapshot_success{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"} == 1) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) >= 0) and ((time() - catchhole_product_usage_snapshot_last_success_timestamp_seconds{job=\"catchhole-backend\",application=\"catchhole-backend\",environment=\"$environment\"}) < 180))))",
-          "legendFormat": "",
+          "legendFormat": "당일 관측 범위",
           "range": false,
           "instant": true,
           "refId": "H",
@@ -1613,7 +1613,7 @@
               "Value #E": "확정 반복",
               "Value #F": "이력 불명",
               "Value #G": "생성 작품",
-              "Value #H": "관측 범위"
+              "Value #H": "당일 관측 범위"
             }
           }
         },
@@ -1651,7 +1651,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "관측 범위"
+              "options": "당일 관측 범위"
             },
             "properties": [
               {
