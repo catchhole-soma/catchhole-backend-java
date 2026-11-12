@@ -53,6 +53,13 @@ public class Work extends BaseEntity {
     @Column(name = "description", length = 50)
     private String description;
 
+    // 표지 선택과 충돌 검사는 원고·설정·분석 버전과 독립적이다.
+    @Column(name = "cover_image_id")
+    private UUID coverImageId;
+
+    @Column(name = "cover_version", nullable = false)
+    private long coverVersion;
+
     //최대 몇회차까지 올라갔는지
     @Column(name = "latest_episode_no", nullable = false)
     private int latestEpisodeNo;
@@ -86,6 +93,15 @@ public class Work extends BaseEntity {
 
     public void updateLatestEpisodeNo(int latestEpisodeNo) {
         this.latestEpisodeNo = latestEpisodeNo;
+    }
+
+    public void requireCoverVersion(long expectedVersion) {
+        if (coverVersion != expectedVersion) throw new AppException(WorkErrorCode.WORK_COVER_CONFLICT);
+    }
+
+    public void changeCover(UUID imageId) {
+        this.coverImageId = imageId;
+        this.coverVersion++;
     }
 
     /** 작품 쓰기 잠금 아래 현재 프로필 또는 인물 식별 정보가 바뀌었음을 기록한다. */

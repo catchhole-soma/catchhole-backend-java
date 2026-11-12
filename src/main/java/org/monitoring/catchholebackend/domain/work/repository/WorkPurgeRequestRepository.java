@@ -53,6 +53,9 @@ public interface WorkPurgeRequestRepository extends JpaRepository<WorkPurgeReque
               and not exists (select image.id from PrivateWorldImage image
                   where image.work.id = request.workId
                     and image.status = org.monitoring.catchholebackend.domain.worldimage.type.PrivateWorldImageStatus.UPLOADING)
+              and not exists (select cover.id from WorkCoverImage cover
+                  where cover.work.id = request.workId
+                    and cover.status = org.monitoring.catchholebackend.domain.work.type.WorkCoverImageStatus.UPLOADING)
             order by request.requestedAt asc
             """)
     List<WorkPurgeRequest> findReadyForUpdate(

@@ -30,7 +30,9 @@ public class WorkMapper {
                 work.getLatestEpisodeNo(),
                 work.getLifecycleStatus(),
                 work.getCreatedAt(),
-                work.getUpdatedAt()
+                work.getUpdatedAt(),
+                work.getCoverImageId(),
+                work.getCoverVersion()
         );
     }
 
