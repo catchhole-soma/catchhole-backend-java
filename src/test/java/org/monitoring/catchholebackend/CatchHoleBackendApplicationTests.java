@@ -62,6 +62,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 class CatchHoleBackendApplicationTests {
 
     @MockitoBean
+    private org.monitoring.catchholebackend.domain.work.service.WorkCoverService workCoverService;
+
+    @MockitoBean
     private org.monitoring.catchholebackend.domain.chat.service.ChatServiceImpl chatService;
 
     @MockitoBean

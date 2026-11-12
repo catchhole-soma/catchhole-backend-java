@@ -1255,3 +1255,10 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - GH416 신규 `/explore/selection`은 상대 최대 20명·합계 200개를 서버에서 검증한다. 한 상대만 초과할 때 200개 페이지를 허용하며 기존 `/explore` 100개 계약은 유지한다. 인물/상대 목록은 `edgeCount` 내림차순이고 모든 집계는 선택 회차의 유효한 관계를 기준으로 한다. 상세는 `docs/relationship-explorer.md`를 따른다.
 
 - GH416 가계도 `/family-tree/explore`는 200개 초과 무중심 요청에 전체 유효 가족 범위의 등록 인물 페이지를 반환한다. 기존 Reader의 유효성·시점·미등록 인물 규칙을 재사용하며 선택 단계에 호칭·이미지·관계선을 싣지 않는다. 중심 조회는 기존 거리순 200개 상한과 누락 표시를 유지한다. 상세는 `docs/family-tree-v1.md`를 따른다.
+
+## 작품 표지 이미지 (GH436)
+
+- `docs/work-cover-images.md`를 따른다. 표지/작품 정보를 같은 트랜잭션으로 확정하고 이전 파일 삭제는 커밋 뒤 수행한다. coverVersion은 분석/관계 버전과 독립이며 AI 작업을 예약하지 않는다.
+- ObjectStorage 비공개 works prefix와 버전 포함 purge를 재사용한다. UPLOADING/READY/DELETING 예약, 짧은 작품 잠금과 트랜잭션 밖 I/O, 만료 예약·삭제 재시도를 유지한다.
+- TwelveMonkeys imageio-webp:3.12.0은 서버의 실제 WebP 픽셀 검증용이다. 형식·5MiB·4096px 검사 후 최대 긴 변 1200px PNG로 정규화한다. 파일명/MIME만으로 승인하지 않는다.
+- WORK_COVER_CLEANUP_SCHEDULING_ENABLED(true), WORK_COVER_CLEANUP_FIXED_DELAY_MS(10000)는 표지 정리 전용 설정이다. V126부터 작품 파기에 표지 FK 그래프를 포함한다.

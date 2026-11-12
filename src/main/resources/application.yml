@@ -188,3 +188,8 @@ relationship:
 validation:
   execution:
     enabled: ${VALIDATION_EXECUTION_ENABLED:false}
+
+work-cover:
+  cleanup:
+    scheduling-enabled: ${WORK_COVER_CLEANUP_SCHEDULING_ENABLED:true}
+    fixed-delay-ms: ${WORK_COVER_CLEANUP_FIXED_DELAY_MS:10000}

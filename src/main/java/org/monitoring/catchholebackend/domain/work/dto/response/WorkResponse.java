@@ -63,6 +63,12 @@ public record WorkResponse(
                 example = "2026-06-11T16:30:00",
                 requiredMode = Schema.RequiredMode.REQUIRED
         )
-        LocalDateTime updatedAt
+        LocalDateTime updatedAt,
+
+        @Schema(description = "현재 표지 이미지 ID. 없으면 기본 표지", nullable = true)
+        UUID coverImageId,
+
+        @Schema(description = "원고·설정과 독립적인 표지 버전", requiredMode = Schema.RequiredMode.REQUIRED)
+        long coverVersion
 ) {
 }
