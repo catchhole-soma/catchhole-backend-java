@@ -19,8 +19,8 @@ WITH latest AS MATERIALIZED (
 ), work_nodes AS NOT MATERIALIZED (
     SELECT id, character_id, character_linked_episode_no, name, first_episode_no, merged_into_node_id
     FROM relationship_graph_nodes WHERE work_id = :workId
-), canonical AS MATERIALIZED (
-    -- Redirect depth is bounded to eight, matching NodeIndex. PK joins avoid recursive cardinality inflation.
+), canonical_rows AS MATERIALIZED (
+    -- Resolve the bounded redirect chain once. Inlining eight joins is unstable before ANALYZE.
     SELECT n.id AS original_id, coalesce(n8.id, n7.id, n6.id, n5.id, n4.id, n3.id, n2.id, n1.id, n.id) AS id
     FROM work_nodes n
     LEFT JOIN relationship_graph_nodes n1 ON n1.id = n.merged_into_node_id AND n1.work_id = :workId
@@ -40,6 +40,10 @@ WITH latest AS MATERIALIZED (
       AND (n5.merged_into_node_id IS NULL OR n6.id IS NOT NULL)
       AND (n6.merged_into_node_id IS NULL OR n7.id IS NOT NULL)
       AND (n7.merged_into_node_id IS NULL OR n8.id IS NOT NULL)
+), canonical AS NOT MATERIALIZED (
+    -- original_id is unique by the input node PK. Expose that uniqueness across the CTE boundary
+    -- so slot joins do not multiply row estimates and trigger unnecessary JIT compilation.
+    SELECT DISTINCT ON (original_id) original_id, id FROM canonical_rows ORDER BY original_id
 ), work_edges AS MATERIALIZED (
     -- User corrections, suppression and optimistic versions span all generations/cutoffs.
     SELECT e.id, e.source_node_id, e.target_node_id, e.axis, e.kind, e.canonical_key,
@@ -58,7 +62,8 @@ WITH latest AS MATERIALIZED (
                  ELSE e.target_node_id::text || '|' || e.source_node_id::text END
             || '|' || e.axis || '|' || e.kind || '|' || candidate.direction, 'UTF8')), 'hex')
     ) d ON true
-), first_events AS MATERIALIZED (
+), first_events AS NOT MATERIALIZED (
+    -- Preserve one row per edge in the planner, as well as in the data.
     SELECT edge_id, min(episode_no) AS first_episode_no
     FROM relationship_graph_events WHERE work_id = :workId GROUP BY edge_id
 ), slot_members AS MATERIALIZED (
@@ -78,19 +83,22 @@ WITH latest AS MATERIALIZED (
         -- UUID ordering matches the lexical tie breaker used by Java and GH391.
         moved, first_episode_no, created_at NULLS LAST, edge_id) AS member_rank
     FROM slot_members m
-), slot_metadata AS MATERIALIZED (
+), representatives AS NOT MATERIALIZED (
+    -- DISTINCT ON exposes one row per slot to the planner (unlike member_rank = 1).
+    SELECT DISTINCT ON (slot_key) * FROM ranked_members ORDER BY slot_key, member_rank
+), slot_metadata AS NOT MATERIALIZED (
     SELECT slot_key, sum(version)::bigint AS version, bool_or(suppressed) AS suppressed,
         (array_agg(corrected_summary ORDER BY member_rank) FILTER (WHERE corrected_summary IS NOT NULL))[1]
             AS corrected_summary
     FROM ranked_members GROUP BY slot_key
-), ranked_events AS MATERIALIZED (
-    SELECT m.slot_key, m.source_id, m.target_id, ev.episode_no, ev.created_at, ev.id,
-        ev.source_name, ev.target_name, ev.label, ev.summary, ev.direction, ev.status,
-        row_number() OVER (PARTITION BY m.slot_key ORDER BY ev.episode_no DESC, m.member_rank,
-            ev.created_at DESC, ev.id DESC) AS event_rank
+), latest_events AS NOT MATERIALIZED (
+    SELECT DISTINCT ON (m.slot_key)
+        m.slot_key, m.source_id, m.target_id, ev.episode_no, ev.created_at, ev.id,
+        ev.source_name, ev.target_name, ev.label, ev.summary, ev.direction, ev.status
     FROM relationship_graph_events ev JOIN ranked_members m ON m.edge_id = ev.edge_id
     WHERE ev.work_id = :workId AND ev.episode_no <= :cutoff
       AND ev.analysis_id = ANY(ARRAY(SELECT id FROM valid))
+    ORDER BY m.slot_key, ev.episode_no DESC, m.member_rank, ev.created_at DESC, ev.id DESC
 ), visible AS MATERIALIZED (
     SELECT representative.edge_id AS id, representative.source_id, representative.target_id,
         representative.axis, representative.kind, metadata.version, ev.label,
@@ -98,9 +106,9 @@ WITH latest AS MATERIALIZED (
         CASE WHEN ev.source_id = representative.source_id THEN ev.source_name ELSE ev.target_name END AS source_name,
         CASE WHEN ev.source_id = representative.source_id THEN ev.target_name ELSE ev.source_name END AS target_name,
         ev.episode_no, ev.created_at, ev.id AS event_id, metadata.slot_key
-    FROM ranked_events ev JOIN slot_metadata metadata ON metadata.slot_key = ev.slot_key
-    JOIN ranked_members representative ON representative.slot_key = ev.slot_key AND representative.member_rank = 1
-    WHERE ev.event_rank = 1 AND NOT metadata.suppressed
+    FROM latest_events ev JOIN slot_metadata metadata ON metadata.slot_key = ev.slot_key
+    JOIN representatives representative ON representative.slot_key = ev.slot_key
+    WHERE NOT metadata.suppressed
 ), endpoints AS (
     SELECT source_id AS id, target_id AS neighbor, source_name AS observed_name, episode_no, created_at, event_id FROM visible
     UNION ALL
