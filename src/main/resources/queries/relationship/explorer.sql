@@ -40,21 +40,67 @@ WITH latest AS MATERIALIZED (
       AND (n5.merged_into_node_id IS NULL OR n6.id IS NOT NULL)
       AND (n6.merged_into_node_id IS NULL OR n7.id IS NOT NULL)
       AND (n7.merged_into_node_id IS NULL OR n8.id IS NOT NULL)
-), latest_events AS MATERIALIZED (
-    SELECT DISTINCT ON (ev.edge_id) ev.edge_id, ev.episode_no, ev.created_at, ev.id,
-        ev.source_name, ev.target_name, ev.label, ev.summary, ev.direction, ev.status
-    FROM relationship_graph_events ev
+), work_edges AS MATERIALIZED (
+    -- User corrections, suppression and optimistic versions span all generations/cutoffs.
+    SELECT e.id, e.source_node_id, e.target_node_id, e.axis, e.kind, e.canonical_key,
+        e.version, e.suppressed, e.corrected_summary, e.created_at
+    FROM relationship_graph_edges e WHERE e.work_id = :workId
+), edge_directions AS MATERIALIZED (
+    -- Direction is immutable in the stored canonical key, even for edges without an event.
+    -- Keep malformed keys as NULL so stats() reports an integrity error rather than hiding them.
+    SELECT e.*, d.direction
+    FROM work_edges e LEFT JOIN LATERAL (
+        SELECT candidate.direction
+        FROM (VALUES ('DIRECTED'), ('MUTUAL'), ('UNDIRECTED')) candidate(direction)
+        WHERE e.canonical_key = encode(sha256(convert_to(
+            CASE WHEN candidate.direction = 'DIRECTED' OR e.source_node_id::text < e.target_node_id::text
+                 THEN e.source_node_id::text || '|' || e.target_node_id::text
+                 ELSE e.target_node_id::text || '|' || e.source_node_id::text END
+            || '|' || e.axis || '|' || e.kind || '|' || candidate.direction, 'UTF8')), 'hex')
+    ) d ON true
+), first_events AS MATERIALIZED (
+    SELECT edge_id, min(episode_no) AS first_episode_no
+    FROM relationship_graph_events WHERE work_id = :workId GROUP BY edge_id
+), slot_members AS MATERIALIZED (
+    SELECT e.id AS edge_id, s.id AS source_id, t.id AS target_id, e.axis, e.kind, e.direction,
+        e.version, e.suppressed, e.corrected_summary, e.created_at,
+        e.source_node_id <> s.id OR e.target_node_id <> t.id AS moved,
+        coalesce(f.first_episode_no, 2147483647) AS first_episode_no,
+        CASE WHEN e.direction = 'DIRECTED' OR s.id::text < t.id::text
+             THEN s.id::text || '|' || t.id::text ELSE t.id::text || '|' || s.id::text END
+            || '|' || e.axis || '|' || e.kind || '|' || e.direction AS slot_key
+    FROM edge_directions e JOIN canonical s ON s.original_id = e.source_node_id
+    JOIN canonical t ON t.original_id = e.target_node_id
+    LEFT JOIN first_events f ON f.edge_id = e.id
+    WHERE e.direction IS NOT NULL AND s.id <> t.id
+), ranked_members AS MATERIALIZED (
+    SELECT m.*, row_number() OVER (PARTITION BY slot_key ORDER BY
+        -- UUID ordering matches the lexical tie breaker used by Java and GH391.
+        moved, first_episode_no, created_at NULLS LAST, edge_id) AS member_rank
+    FROM slot_members m
+), slot_metadata AS MATERIALIZED (
+    SELECT slot_key, sum(version)::bigint AS version, bool_or(suppressed) AS suppressed,
+        (array_agg(corrected_summary ORDER BY member_rank) FILTER (WHERE corrected_summary IS NOT NULL))[1]
+            AS corrected_summary
+    FROM ranked_members GROUP BY slot_key
+), ranked_events AS MATERIALIZED (
+    SELECT m.slot_key, m.source_id, m.target_id, ev.episode_no, ev.created_at, ev.id,
+        ev.source_name, ev.target_name, ev.label, ev.summary, ev.direction, ev.status,
+        row_number() OVER (PARTITION BY m.slot_key ORDER BY ev.episode_no DESC, m.member_rank,
+            ev.created_at DESC, ev.id DESC) AS event_rank
+    FROM relationship_graph_events ev JOIN ranked_members m ON m.edge_id = ev.edge_id
     WHERE ev.work_id = :workId AND ev.episode_no <= :cutoff
       AND ev.analysis_id = ANY(ARRAY(SELECT id FROM valid))
-    ORDER BY ev.edge_id, ev.episode_no DESC, ev.created_at DESC, ev.id DESC
 ), visible AS MATERIALIZED (
-    SELECT e.id, s.id AS source_id, t.id AS target_id, e.axis, e.kind, e.version,
-        ev.label, coalesce(e.corrected_summary, ev.summary) AS summary, ev.direction, ev.status,
-        ev.source_name, ev.target_name, ev.episode_no, ev.created_at, ev.id AS event_id
-    FROM latest_events ev JOIN relationship_graph_edges e ON e.id = ev.edge_id AND e.work_id = :workId
-    JOIN canonical s ON s.original_id = e.source_node_id
-    JOIN canonical t ON t.original_id = e.target_node_id
-    WHERE NOT e.suppressed AND s.id <> t.id
+    SELECT representative.edge_id AS id, representative.source_id, representative.target_id,
+        representative.axis, representative.kind, metadata.version, ev.label,
+        coalesce(metadata.corrected_summary, ev.summary) AS summary, ev.direction, ev.status,
+        CASE WHEN ev.source_id = representative.source_id THEN ev.source_name ELSE ev.target_name END AS source_name,
+        CASE WHEN ev.source_id = representative.source_id THEN ev.target_name ELSE ev.source_name END AS target_name,
+        ev.episode_no, ev.created_at, ev.id AS event_id, metadata.slot_key
+    FROM ranked_events ev JOIN slot_metadata metadata ON metadata.slot_key = ev.slot_key
+    JOIN ranked_members representative ON representative.slot_key = ev.slot_key AND representative.member_rank = 1
+    WHERE ev.event_rank = 1 AND NOT metadata.suppressed
 ), endpoints AS (
     SELECT source_id AS id, target_id AS neighbor, source_name AS observed_name, episode_no, created_at, event_id FROM visible
     UNION ALL

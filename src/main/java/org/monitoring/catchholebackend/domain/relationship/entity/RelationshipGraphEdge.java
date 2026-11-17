@@ -91,6 +91,8 @@ public class RelationshipGraphEdge extends BaseEntity {
     public void absorb(RelationshipGraphEdge other) {
         suppressed |= other.suppressed;
         if (correctedSummary == null) correctedSummary = other.correctedSummary;
-        version = Math.max(version, other.version) + 1;
+        // A logical slot exposes the sum of its raw versions. Physical cleanup must also
+        // invalidate a client that read that aggregate before the rows were consolidated.
+        version = Math.addExact(Math.addExact(version, other.version), 1);
     }
 }

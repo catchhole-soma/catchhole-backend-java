@@ -491,6 +491,16 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
             // Frozen bindings are applied as recorded (a stale alias-node id is not rewritten).
             UUID source = nodeId(analysis, decision.sourceNodeRef()),
                     target = nodeId(analysis, decision.targetNodeRef());
+            if (index.hasAliases(source, target)) {
+                // A merge in this finalize may reveal another member's deletion. It blocks
+                // UPDATE/END as well as ADD, even when the frozen raw target itself is active.
+                if (suppressedKeys == null)
+                    suppressedKeys = edges.findAllByWorkId(job.getWork().getId()).stream()
+                            .filter(RelationshipGraphEdge::isSuppressed)
+                            .map(RelationshipGraphEdge::getCanonicalKey).collect(Collectors.toSet());
+                Set<String> deleted = suppressedKeys;
+                if (aliasSlotKeys(index, source, target, decision).stream().anyMatch(deleted::contains)) continue;
+            }
             String key =
                     storage.contentHash(
                             RelationshipGraphRules.canonical(
@@ -502,20 +512,6 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
             RelationshipGraphEdge edge;
             if (decision.relationshipRef() == null) {
                 var found = edges.findByWorkIdAndCanonicalKey(job.getWork().getId(), key);
-                if (found.isEmpty() && index.hasAliases(source, target)) {
-                    // A suppressed edge is absent from the context, so the model may ADD it again
-                    // between the profile node and a partner. A user deletion recorded on a
-                    // redirected node's edge must still block that same slot.
-                    if (suppressedKeys == null)
-                        suppressedKeys =
-                                edges.findAllByWorkId(job.getWork().getId()).stream()
-                                        .filter(RelationshipGraphEdge::isSuppressed)
-                                        .map(RelationshipGraphEdge::getCanonicalKey)
-                                        .collect(Collectors.toSet());
-                    Set<String> deleted = suppressedKeys;
-                    if (aliasSlotKeys(index, source, target, decision).stream()
-                            .anyMatch(deleted::contains)) continue;
-                }
                 edge =
                         found.orElseGet(
                                 () ->
@@ -866,18 +862,14 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         List<ContextRelationship> relationships = new ArrayList<>();
         Set<UUID> sourceDependencies = new HashSet<>();
         Set<UUID> validPriorIds = validIds(allAnalyses, cutoff - 1);
-        Map<UUID, Integer> firstKnown = new HashMap<>();
-        events
+        List<RelationshipGraphEvent> workEvents = events
                 .findAllByWorkIdAndEpisodeNoLessThanEqualOrderByEpisodeNoAscCreatedAtAscIdAsc(
-                        workId, cutoff - 1)
-                .stream()
-                .filter(e -> validPriorIds.contains(e.getAnalysisId()))
-                .forEach(e -> firstKnown.putIfAbsent(e.getEdgeId(), e.getEpisodeNo()));
-        for (var event : prior.values()) {
-            var edge = allEdges.get(event.getEdgeId());
-            if (edge == null || edge.isSuppressed()) continue;
-            String source = refs.get(edge.getSourceNodeId()),
-                    target = refs.get(edge.getTargetNodeId());
+                        workId, Integer.MAX_VALUE);
+        for (var slot : orderedSlots(slots(allEdges.values(), workEvents, index), workEvents, validPriorIds, cutoff - 1)) {
+            var event = slot.latest(validPriorIds, cutoff - 1);
+            if (event == null || slot.suppressed()) continue;
+            var edge = slot.representative();
+            String source = refs.get(slot.source()), target = refs.get(slot.target());
             // An old edge between a redirected node and its own profile node is not a pair.
             if (source == null
                     || target == null
@@ -886,8 +878,13 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                             ? !relevantPairs.contains(RelationshipGraphRules.pair(source, target))
                             : !relevant.contains(source) && !relevant.contains(target))) continue;
             String ref = "R" + (relationships.size() + 1);
-            relationBindings.put(ref, edge.getId().toString());
-            sourceDependencies.add(event.getAnalysisId());
+            // The model sees one logical slot, but finalize still writes the chosen event's
+            // original raw edge. Existing frozen bindings/hashes are never redirected.
+            relationBindings.put(ref, event.getEdgeId().toString());
+            for (var member : slot.members()) {
+                var previous = prior.get(member.getId());
+                if (previous != null) sourceDependencies.add(previous.getAnalysisId());
+            }
             relationships.add(
                     new ContextRelationship(
                             ref,
@@ -896,12 +893,12 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                             edge.getAxis(),
                             edge.getKind(),
                             event.getLabel(),
-                            edge.getCorrectedSummary() == null
+                            slot.correctedSummary() == null
                                     ? event.getSummary()
-                                    : edge.getCorrectedSummary(),
+                                    : slot.correctedSummary(),
                             event.getDirection(),
                             event.getStatus(),
-                            firstKnown.get(edge.getId()),
+                            slot.knownFrom(validPriorIds, cutoff - 1),
                             event.getEpisodeNo()));
         }
         relationships = collapseProjectedRelationships(relationships);
@@ -1235,7 +1232,6 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                             .orElseThrow(() -> new AppException(RELATIONSHIP_GRAPH_NOT_FOUND));
         } else selected = available.isEmpty() ? null : available.getLast();
         int cutoff = selected == null ? 0 : selected.episodeNo();
-        Map<UUID, RelationshipGraphEvent> latest = latestEvents(read, cutoff);
         Map<UUID, List<PublicEvidence>> evidence = evidence(read, cutoff);
         int verificationCutoff = episodeNo != null ? episodeNo : read.analyses().keySet().stream()
                 .mapToInt(Integer::intValue).max().orElse(cutoff);
@@ -1243,31 +1239,26 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                 failedPairEpisodes(read.analyses(), verificationCutoff, read.validIds(), read.index());
         List<Edge> output = new ArrayList<>();
         Map<UUID, Node> outputNodes = new LinkedHashMap<>();
-        // Edges stay physically on their recorded nodes; output endpoints are the resolved
-        // profile nodes. An old edge between an alias node and its own profile node is hidden.
-        List<RelationshipGraphEvent> visible =
-                latest.values().stream()
-                        .filter(e -> {
-                            var edge = read.edges().get(e.getEdgeId());
-                            return !edge.isSuppressed() && !read.index().selfLoop(edge);
-                        })
-                        .toList();
-        for (var event : visible.stream().limit(200).toList()) {
-            var edge = read.edges().get(event.getEdgeId());
-            UUID source = read.index().canonicalOf(edge.getSourceNodeId()),
-                    target = read.index().canonicalOf(edge.getTargetNodeId());
+        // Physical edge/event rows remain unchanged; one resolved slot supplies the state,
+        // all valid evidence and global user edits to every public reader.
+        List<RelationshipGraphSlots.Slot> visible = orderedSlots(read.slots(), read.events(), read.validIds(), cutoff).stream()
+                .filter(slot -> !slot.suppressed() && slot.latest(read.validIds(), cutoff) != null)
+                .toList();
+        for (var slot : visible.stream().limit(200).toList()) {
+            var event = slot.latest(read.validIds(), cutoff);
+            UUID source = slot.source(), target = slot.target();
             var progress = pairProgress(read, source, target, verificationCutoff, failedPairs);
             output.add(
                     mapper.toEdge(
-                            edge, event, evidence.getOrDefault(edge.getId(), List.of()).size(),
+                            slot.representative(), event, slotEvidence(slot, evidence).size(),
                             progress.lastVerifiedEpisodeNo(), progress.updateIncomplete(),
-                            source, target));
+                            source, target, slot.version(), slot.correctedSummary()));
             outputNodes.put(
                     source,
-                    displayNode(read, source, event.getSourceName(), cutoff));
+                    displayNode(read, source, slot.sourceName(event), cutoff));
             outputNodes.put(
                     target,
-                    displayNode(read, target, event.getTargetName(), cutoff));
+                    displayNode(read, target, slot.targetName(event), cutoff));
         }
         var considered =
                 read.analyses().values().stream()
@@ -1377,26 +1368,25 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         ReadState read = readState(workId);
         Graph graph = graph(read, episodeNo);
         if (graph.selectedEpisode() == null) throw new AppException(RELATIONSHIP_GRAPH_NOT_FOUND);
-        var edge = read.edges().get(edgeId);
-        if (edge == null || edge.isSuppressed() || read.index().selfLoop(edge))
+        var slot = findSlot(read.slots(), edgeId);
+        if (slot == null || slot.suppressed())
             throw new AppException(RELATIONSHIP_GRAPH_NOT_FOUND);
         int cutoff = graph.selectedEpisode().episodeNo();
-        var event = latestEvents(read, cutoff).get(edgeId);
+        var event = slot.latest(read.validIds(), cutoff);
         if (event == null) throw new AppException(RELATIONSHIP_GRAPH_NOT_FOUND);
-        List<PublicEvidence> evidence = evidence(read, cutoff).getOrDefault(edgeId, List.of());
+        List<PublicEvidence> evidence = slotEvidence(slot, evidence(read, cutoff));
         int verificationCutoff = episodeNo != null ? episodeNo : read.analyses().keySet().stream()
                 .mapToInt(Integer::intValue).max().orElse(cutoff);
-        UUID source = read.index().canonicalOf(edge.getSourceNodeId()),
-                target = read.index().canonicalOf(edge.getTargetNodeId());
+        UUID source = slot.source(), target = slot.target();
         var progress = pairProgress(read, source, target, verificationCutoff,
                 failedPairEpisodes(read.analyses(), verificationCutoff, read.validIds(), read.index()));
         return new Detail(
-                mapper.toEdge(edge, event, evidence.size(), progress.lastVerifiedEpisodeNo(),
-                        progress.updateIncomplete(), source, target),
-                displayNode(read, source, event.getSourceName(), cutoff),
-                displayNode(read, target, event.getTargetName(), cutoff),
+                mapper.toEdge(slot.representative(), event, evidence.size(), progress.lastVerifiedEpisodeNo(),
+                        progress.updateIncomplete(), source, target, slot.version(), slot.correctedSummary()),
+                displayNode(read, source, slot.sourceName(event), cutoff),
+                displayNode(read, target, slot.targetName(event), cutoff),
                 evidence,
-                edge.getVersion());
+                slot.version());
     }
 
     private ReadState readState(UUID workId) {
@@ -1412,16 +1402,18 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                         .stream()
                         .collect(Collectors.toMap(Episode::getId, e -> e));
         NodeIndex index = new NodeIndex(nodes.findAllByWorkIdOrderByFirstEpisodeNoAscIdAsc(workId));
+        List<RelationshipGraphEvent> workEvents = events
+                .findAllByWorkIdAndEpisodeNoLessThanEqualOrderByEpisodeNoAscCreatedAtAscIdAsc(workId, Integer.MAX_VALUE);
+        Map<UUID, RelationshipGraphEdge> workEdges = edges.findAllByWorkId(workId).stream()
+                .collect(Collectors.toMap(RelationshipGraphEdge::getId, e -> e));
         return new ReadState(
                 all,
                 valid,
-                events.findAllByWorkIdAndEpisodeNoLessThanEqualOrderByEpisodeNoAscCreatedAtAscIdAsc(
-                        workId, Integer.MAX_VALUE),
-                edges.findAllByWorkId(workId).stream()
-                        .collect(Collectors.toMap(RelationshipGraphEdge::getId, e -> e)),
+                workEvents,
                 index,
                 profileNames(workId, index),
-                episodeMap);
+                episodeMap,
+                slots(workEdges.values(), workEvents, index));
     }
 
     /**
@@ -1461,17 +1453,6 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
                 && node.getCharacterLinkedEpisodeNo() <= cutoff;
     }
 
-    private Map<UUID, RelationshipGraphEvent> latestEvents(ReadState read, int cutoff) {
-        Map<UUID, RelationshipGraphEvent> result = new LinkedHashMap<>();
-        read.events().stream()
-                .filter(
-                        e ->
-                                e.getEpisodeNo() <= cutoff
-                                        && read.validIds().contains(e.getAnalysisId()))
-                .forEach(e -> result.put(e.getEdgeId(), e));
-        return result;
-    }
-
     private Map<UUID, List<PublicEvidence>> evidence(ReadState read, int cutoff) {
         Map<UUID, Map<String, PublicEvidence>> grouped = new HashMap<>();
         for (var event : read.events()) {
@@ -1504,14 +1485,55 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
         return result;
     }
 
+    private List<RelationshipGraphSlots.Slot> slots(java.util.Collection<RelationshipGraphEdge> workEdges,
+            List<RelationshipGraphEvent> workEvents, NodeIndex index) {
+        try {
+            return RelationshipGraphSlots.project(workEdges, workEvents, index::canonicalOf, storage::contentHash);
+        } catch (IllegalStateException | ArithmeticException malformed) {
+            throw new AppException(RELATIONSHIP_GRAPH_CONFLICT);
+        }
+    }
+
+    private static RelationshipGraphSlots.Slot findSlot(List<RelationshipGraphSlots.Slot> slots, UUID rawEdgeId) {
+        return slots.stream().filter(slot -> slot.members().stream().anyMatch(edge -> edge.getId().equals(rawEdgeId)))
+                .findFirst().orElse(null);
+    }
+
+    /** Keep the old first-valid-event order before applying the legacy graph's 200-edge limit. */
+    private static List<RelationshipGraphSlots.Slot> orderedSlots(List<RelationshipGraphSlots.Slot> slots,
+            List<RelationshipGraphEvent> events, Set<UUID> validIds, int cutoff) {
+        Map<UUID, UUID> representatives = new HashMap<>();
+        for (var slot : slots)
+            for (var member : slot.members()) representatives.put(member.getId(), slot.representative().getId());
+        Map<UUID, Integer> order = new HashMap<>();
+        events.stream().filter(event -> event.getEpisodeNo() <= cutoff && validIds.contains(event.getAnalysisId()))
+                .sorted(Comparator.comparingInt(RelationshipGraphEvent::getEpisodeNo)
+                        .thenComparing(RelationshipGraphEvent::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(event -> event.getId().toString()))
+                .forEach(event -> order.computeIfAbsent(representatives.get(event.getEdgeId()), ignored -> order.size()));
+        return slots.stream().sorted(Comparator.comparingInt(slot ->
+                order.getOrDefault(slot.representative().getId(), Integer.MAX_VALUE))).toList();
+    }
+
+    private static List<PublicEvidence> slotEvidence(RelationshipGraphSlots.Slot slot,
+            Map<UUID, List<PublicEvidence>> byRawEdge) {
+        Map<String, PublicEvidence> unique = new LinkedHashMap<>();
+        for (var member : slot.members())
+            for (var quote : byRawEdge.getOrDefault(member.getId(), List.of()))
+                unique.putIfAbsent(quote.episodeId() + ":" + quote.startOffset() + ":" + quote.endOffset(), quote);
+        return unique.values().stream().sorted(Comparator.comparingInt(PublicEvidence::episodeNo)
+                .thenComparingInt(PublicEvidence::startOffset).thenComparingInt(PublicEvidence::endOffset)
+                .thenComparing(PublicEvidence::episodeId)).toList();
+    }
+
     private record ReadState(
             Map<Integer, RelationshipGraphAnalysis> analyses,
             Set<UUID> validIds,
             List<RelationshipGraphEvent> events,
-            Map<UUID, RelationshipGraphEdge> edges,
             NodeIndex index,
             Map<UUID, String> profileNames,
-            Map<UUID, Episode> episodes) {}
+            Map<UUID, Episode> episodes,
+            List<RelationshipGraphSlots.Slot> slots) {}
 
     @Override
     @Transactional
@@ -1519,10 +1541,10 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
             Long memberId, UUID workId, UUID edgeId, Correction request) {
         works.getOwnedWorkForUpdate(workId, memberId);
         runState.assertSettingMutationAllowed(workId);
-        var edge = ownedEdge(workId, edgeId);
+        var slot = ownedSlot(workId, edgeId);
         if (request == null || !RelationshipGraphRules.text(request.summary(), 500)) invalid();
-        if (edge.getVersion() != request.expectedVersion() || edge.isSuppressed()) conflict();
-        edge.correct(request.summary());
+        if (slot.version() != request.expectedVersion() || slot.suppressed()) conflict();
+        slot.members().forEach(edge -> edge.correct(request.summary()));
     }
 
     @Override
@@ -1530,9 +1552,21 @@ public class RelationshipGraphServiceImpl implements RelationshipGraphService {
     public void deleteRelationshipEdge(Long memberId, UUID workId, UUID edgeId, long version) {
         works.getOwnedWorkForUpdate(workId, memberId);
         runState.assertSettingMutationAllowed(workId);
-        var edge = ownedEdge(workId, edgeId);
-        if (edge.getVersion() != version) conflict();
-        edge.suppress();
+        var slot = ownedSlot(workId, edgeId);
+        if (slot.version() != version) conflict();
+        slot.members().forEach(RelationshipGraphEdge::suppress);
+    }
+
+    private RelationshipGraphSlots.Slot ownedSlot(UUID workId, UUID edgeId) {
+        // Ownership is checked before loading the group, and the caller holds the Work lock.
+        ownedEdge(workId, edgeId);
+        var workEdges = edges.findAllByWorkId(workId);
+        var workEvents = events.findAllByWorkIdAndEpisodeNoLessThanEqualOrderByEpisodeNoAscCreatedAtAscIdAsc(
+                workId, Integer.MAX_VALUE);
+        var index = new NodeIndex(nodes.findAllByWorkIdOrderByFirstEpisodeNoAscIdAsc(workId));
+        var slot = findSlot(slots(workEdges, workEvents, index), edgeId);
+        if (slot == null) throw new AppException(RELATIONSHIP_GRAPH_NOT_FOUND);
+        return slot;
     }
 
     private RelationshipGraphEdge ownedEdge(UUID workId, UUID id) {

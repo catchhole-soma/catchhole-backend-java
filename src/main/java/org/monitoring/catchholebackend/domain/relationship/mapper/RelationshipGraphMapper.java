@@ -120,6 +120,14 @@ public class RelationshipGraphMapper {
     /** Endpoints are the read-resolved profile nodes; the stored edge row keeps its own ids. */
     public Edge toEdge(RelationshipGraphEdge edge, RelationshipGraphEvent event, int evidenceCount,
             int lastVerifiedEpisodeNo, boolean updateIncomplete, UUID sourceNodeId, UUID targetNodeId) {
+        return toEdge(edge, event, evidenceCount, lastVerifiedEpisodeNo, updateIncomplete, sourceNodeId,
+                targetNodeId, edge.getVersion(), edge.getCorrectedSummary());
+    }
+
+    /** A logical slot keeps its representative id and applies all members' user edits/version. */
+    public Edge toEdge(RelationshipGraphEdge edge, RelationshipGraphEvent event, int evidenceCount,
+            int lastVerifiedEpisodeNo, boolean updateIncomplete, UUID sourceNodeId, UUID targetNodeId,
+            long version, String correctedSummary) {
         return new Edge(
                 edge.getId(),
                 sourceNodeId,
@@ -127,12 +135,12 @@ public class RelationshipGraphMapper {
                 edge.getAxis(),
                 edge.getKind(),
                 event.getLabel(),
-                edge.getCorrectedSummary() == null
+                correctedSummary == null
                         ? event.getSummary()
-                        : edge.getCorrectedSummary(),
+                        : correctedSummary,
                 event.getDirection(),
                 event.getStatus(),
-                edge.getVersion(),
+                version,
                 evidenceCount,
                 lastVerifiedEpisodeNo,
                 updateIncomplete);
