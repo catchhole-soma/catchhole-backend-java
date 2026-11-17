@@ -445,7 +445,7 @@ class RelationshipGraphCleanupRulesTest {
     }
 
     @Test
-    @DisplayName("생존 선은 삭제 억제를 OR로, 정정은 자기 것을 우선해 이어받고 version은 둘보다 크게 올린다")
+    @DisplayName("생존 선은 삭제·정정을 잇고 version을 정리 전 공개 합계보다 크게 올린다")
     void survivorAbsorbsEditsAndPassesBothVersions() {
         UUID work = UUID.randomUUID(), a = UUID.randomUUID(), b = UUID.randomUUID();
         RelationshipGraphEdge survivor = RelationshipGraphEdge.create(work, a, b, Axis.SOCIAL, Kind.COOPERATION, "k1");
@@ -459,7 +459,7 @@ class RelationshipGraphCleanupRulesTest {
 
         assertThat(survivor.isSuppressed()).isTrue();
         assertThat(survivor.getCorrectedSummary()).isEqualTo("사용자 정정");
-        assertThat(survivor.getVersion()).isEqualTo(4);
+        assertThat(survivor.getVersion()).isEqualTo(5);
         survivor.correct("생존 선 정정");
         survivor.absorb(other);
         assertThat(survivor.getCorrectedSummary()).isEqualTo("생존 선 정정");

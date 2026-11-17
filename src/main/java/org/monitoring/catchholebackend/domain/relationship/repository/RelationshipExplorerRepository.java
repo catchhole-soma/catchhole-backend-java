@@ -68,7 +68,12 @@ public class RelationshipExplorerRepository {
     public Stats stats(UUID workId, int cutoff) {
         return jdbc.queryForObject(base + """
             SELECT (SELECT count(*) FROM visible) AS edges, (SELECT count(*) FROM people) AS people,
-                (SELECT count(*) FROM work_nodes) = (SELECT count(*) FROM canonical) AS integrity
+                (SELECT count(*) FROM work_nodes) = (SELECT count(*) FROM canonical)
+                AND NOT EXISTS (SELECT 1 FROM edge_directions WHERE direction IS NULL)
+                AND NOT EXISTS (
+                    SELECT 1 FROM relationship_graph_events ev JOIN edge_directions e ON e.id = ev.edge_id
+                    WHERE ev.work_id = :workId AND ev.direction <> e.direction
+                ) AS integrity
             """, params(workId, cutoff), (r, i) -> new Stats(r.getLong("edges"), r.getLong("people"), r.getBoolean("integrity")));
     }
 
@@ -162,7 +167,8 @@ public class RelationshipExplorerRepository {
     }
 
     public List<Row> edges(UUID workId, int cutoff, UUID focus, UUID edge, List<UUID> counterparts, int offset, int limit) {
-        String filter = edge != null ? "WHERE id = :edge" : focus != null ? "WHERE source_id = :focus OR target_id = :focus" : "";
+        String filter = edge != null ? "WHERE slot_key IN (SELECT slot_key FROM slot_members WHERE edge_id = :edge)"
+                : focus != null ? "WHERE source_id = :focus OR target_id = :focus" : "";
         if (!counterparts.isEmpty()) filter = "WHERE (source_id = :focus AND target_id IN (:counterparts)) OR (target_id = :focus AND source_id IN (:counterparts))";
         return jdbc.query(base + "SELECT * FROM visible " + filter + " ORDER BY episode_no DESC, id LIMIT :limit OFFSET :offset",
                 params(workId, cutoff).addValue("focus", focus).addValue("edge", edge)
@@ -173,16 +179,22 @@ public class RelationshipExplorerRepository {
     }
 
     private static final String EVIDENCE = """
-        , quotes AS (
-            SELECT DISTINCT ON (ev.edge_id, q->>'episodeId', q->>'startOffset', q->>'endOffset')
-                ev.edge_id, e.episode_id, e.episode_no, e.title, q->>'quote' AS quote,
+        , selected_slots AS (
+            SELECT DISTINCT slot_key FROM slot_members WHERE edge_id IN (:ids)
+        ), quotes AS (
+            SELECT DISTINCT ON (v.id, q->>'episodeId', q->>'startOffset', q->>'endOffset')
+                v.id AS edge_id, e.episode_id, e.episode_no, e.title, q->>'quote' AS quote,
                 (q->>'startOffset')::integer AS start_offset, (q->>'endOffset')::integer AS end_offset
-            FROM relationship_graph_events ev JOIN valid a ON a.id = ev.analysis_id
+            FROM visible v JOIN selected_slots selected ON selected.slot_key = v.slot_key
+            JOIN ranked_members member ON member.slot_key = v.slot_key
+            JOIN relationship_graph_events ev ON ev.edge_id = member.edge_id
+            JOIN valid a ON a.id = ev.analysis_id
             CROSS JOIN LATERAL jsonb_array_elements(coalesce(ev.evidence, '[]')) q
             JOIN valid e ON e.episode_id::text = q->>'episodeId' AND e.episode_no::text = q->>'episodeNo'
-            WHERE ev.work_id = :workId AND ev.edge_id IN (:ids) AND ev.episode_no <= :cutoff
+            WHERE ev.work_id = :workId AND ev.episode_no <= :cutoff
                 AND e.episode_no <= :cutoff AND length(trim(coalesce(q->>'quote', ''))) > 0
-            ORDER BY ev.edge_id, q->>'episodeId', q->>'startOffset', q->>'endOffset', ev.episode_no, ev.created_at, ev.id
+            ORDER BY v.id, q->>'episodeId', q->>'startOffset', q->>'endOffset', ev.episode_no,
+                member.member_rank, ev.created_at, ev.id
         )
         """;
 

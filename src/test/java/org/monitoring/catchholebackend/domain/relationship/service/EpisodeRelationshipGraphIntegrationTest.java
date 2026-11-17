@@ -2883,7 +2883,7 @@ class EpisodeRelationshipGraphIntegrationTest {
                 .satisfies(e -> {
                     assertThat(e.isSuppressed()).isTrue();
                     assertThat(e.getCorrectedSummary()).isEqualTo("사용자가 정정한 동행");
-                    assertThat(e.getVersion()).isEqualTo(Math.max(aliasVersion, profileVersion) + 1);
+                    assertThat(e.getVersion()).isEqualTo(aliasVersion + profileVersion + 1);
                 });
         assertThat(service.getRelationshipGraph(owner, workId, 2).edges())
                 .noneMatch(e -> e.kind() == Kind.COMPANIONSHIP);
@@ -3041,6 +3041,142 @@ class EpisodeRelationshipGraphIntegrationTest {
                 .extracting(RelationshipGraphEvent::getEpisodeNo).containsExactly(1);
         assertThat(relationshipEvents()).filteredOn(e -> e.getEdgeId().equals(split.profileEdge()))
                 .extracting(RelationshipGraphEvent::getEpisodeNo).containsExactly(2, 3);
+    }
+
+    @Test
+    @DisplayName("병합된 별칭의 최신 관계를 종료하면 공개 조회에 이전 ACTIVE 관계가 남지 않는다")
+    void endingMergedAliasSlotDoesNotLeaveEarlierActiveEdge() {
+        AliasSplit split = aliasSplit(false);
+        tx.executeWithoutResult(t -> em.find(RelationshipGraphNode.class, split.alias()).mergeInto(split.profile(), 2));
+        String text = "비요른과 보라는 동료 관계를 끝냈다.";
+        UUID third = jobWithSource(3, text, false);
+        Context context = prepareWith(third, text, observation("O1", text, "비요른", "보라"));
+        assertThat(context.relationships()).filteredOn(r -> r.kind() == Kind.COMPANIONSHIP).hasSize(1);
+        apply(third, context, action(context, Operation.END, Kind.COMPANIONSHIP, "동료 관계를 끝냈다"));
+
+        assertThat(service.getRelationshipGraph(owner, workId, 3).edges())
+                .filteredOn(e -> e.kind() == Kind.COMPANIONSHIP
+                        && endpoints(e).equals(java.util.Set.of(split.profile(), split.bora())))
+                .singleElement().extracting(Edge::status).isEqualTo(EdgeStatus.ENDED);
+    }
+
+    @Test
+    @DisplayName("새 인물 발견 확정으로 별칭을 병합하며 관계를 종료해도 공개 조회에 이전 ACTIVE 관계가 남지 않는다")
+    void endingSlotAfterFinalizeAliasMergeDoesNotLeaveEarlierActiveEdge() {
+        AliasSplit split = aliasSplit(false);
+        String text = "비요른과 보라는 동료 관계를 끝냈다.";
+        UUID third = jobWithSource(3, text, false);
+        Context context = prepareWith(third, text, observation("O1", text, "비요른", "보라"));
+        confirmDiscovery(third, split.characterId(), "비요른");
+        apply(third, context, action(context, Operation.END, Kind.COMPANIONSHIP, "동료 관계를 끝냈다"));
+
+        assertMergedInto(split.alias(), split.profile(), 3, 1, "비요른");
+        assertThat(service.getRelationshipGraph(owner, workId, 3).edges())
+                .filteredOn(e -> e.kind() == Kind.COMPANIONSHIP
+                        && endpoints(e).equals(java.util.Set.of(split.profile(), split.bora())))
+                .singleElement().extracting(Edge::status).isEqualTo(EdgeStatus.ENDED);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("병합 slot의 과거·최신 조회와 옛 선 상세는 행을 바꾸지 않고 근거와 이름 방향을 합친다")
+    void mergedSlotReadsShareEvidenceAndPreserveRows(boolean reversedProfileEdge) {
+        AliasSplit split = aliasSplit(reversedProfileEdge);
+        tx.executeWithoutResult(t -> em.find(RelationshipGraphNode.class, split.alias()).mergeInto(split.profile(), 2));
+        List<String> before = graphRows();
+
+        var current = service.getRelationshipEdge(owner, workId, split.aliasEdge(), 2);
+        var canonical = service.getRelationshipEdge(owner, workId, split.profileEdge(), 2);
+        assertThat(current).isEqualTo(canonical);
+        assertThat(current.edge().id()).isEqualTo(split.profileEdge());
+        assertThat(current.edge().summary()).isEqualTo("다시 함께 여행한다");
+        assertThat(current.edge().version()).isEqualTo(2);
+        assertThat(current.evidence()).extracting(e -> e.episodeNo()).containsExactly(1, 2);
+        var past = service.getRelationshipEdge(owner, workId, split.aliasEdge(), 1);
+        assertThat(past.edge().id()).isEqualTo(split.profileEdge());
+        assertThat(past.edge().summary()).isEqualTo("함께 여행한다");
+        assertThat(past.evidence()).extracting(e -> e.episodeNo()).containsExactly(1);
+        Graph graph = service.getRelationshipGraph(owner, workId, 1);
+        assertThat(graph.nodes()).filteredOn(n -> n.id().equals(split.profile())).singleElement()
+                .extracting(n -> n.name()).isEqualTo("비요른");
+        assertThat(graph.nodes()).filteredOn(n -> n.id().equals(split.bora())).singleElement()
+                .extracting(n -> n.name()).isEqualTo("보라");
+        assertThat(graphRows()).isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("병합 slot의 정정·삭제는 모든 raw 선과 회차에 적용하고 다른 구성원의 변경도 낡은 version을 거절한다")
+    void mergedSlotMutationsFanOutAndRejectStaleVersions() {
+        AliasSplit split = aliasSplit(false);
+        service.correctRelationshipEdge(owner, workId, split.aliasEdge(), new Correction(1, "별칭 선의 정정"));
+        service.correctRelationshipEdge(owner, workId, split.profileEdge(), new Correction(1, "대표 선의 정정"));
+        tx.executeWithoutResult(t -> em.find(RelationshipGraphNode.class, split.alias()).mergeInto(split.profile(), 2));
+        var merged = service.getRelationshipEdge(owner, workId, split.aliasEdge(), 2);
+        assertThat(merged.edge().summary()).isEqualTo("대표 선의 정정");
+        assertThat(merged.version()).isEqualTo(4);
+
+        service.correctRelationshipEdge(owner, workId, split.aliasEdge(), new Correction(merged.version(), "통합 정정"));
+        assertThat(graphEdges()).filteredOn(e -> e.getKind() == Kind.COMPANIONSHIP)
+                .allSatisfy(e -> assertThat(e.getCorrectedSummary()).isEqualTo("통합 정정"));
+        var corrected = service.getRelationshipEdge(owner, workId, split.profileEdge(), 1);
+        assertThat(corrected.edge().summary()).isEqualTo("통합 정정");
+        assertThat(corrected.version()).isEqualTo(6);
+        assertThatThrownBy(() -> service.correctRelationshipEdge(owner, workId, split.profileEdge(),
+                new Correction(merged.version(), "낡은 정정"))).isInstanceOfSatisfying(AppException.class,
+                failure -> assertThat(failure.getResultCode()).isEqualTo(
+                        org.monitoring.catchholebackend.domain.relationship.exception.RelationshipGraphErrorCode.RELATIONSHIP_GRAPH_CONFLICT));
+        service.deleteRelationshipEdge(owner, workId, split.aliasEdge(), corrected.version());
+        assertThat(graphEdges()).filteredOn(e -> e.getKind() == Kind.COMPANIONSHIP)
+                .allSatisfy(e -> assertThat(e.isSuppressed()).isTrue());
+        for (int no : List.of(1, 2))
+            assertThat(service.getRelationshipGraph(owner, workId, no).edges())
+                    .noneMatch(e -> e.kind() == Kind.COMPANIONSHIP);
+        assertThatThrownBy(() -> service.getRelationshipEdge(owner, workId, split.profileEdge(), 2))
+                .isInstanceOfSatisfying(AppException.class, failure -> assertThat(failure.getResultCode())
+                        .isEqualTo(org.monitoring.catchholebackend.domain.relationship.exception.RelationshipGraphErrorCode.RELATIONSHIP_GRAPH_NOT_FOUND));
+    }
+
+    @Test
+    @DisplayName("다른 세대의 별칭 선 삭제도 통합 slot의 공개·새 문맥·자동 ADD를 모두 억제한다")
+    void suppressedAliasFromAnotherGenerationBlocksWholeSlot() {
+        AliasSplit split = aliasSplit(false);
+        service.deleteRelationshipEdge(owner, workId, split.aliasEdge(), 1);
+        tx.executeWithoutResult(t -> {
+            var aliasEvent = relationshipEvents().stream()
+                    .filter(e -> e.getEdgeId().equals(split.aliasEdge())).findFirst().orElseThrow();
+            analyses.findById(aliasEvent.getAnalysisId()).orElseThrow().assignGeneration(1);
+            em.find(RelationshipGraphNode.class, split.alias()).mergeInto(split.profile(), 2);
+        });
+        assertThat(service.getRelationshipGraph(owner, workId, 2).edges())
+                .noneMatch(e -> e.kind() == Kind.COMPANIONSHIP);
+
+        String text = "비요른 얀델과 보라는 다시 만났다.";
+        UUID third = jobWithSource(3, text, false);
+        Context context = prepareWith(third, text, observation("O1", text, "비요른 얀델", "보라"));
+        assertThat(context.relationships()).noneMatch(r -> r.kind() == Kind.COMPANIONSHIP);
+        apply(third, context, add(context, "O1", Kind.COMPANIONSHIP, "자동으로 되살리면 안 되는 동행"));
+        assertThat(relationshipEvents()).noneMatch(e -> e.getEpisodeNo() == 3);
+        assertThat(service.getRelationshipGraph(owner, workId, 3).edges())
+                .noneMatch(e -> e.kind() == Kind.COMPANIONSHIP);
+    }
+
+    @Test
+    @DisplayName("물리 정리는 통합 slot 조회의 version도 올려 정리 전 사용자 쓰기를 거절한다")
+    void cleanupInvalidatesAggregateSlotVersion() {
+        AliasSplit split = aliasSplit(false);
+        tx.executeWithoutResult(t -> em.find(RelationshipGraphNode.class, split.alias()).mergeInto(split.profile(), 2));
+        var before = service.getRelationshipEdge(owner, workId, split.profileEdge(), 2);
+        assertThat(before.version()).isEqualTo(2);
+
+        cleanup.cleanup(workId, true);
+
+        var after = service.getRelationshipEdge(owner, workId, split.profileEdge(), 2);
+        assertThat(after.version()).isGreaterThan(before.version());
+        assertThat(after.edge().summary()).isEqualTo(before.edge().summary());
+        assertThat(after.evidence()).isEqualTo(before.evidence());
+        assertThatThrownBy(() -> service.deleteRelationshipEdge(owner, workId, split.profileEdge(), before.version()))
+                .isInstanceOfSatisfying(AppException.class, failure -> assertThat(failure.getResultCode())
+                        .isEqualTo(org.monitoring.catchholebackend.domain.relationship.exception.RelationshipGraphErrorCode.RELATIONSHIP_GRAPH_CONFLICT));
     }
 
     @ParameterizedTest

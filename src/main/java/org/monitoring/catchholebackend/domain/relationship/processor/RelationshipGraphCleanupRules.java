@@ -546,7 +546,7 @@ public final class RelationshipGraphCleanupRules {
     private static final Comparator<Slot> SURVIVOR =
             Comparator.comparingInt(Slot::firstEpisodeNo)
                     .thenComparing(s -> s.edge().createdAt(), Comparator.nullsLast(Comparator.naturalOrder()))
-                    .thenComparing(s -> s.edge().id());
+                    .thenComparing(s -> s.edge().id().toString());
 
     private static List<NodeRow> sorted(Collection<NodeRow> nodes) {
         return nodes.stream().sorted(EARLIEST).toList();

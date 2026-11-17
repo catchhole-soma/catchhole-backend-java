@@ -724,8 +724,19 @@ class RelationshipBackfillIntegrationTest {
         UUID aliasEdge = jdbc.queryForObject(
                 "select id from relationship_graph_edges where work_id=? and (source_node_id=? or target_node_id=?)",
                 UUID.class, workId, alias, alias);
-        Long version = jdbc.queryForObject("select version from relationship_graph_edges where id=?", Long.class, aliasEdge);
-        graph.correctRelationshipEdge(owner, workId, aliasEdge, new Correction(version, "작가 정정"));
+        UUID profileEdge = jdbc.queryForObject(
+                "select id from relationship_graph_edges where work_id=? and (source_node_id=? or target_node_id=?)",
+                UUID.class, workId, profile, profile);
+        Long profileVersion = jdbc.queryForObject(
+                "select version from relationship_graph_edges where id=?", Long.class, profileEdge);
+        // GH439's public correction fans out to the whole slot. Keep this legacy-row regression
+        // isolated: only the alias omitted from R changes, so the alias dependency guard itself
+        // must reject the frozen context, independently of the profile edge's ordinary revision.
+        tx.executeWithoutResult(t -> em.find(RelationshipGraphEdge.class, aliasEdge).correct("작가 정정"));
+        assertThat(jdbc.queryForObject("select version from relationship_graph_edges where id=?", Long.class, profileEdge))
+                .isEqualTo(profileVersion);
+        assertThat(jdbc.queryForObject("select corrected_summary from relationship_graph_edges where id=?",
+                String.class, profileEdge)).isNull();
 
         java.util.function.Consumer<AppException> conflict = failure -> assertThat(failure.getResultCode())
                 .isEqualTo(org.monitoring.catchholebackend.domain.relationship.exception.RelationshipGraphErrorCode.RELATIONSHIP_GRAPH_CONFLICT);
