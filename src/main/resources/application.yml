@@ -193,3 +193,10 @@ work-cover:
   cleanup:
     scheduling-enabled: ${WORK_COVER_CLEANUP_SCHEDULING_ENABLED:true}
     fixed-delay-ms: ${WORK_COVER_CLEANUP_FIXED_DELAY_MS:10000}
+
+# PG 심사: 허용 계정이 정해지기 전에는 모두 비공개. base에서 local/prod 공통 주입.
+payment-review:
+  enabled: ${PAYMENT_REVIEW_ENABLED:false}
+  member-ids: ${PAYMENT_REVIEW_MEMBER_IDS:}
+  store-id: ${PAYMENT_REVIEW_STORE_ID:}
+  channel-key: ${PAYMENT_REVIEW_CHANNEL_KEY:}
