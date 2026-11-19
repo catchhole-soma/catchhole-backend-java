@@ -1264,3 +1264,8 @@ feat(global): 공통 응답 구조 및 전역 예외 핸들러 추가
 - ObjectStorage 비공개 works prefix와 버전 포함 purge를 재사용한다. UPLOADING/READY/DELETING 예약, 짧은 작품 잠금과 트랜잭션 밖 I/O, 만료 예약·삭제 재시도를 유지한다.
 - TwelveMonkeys imageio-webp:3.12.0은 서버의 실제 WebP 픽셀 검증용이다. 형식·5MiB·4096px 검사 후 최대 긴 변 1200px PNG로 정규화한다. 파일명/MIME만으로 승인하지 않는다.
 - WORK_COVER_CLEANUP_SCHEDULING_ENABLED(true), WORK_COVER_CLEANUP_FIXED_DELAY_MS(10000)는 표지 정리 전용 설정이다. V126부터 작품 파기에 표지 FK 그래프를 포함한다.
+
+## GH441 결제 심사 접근
+
+- `domain/paymentreview/{controller,dto/response,mapper,service}`와 `global/config/paymentreview`는 심사 화면 조회만 담당한다. `src/main/resources/payment-review`에는 보호 API가 반환하는 법률 원문을 둔다. 기존 공개 게시본·동의 기록과 구별하기 위한 경계이며 금융 원장이나 새 회원 역할을 만들지 않는다.
+- `PAYMENT_REVIEW_ENABLED=false`, `PAYMENT_REVIEW_MEMBER_IDS` 빈 목록, `PAYMENT_REVIEW_STORE_ID`, `PAYMENT_REVIEW_CHANNEL_KEY`는 base YAML과 API Compose에서 주입한다. 기존 JWT가 확인한 활성 회원 번호만 허용하고 ADMIN을 자동 허용하지 않는다. TEST 채널을 콘솔에서 확인한 뒤 별도 운영 절차로 등록한다. [계약](docs/payment-review.md)을 따른다.
